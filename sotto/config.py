@@ -39,6 +39,7 @@ class Config:
     sample_rate: int = 16000
     max_utterance_s: float = 900.0     # 15 minutes
     warn_remaining_s: float = 60.0
+    undo_window_s: float = 3.0         # Escape/✕ cancel → Undo toast duration
 
     # ASR
     asr_model: str = "mlx-community/parakeet-tdt-0.6b-v3"

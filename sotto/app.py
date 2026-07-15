@@ -26,6 +26,7 @@ class Sotto:
         self.recorder = Recorder(cfg.sample_rate, cfg.max_utterance_s + 30.0)
         self.listener = None
         self._rec_started = None
+        self._cancelled = None  # (audio, bundle_id) held during the Undo window
         self.dictionary = Dictionary(DICTIONARY_PATH)
         self.cleaner = Cleaner(cfg.ollama_url, cfg.ollama_model,
                                cfg.llm_timeout_s, cfg.keep_alive)
@@ -65,6 +66,7 @@ class Sotto:
                 self.listener.force_stop()
 
     def _on_start(self):
+        self._cancelled = None  # a new dictation supersedes any pending undo
         self.recorder.start()
         self._rec_started = time.monotonic()
         if self.overlay:
@@ -86,6 +88,33 @@ class Sotto:
         if self.overlay:
             self.overlay.show_processing()
         self._jobs.put((audio, frontmost_bundle_id()))
+
+    def _on_cancel(self):
+        """Escape or ✕: stop recording but hold the audio for the Undo window."""
+        audio = self.recorder.stop()
+        if audio.size == 0:
+            if self.overlay:
+                self.overlay.hide()
+            return
+        self._cancelled = (audio, frontmost_bundle_id())
+        log.info("dictation cancelled — Undo available for %.0fs", self.cfg.undo_window_s)
+        if self.overlay:
+            self.overlay.show_cancelled(self.cfg.undo_window_s)
+        else:
+            self._cancelled = None  # no UI to undo from
+
+    def _undo_cancel(self):
+        """Undo clicked: transcribe the held audio after all."""
+        pending, self._cancelled = self._cancelled, None
+        if pending is None:
+            return
+        log.info("undo — transcribing the cancelled dictation")
+        if self.overlay:
+            self.overlay.show_processing()
+        self._jobs.put(pending)
+
+    def _expire_cancel(self):
+        self._cancelled = None
 
     def _worker(self):
         log.info("loading ASR model %s…", self.cfg.asr_model)
@@ -151,11 +180,11 @@ class Sotto:
             self._check_globe_key_setting()
             listener = FnHotkeyListener(self._on_start, self._on_stop,
                                         self.cfg.tap_max_s, self.cfg.double_tap_window_s,
-                                        on_handsfree=on_handsfree)
+                                        on_handsfree=on_handsfree, on_cancel=self._on_cancel)
         else:
             listener = HotkeyListener(self.cfg.hotkey, self._on_start, self._on_stop,
                                       self.cfg.tap_max_s, self.cfg.double_tap_window_s,
-                                      on_handsfree=on_handsfree)
+                                      on_handsfree=on_handsfree, on_cancel=self._on_cancel)
         self.listener = listener
         threading.Thread(target=self._watchdog, daemon=True).start()
         if self.cfg.indicator:
@@ -165,7 +194,11 @@ class Sotto:
                 lambda: self.recorder.level,
                 self.cfg.indicator_offset_y,
                 remaining_supplier=self._remaining,
-                warn_remaining_s=self.cfg.warn_remaining_s)
+                warn_remaining_s=self.cfg.warn_remaining_s,
+                on_cancel_click=listener.cancel,
+                on_done_click=listener.force_stop,
+                on_undo_click=self._undo_cancel,
+                on_cancel_expire=self._expire_cancel)
             threading.Thread(target=listener.run, daemon=True).start()
             overlay.run_forever()
         else:

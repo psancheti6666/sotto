@@ -83,10 +83,16 @@ field, **hold `fn`**, speak, release.
 | Hold `fn` + press Space | Enter hands-free mode (space is swallowed) |
 | Double-tap `fn` | Also enters hands-free mode |
 | Press `fn` (in hands-free) | Finish and insert |
+| **Escape** (while dictating) | Cancel — shows a "Transcript cancelled" toast with **Undo** |
+| ✕ / ✓ buttons on the capsule | Cancel / finish with the mouse |
 | `fn` used in a shortcut (fn+Delete…) | Dictation silently cancels; shortcut works normally |
 
 While listening, a small capsule at the bottom-center of the screen shows a
-live waveform; it switches to a spinner while transcribing. In the last minute
+live waveform between a ✕ (cancel) and ✓ (finish) button; it switches to a
+spinner while transcribing. Cancelling (Escape or ✕) pops a slightly larger
+"Transcript cancelled" toast with an **Undo** button and a progress line —
+click Undo within ~3 seconds and the recording is transcribed after all;
+otherwise it's discarded and the toast fades out. In the last minute
 of a long hands-free session the bars turn amber with a seconds countdown,
 then the recording finishes and is transcribed **in full** — long dictations
 are chunked and stitched, never truncated. A soft sound marks start and finish.

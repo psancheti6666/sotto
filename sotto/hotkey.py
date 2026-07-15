@@ -17,13 +17,14 @@ import time
 from pynput import keyboard
 
 _SPACE_KEYCODE = 49          # macOS virtual keycode for space
+_ESCAPE_KEYCODE = 53         # macOS virtual keycode for escape
 _KEY_DOWN, _KEY_UP = 10, 11  # kCGEventKeyDown / kCGEventKeyUp
 
 
 class HotkeyListener:
     def __init__(self, key_name: str, on_start, on_stop,
                  tap_max_s: float = 0.3, double_tap_window_s: float = 0.5,
-                 on_handsfree=None):
+                 on_handsfree=None, on_cancel=None):
         if key_name == "fn":
             self._key, self._vk = None, 63  # handled by FnHotkeyListener
         else:
@@ -32,6 +33,7 @@ class HotkeyListener:
         self._on_start = on_start
         self._on_stop = on_stop
         self._on_handsfree = on_handsfree
+        self._on_cancel = on_cancel
         self._tap_max = tap_max_s
         self._double_tap_window = double_tap_window_s
 
@@ -42,6 +44,7 @@ class HotkeyListener:
         self._last_tap = 0.0
         self._consume_release = False
         self._swallow_space_up = False
+        self._swallow_esc_up = False
 
     def _matches(self, key) -> bool:
         return key == self._key
@@ -52,12 +55,28 @@ class HotkeyListener:
             self._on_handsfree()
 
     def force_stop(self):
-        """Stop and process from outside the key handlers (e.g. the time limit)."""
+        """Stop and process from outside the key handlers (time limit, ✓ button)."""
         if not self._active:
             return
         self._toggle = False
         self._active = False
+        if self._down:
+            self._consume_release = True
         self._on_stop()
+
+    def cancel(self):
+        """Cancel dictation (Escape or the ✕ button). The app decides what to do
+        with the captured audio (it offers an Undo window)."""
+        if not self._active:
+            return
+        self._toggle = False
+        self._active = False
+        if self._down:
+            self._consume_release = True
+        if self._on_cancel:
+            self._on_cancel()
+        else:
+            self._on_stop(discard=True)
 
     def _cancel_combo(self):
         """Hotkey is being used as a modifier for a shortcut — discard dictation."""
@@ -122,6 +141,15 @@ class HotkeyListener:
             import Quartz
             keycode = Quartz.CGEventGetIntegerValueField(
                 event, Quartz.kCGKeyboardEventKeycode)
+            if keycode == _ESCAPE_KEYCODE:
+                if self._swallow_esc_up and event_type == _KEY_UP:
+                    self._swallow_esc_up = False
+                    return None
+                if event_type == _KEY_DOWN and self._active:
+                    self._swallow_esc_up = True
+                    self.cancel()
+                    return None
+                return event
             if keycode == _SPACE_KEYCODE:
                 if self._swallow_space_up and event_type == _KEY_UP:
                     self._swallow_space_up = False
@@ -162,9 +190,9 @@ class FnHotkeyListener(HotkeyListener):
     _FN_FLAG = 0x800000  # kCGEventFlagMaskSecondaryFn
 
     def __init__(self, on_start, on_stop, tap_max_s: float = 0.3,
-                 double_tap_window_s: float = 0.5, on_handsfree=None):
+                 double_tap_window_s: float = 0.5, on_handsfree=None, on_cancel=None):
         super().__init__("fn", on_start, on_stop, tap_max_s, double_tap_window_s,
-                         on_handsfree)
+                         on_handsfree, on_cancel)
         self._tap = None
 
     def _tap_callback(self, _proxy, etype, event, _refcon):
@@ -187,6 +215,10 @@ class FnHotkeyListener(HotkeyListener):
                         self._hotkey_release()
                 return event
             if etype == Quartz.kCGEventKeyDown:
+                if keycode == _ESCAPE_KEYCODE and self._active:
+                    self._swallow_esc_up = True
+                    self.cancel()
+                    return None
                 if (keycode == _SPACE_KEYCODE and self._down
                         and self._active and not self._toggle):
                     self._swallow_space_up = True
@@ -198,6 +230,9 @@ class FnHotkeyListener(HotkeyListener):
             if etype == Quartz.kCGEventKeyUp:
                 if keycode == _SPACE_KEYCODE and self._swallow_space_up:
                     self._swallow_space_up = False
+                    return None
+                if keycode == _ESCAPE_KEYCODE and self._swallow_esc_up:
+                    self._swallow_esc_up = False
                     return None
             return event
         except Exception:
