@@ -60,7 +60,7 @@ class Config:
     done_sound: str = "Morse"         # text inserted
     handsfree_sound: str = "Frog"     # entered hands-free mode
     cancel_sound: str = "Bottle"      # dictation cancelled (Escape / ✕)
-    warn_sound: str = "Frog"          # one minute left before the limit
+    warn_sound: str = "Tink"          # one minute left before the limit
 
     # Injection. "auto" = type the text like real keystrokes, but fall back to
     # clipboard-paste when the text has newlines (typed Enter would e.g. send a
