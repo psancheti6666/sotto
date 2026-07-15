@@ -32,7 +32,6 @@ from AppKit import (
     NSOperationQueue,
     NSPanel,
     NSScreen,
-    NSSound,
     NSTimer,
     NSView,
 )
@@ -61,23 +60,6 @@ FADE_S = 0.35                  # toast fade-out duration
 
 def _on_main(fn):
     NSOperationQueue.mainQueue().addOperationWithBlock_(fn)
-
-
-def play_sound(name: str):
-    def go():
-        snd = NSSound.soundNamed_(name)
-        if snd is not None:
-            snd.play()
-    _on_main(go)
-
-
-def haptic():
-    try:
-        from AppKit import NSHapticFeedbackManager
-        _on_main(lambda: NSHapticFeedbackManager.defaultPerformer()
-                 .performFeedbackPattern_performanceTime_(0, 0))
-    except Exception:
-        pass
 
 
 class _IndicatorView(NSView):

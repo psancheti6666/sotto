@@ -14,15 +14,6 @@ from pynput.keyboard import Controller, Key
 _kb = Controller()
 
 
-def frontmost_bundle_id() -> str:
-    try:
-        from AppKit import NSWorkspace
-        app = NSWorkspace.sharedWorkspace().frontmostApplication()
-        return app.bundleIdentifier() or ""
-    except Exception:
-        return ""
-
-
 def _type_text(text: str, interval_s: float):
     for ch in text:
         _kb.type(ch)

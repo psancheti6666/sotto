@@ -122,7 +122,7 @@ ASR_CASES = [
 
 def test_asr():
     print("ASR (parakeet-mlx) on say-synthesized speech:")
-    from sotto.asr import ParakeetASR
+    from sotto.asr_mlx import ParakeetASR
     import numpy as np
     import wave as wavemod
     asr = ParakeetASR()
@@ -176,7 +176,7 @@ def test_force_stop():
 
 def test_asr_long():
     print("ASR long-form chunking (tiled speech, forced multi-chunk):")
-    from sotto.asr import ParakeetASR
+    from sotto.asr_mlx import ParakeetASR
     import numpy as np
     import wave as wavemod
     asr = ParakeetASR()

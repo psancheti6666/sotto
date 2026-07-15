@@ -7,13 +7,13 @@ import subprocess
 import threading
 import time
 
-from .asr import ParakeetASR
+from .asr import make_asr
 from .audio import Recorder
 from .clean import Cleaner
 from .config import CONFIG_DIR, DICTIONARY_PATH, Config, load_config
 from .dictionary import Dictionary
-from .hotkey import FnHotkeyListener, HotkeyListener
-from .inject import frontmost_bundle_id, inject
+from .inject import inject
+from .platform import IS_MACOS, active_app_id, haptic, play_sound
 
 log = logging.getLogger("sotto")
 
@@ -66,7 +66,6 @@ class Sotto:
             if remaining <= self.cfg.warn_remaining_s and not self._warned:
                 self._warned = True
                 if self.cfg.sounds:
-                    from .overlay import play_sound
                     play_sound(self.cfg.warn_sound)
             if remaining <= 0 and self.listener:
                 log.info("dictation limit reached (%.0f min) — transcribing now",
@@ -78,7 +77,6 @@ class Sotto:
         if self.overlay:
             self.overlay.show_handsfree()
         if self.cfg.sounds:
-            from .overlay import play_sound
             play_sound(self.cfg.handsfree_sound)
 
     def _on_start(self):
@@ -89,10 +87,8 @@ class Sotto:
         if self.overlay:
             self.overlay.show_listening()
         if self.cfg.sounds:
-            from .overlay import play_sound
             play_sound(self.cfg.start_sound)
         if self.cfg.haptics:
-            from .overlay import haptic
             haptic()
         log.info("recording…")
 
@@ -104,7 +100,7 @@ class Sotto:
             return
         if self.overlay:
             self.overlay.show_processing()
-        self._jobs.put((audio, frontmost_bundle_id()))
+        self._jobs.put((audio, active_app_id()))
 
     def _on_cancel(self):
         """Escape or ✕: stop recording but hold the audio for the Undo window."""
@@ -113,10 +109,9 @@ class Sotto:
             if self.overlay:
                 self.overlay.hide()
             return
-        self._cancelled = (audio, frontmost_bundle_id())
+        self._cancelled = (audio, active_app_id())
         log.info("dictation cancelled — Undo available for %.0fs", self.cfg.undo_window_s)
         if self.cfg.sounds:
-            from .overlay import play_sound
             play_sound(self.cfg.cancel_sound)
         if self.overlay:
             self.overlay.show_cancelled(self.cfg.undo_window_s)
@@ -137,8 +132,7 @@ class Sotto:
         self._cancelled = None
 
     def _worker(self):
-        log.info("loading ASR model %s…", self.cfg.asr_model)
-        self.asr = ParakeetASR(self.cfg.asr_model, self.cfg.sample_rate)
+        self.asr = make_asr(self.cfg)
         self._asr_ready.set()
         while True:
             audio, bundle_id = self._jobs.get()
@@ -167,11 +161,23 @@ class Sotto:
                type_interval_s=self.cfg.type_interval_s,
                restore_delay_s=self.cfg.paste_restore_delay_s)
         if self.cfg.sounds:
-            from .overlay import play_sound
             play_sound(self.cfg.done_sound)
         t3 = time.perf_counter()
         log.info("asr=%.2fs clean=%.2fs inject=%.2fs total=%.2fs | %r -> %r",
                  t1 - t0, t2 - t1, t3 - t2, t3 - t0, raw, cleaned)
+
+    def _make_listener(self):
+        """Pick the hotkey backend for this platform (imports are lazy — pynput
+        exists only on macOS, evdev only on Linux)."""
+        kwargs = dict(tap_max_s=self.cfg.tap_max_s,
+                      double_tap_window_s=self.cfg.double_tap_window_s,
+                      on_handsfree=self._on_handsfree, on_cancel=self._on_cancel)
+        if IS_MACOS and self.cfg.hotkey == "fn":
+            self._check_globe_key_setting()
+            from .hotkey import FnHotkeyListener
+            return FnHotkeyListener(self._on_start, self._on_stop, **kwargs)
+        from .hotkey import HotkeyListener
+        return HotkeyListener(self.cfg.hotkey, self._on_start, self._on_stop, **kwargs)
 
     @staticmethod
     def _check_globe_key_setting():
@@ -198,15 +204,7 @@ class Sotto:
         self._asr_ready.wait()
         self.recorder.open()
         log.info("ready — hold %s to dictate (double-tap for hands-free)", self.cfg.hotkey)
-        if self.cfg.hotkey == "fn":
-            self._check_globe_key_setting()
-            listener = FnHotkeyListener(self._on_start, self._on_stop,
-                                        self.cfg.tap_max_s, self.cfg.double_tap_window_s,
-                                        on_handsfree=self._on_handsfree, on_cancel=self._on_cancel)
-        else:
-            listener = HotkeyListener(self.cfg.hotkey, self._on_start, self._on_stop,
-                                      self.cfg.tap_max_s, self.cfg.double_tap_window_s,
-                                      on_handsfree=self._on_handsfree, on_cancel=self._on_cancel)
+        listener = self._make_listener()
         self.listener = listener
         threading.Thread(target=self._watchdog, daemon=True).start()
         if self.cfg.indicator:

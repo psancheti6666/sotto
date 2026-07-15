@@ -1,15 +1,24 @@
-"""Configuration: ~/.sotto/config.toml overrides the defaults below."""
+"""Configuration: ~/.sotto/config.toml overrides the defaults below.
+
+The dataclass defaults are macOS values; on Linux, load_config() swaps in
+Linux defaults (hotkey, sound names, terminal keystroke apps) BEFORE applying
+the user's file, so user overrides always win.
+"""
 
 import os
 import tomllib
 from dataclasses import dataclass, field
+
+from .platform import IS_LINUX
 
 CONFIG_DIR = os.path.expanduser("~/.sotto")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.toml")
 DICTIONARY_PATH = os.path.join(CONFIG_DIR, "dictionary.txt")
 
 DEFAULT_TONE_MAP = {
-    # bundle id (or prefix) -> tone hint fed to the cleaning prompt
+    # app id -> tone hint fed to the cleaning prompt. macOS keys are bundle ids
+    # (reverse-DNS); Linux keys are lowercased X11 WM_CLASS names — the two
+    # can't collide, so one merged map serves both platforms.
     "com.apple.mail": "professional email/document",
     "com.microsoft.Outlook": "professional email/document",
     "com.apple.iWork.Pages": "professional email/document",
@@ -22,13 +31,44 @@ DEFAULT_TONE_MAP = {
     "com.apple.Terminal": "plain text for a code editor (no smart quotes)",
     "com.googlecode.iterm2": "plain text for a code editor (no smart quotes)",
     "com.todesktop.230313mzl4w4u92": "plain text for a code editor (no smart quotes)",  # Cursor
+    # Linux (WM_CLASS)
+    "thunderbird": "professional email/document",
+    "evolution": "professional email/document",
+    "google-chrome": "neutral written text",
+    "firefox": "neutral written text",
+    "slack": "casual chat message",
+    "discord": "casual chat message",
+    "org.telegram.desktop": "casual chat message",
+    "code": "plain text for a code editor (no smart quotes)",
+    "gnome-terminal-server": "plain text for a code editor (no smart quotes)",
+    "konsole": "plain text for a code editor (no smart quotes)",
+    "alacritty": "plain text for a code editor (no smart quotes)",
+    "kitty": "plain text for a code editor (no smart quotes)",
+    "xterm": "plain text for a code editor (no smart quotes)",
+}
+
+# Linux terminals paste with Ctrl+Shift+V, not Ctrl+V — force keystroke typing there.
+LINUX_TERMINAL_CLASSES = [
+    "gnome-terminal-server", "konsole", "alacritty", "kitty", "xterm",
+    "org.wezfurlong.wezterm", "xfce4-terminal", "terminator", "tilix",
+]
+
+# freedesktop sound-theme names (played from /usr/share/sounds/freedesktop/stereo)
+LINUX_SOUND_DEFAULTS = {
+    "start_sound": "audio-volume-change",
+    "done_sound": "complete",
+    "handsfree_sound": "device-added",
+    "cancel_sound": "dialog-warning",
+    "warn_sound": "bell",
 }
 
 
 @dataclass
 class Config:
-    # Hotkey: "fn" (Wispr-style, via a Quartz event tap) or any pynput key name
-    # (alt_r, cmd_r, ctrl, f5, f13, …). Hold to talk; +Space or double-tap = hands-free.
+    # Hotkey. macOS: "fn" (Wispr-style, via a Quartz event tap) or any pynput key
+    # name (alt_r, cmd_r, ctrl, f5, f13, …); hold to talk, +Space or double-tap =
+    # hands-free. Linux: "ctrl_r" by default (fn never reaches the OS on PCs),
+    # or any evdev key name; hold to talk, double-tap = hands-free.
     hotkey: str = "fn"
     tap_max_s: float = 0.3          # press shorter than this = tap (double-tap toggles)
     double_tap_window_s: float = 0.5
@@ -41,8 +81,12 @@ class Config:
     warn_remaining_s: float = 60.0
     undo_window_s: float = 3.0         # Escape/✕ cancel → Undo toast duration
 
-    # ASR
+    # ASR. "auto" picks MLX on Apple Silicon and ONNX everywhere else — the
+    # same Parakeet model either way.
+    asr_backend: str = "auto"            # auto | mlx | onnx
     asr_model: str = "mlx-community/parakeet-tdt-0.6b-v3"
+    onnx_model: str = "nemo-parakeet-tdt-0.6b-v3"
+    onnx_quantization: str = ""          # "" = full precision; "int8" for slow CPUs
 
     # Cleaning LLM (Ollama) — mandatory stage; fallback is regex-cleaned, never raw
     ollama_url: str = "http://localhost:11434"
@@ -53,6 +97,7 @@ class Config:
 
     # Feedback (on-screen capsule, sounds, trackpad haptics)
     indicator: bool = True
+    indicator_backend: str = "auto"   # auto | appkit | tk (debug/testing override)
     indicator_offset_y: float = 6.0   # px above the bottom edge of the screen
     sounds: bool = True
     haptics: bool = True
@@ -77,6 +122,12 @@ class Config:
 
 def load_config() -> Config:
     cfg = Config()
+    if IS_LINUX:
+        cfg.hotkey = "ctrl_r"
+        cfg.haptics = False
+        for key, value in LINUX_SOUND_DEFAULTS.items():
+            setattr(cfg, key, value)
+        cfg.keystroke_apps = list(LINUX_TERMINAL_CLASSES)
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH, "rb") as f:
             data = tomllib.load(f)

@@ -1,7 +1,8 @@
-parakeet-mlx
+parakeet-mlx ; sys_platform == "darwin" and platform_machine == "arm64"
+onnx-asr[cpu,hub] ; sys_platform != "darwin" or platform_machine != "arm64"
+pynput ; sys_platform == "darwin"
+evdev ; sys_platform == "linux"
 sounddevice
-pynput
 requests
 pyperclip
 rapidfuzz
-rumps
