@@ -92,7 +92,11 @@ class EvdevHotkeyListener(HotkeyListener):
                 continue
             except OSError:
                 continue
-            keys = dev.capabilities().get(evdev.ecodes.EV_KEY) or []
+            try:
+                keys = dev.capabilities().get(evdev.ecodes.EV_KEY) or []
+            except OSError:  # device vanished between open and query
+                dev.close()
+                continue
             if self._vk in keys and _KEY_A in keys:
                 devices.append(dev)
             else:

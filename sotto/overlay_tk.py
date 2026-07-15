@@ -16,10 +16,13 @@ thread applies on its next tick. Raises OverlayUnavailable when no display
 """
 
 import collections
+import logging
 import math
 import queue
 import signal
 import time
+
+log = logging.getLogger("sotto")
 
 SIZES = {
     "listening": (110, 24),
@@ -146,29 +149,36 @@ class Overlay:
             pass  # compositor-less WM: no transparency, toast just disappears
 
     def _tick(self):
+        # Self-rescheduling after() callback: an escaped exception would end the
+        # loop for good (unlike a repeating timer), so guard the whole body and
+        # reschedule unconditionally.
         try:
-            while True:
-                mode, duration = self._cmds.get_nowait()
-                self._apply(mode, duration)
-        except queue.Empty:
-            pass
-        if self.mode in ("listening", "handsfree"):
-            if self.level_supplier is not None:
-                self.levels.append(min(1.0, float(self.level_supplier()) * 14.0))
-            rem = self.remaining_supplier() if self.remaining_supplier else None
-            self.remaining = rem if (rem is not None and rem <= self.warn_remaining_s) else None
-        elif self.mode == "cancelled":
-            left = self.toast_duration - (time.monotonic() - self.toast_started)
-            self._set_alpha(left / FADE_S)
-            if left <= 0 and not self.toast_expired:
-                self.toast_expired = True
-                self._apply("hidden", None)
-                if self.on_cancel_expire:
-                    self.on_cancel_expire()
-        self.phase = (self.phase + 1) % 8
-        if self.mode != "hidden":
-            self._redraw()
-        self._root.after(TICK_MS, self._tick)
+            try:
+                while True:
+                    mode, duration = self._cmds.get_nowait()
+                    self._apply(mode, duration)
+            except queue.Empty:
+                pass
+            if self.mode in ("listening", "handsfree"):
+                if self.level_supplier is not None:
+                    self.levels.append(min(1.0, float(self.level_supplier()) * 14.0))
+                rem = self.remaining_supplier() if self.remaining_supplier else None
+                self.remaining = rem if (rem is not None and rem <= self.warn_remaining_s) else None
+            elif self.mode == "cancelled":
+                left = self.toast_duration - (time.monotonic() - self.toast_started)
+                self._set_alpha(left / FADE_S)
+                if left <= 0 and not self.toast_expired:
+                    self.toast_expired = True
+                    self._apply("hidden", None)
+                    if self.on_cancel_expire:
+                        self.on_cancel_expire()
+            self.phase = (self.phase + 1) % 8
+            if self.mode != "hidden":
+                self._redraw()
+        except Exception:
+            log.exception("overlay tick failed")
+        finally:
+            self._root.after(TICK_MS, self._tick)
 
     # ------------------------------------------------------------ drawing
     def _redraw(self):
