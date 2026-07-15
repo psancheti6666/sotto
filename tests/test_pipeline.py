@@ -261,6 +261,51 @@ def test_evdev_gestures():
     check("hold+Space = combo on Linux (no key swallowing)", ev == ["start", "discard"], str(ev))
 
 
+def test_linux_injector_selection():
+    print("Linux injector chain selection (mocked probes):")
+    import sotto.inject_linux as il
+    orig_which, orig_probe, orig_session = il.shutil.which, il._probe, il.session_type
+
+    def which_of(avail):
+        return lambda name, *a, **k: f"/usr/bin/{name}" if name in avail else None
+
+    try:
+        il.session_type = lambda: "x11"
+        il.shutil.which = which_of({"xdotool", "xclip"})
+        il._probe = lambda cmd: True
+        names = [i.name for i in il.build_injector()._injectors]
+        check("X11 → xdotool, clipboard fallback", names == ["xdotool", "clipboard"], str(names))
+
+        il.session_type = lambda: "wayland"
+        il.shutil.which = which_of({"wtype", "ydotool", "wl-copy"})
+        names = [i.name for i in il.build_injector()._injectors]
+        check("Wayland → wtype first", names[0] == "wtype", str(names))
+
+        il.shutil.which = which_of({"ydotool", "wl-copy"})  # GNOME: no wtype
+        names = [i.name for i in il.build_injector()._injectors]
+        check("Wayland without wtype → ydotool", names == ["ydotool", "clipboard"], str(names))
+
+        il._probe = lambda cmd: False  # wtype present but compositor rejects it
+        il.shutil.which = which_of({"wtype", "wl-copy"})
+        names = [i.name for i in il.build_injector()._injectors]
+        check("failed probe skips the tool", names == ["clipboard"], str(names))
+
+        # runtime fall-through: first injector raises → chain advances
+        class Boom:
+            name = "boom"
+            def type_text(self, *a): raise RuntimeError("nope")
+        class Ok:
+            name = "ok"
+            def __init__(self): self.got = None
+            def type_text(self, text, interval): self.got = text
+        ok = Ok()
+        chain = il._Chain([Boom(), ok])
+        chain.type_text("hello", 0.0)
+        check("runtime failure falls through", ok.got == "hello", repr(ok.got))
+    finally:
+        il.shutil.which, il._probe, il.session_type = orig_which, orig_probe, orig_session
+
+
 def test_asr_long():
     print("ASR long-form chunking (tiled speech, forced multi-chunk):")
     from sotto.asr_mlx import ParakeetASR
@@ -295,6 +340,7 @@ if __name__ == "__main__":
     test_recorder_truncation()
     test_force_stop()
     test_evdev_gestures()
+    test_linux_injector_selection()
     test_llm_fallback()
     if run_all or "--llm" in args:
         test_llm()

@@ -40,7 +40,7 @@ DEFAULT_TONE_MAP = {
     "discord": "casual chat message",
     "org.telegram.desktop": "casual chat message",
     "code": "plain text for a code editor (no smart quotes)",
-    "gnome-terminal-server": "plain text for a code editor (no smart quotes)",
+    "gnome-terminal": "plain text for a code editor (no smart quotes)",
     "konsole": "plain text for a code editor (no smart quotes)",
     "alacritty": "plain text for a code editor (no smart quotes)",
     "kitty": "plain text for a code editor (no smart quotes)",
@@ -49,7 +49,7 @@ DEFAULT_TONE_MAP = {
 
 # Linux terminals paste with Ctrl+Shift+V, not Ctrl+V — force keystroke typing there.
 LINUX_TERMINAL_CLASSES = [
-    "gnome-terminal-server", "konsole", "alacritty", "kitty", "xterm",
+    "gnome-terminal", "konsole", "alacritty", "kitty", "xterm",
     "org.wezfurlong.wezterm", "xfce4-terminal", "terminator", "tilix",
 ]
 
