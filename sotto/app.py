@@ -27,6 +27,7 @@ class Sotto:
         self.listener = None
         self._rec_started = None
         self._cancelled = None  # (audio, bundle_id) held during the Undo window
+        self._warned = False    # 1-minute-left sound played for this recording
         self.dictionary = Dictionary(DICTIONARY_PATH)
         self.cleaner = Cleaner(cfg.ollama_url, cfg.ollama_model,
                                cfg.llm_timeout_s, cfg.keep_alive)
@@ -60,7 +61,14 @@ class Sotto:
         while True:
             time.sleep(1.0)
             remaining = self._remaining()
-            if remaining is not None and remaining <= 0 and self.listener:
+            if remaining is None:
+                continue
+            if remaining <= self.cfg.warn_remaining_s and not self._warned:
+                self._warned = True
+                if self.cfg.sounds:
+                    from .overlay import play_sound
+                    play_sound(self.cfg.warn_sound)
+            if remaining <= 0 and self.listener:
                 log.info("dictation limit reached (%.0f min) — transcribing now",
                          self.cfg.max_utterance_s / 60)
                 self.listener.force_stop()
@@ -75,6 +83,7 @@ class Sotto:
 
     def _on_start(self):
         self._cancelled = None  # a new dictation supersedes any pending undo
+        self._warned = False
         self.recorder.start()
         self._rec_started = time.monotonic()
         if self.overlay:
@@ -106,6 +115,9 @@ class Sotto:
             return
         self._cancelled = (audio, frontmost_bundle_id())
         log.info("dictation cancelled — Undo available for %.0fs", self.cfg.undo_window_s)
+        if self.cfg.sounds:
+            from .overlay import play_sound
+            play_sound(self.cfg.cancel_sound)
         if self.overlay:
             self.overlay.show_cancelled(self.cfg.undo_window_s)
         else:

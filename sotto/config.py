@@ -56,9 +56,11 @@ class Config:
     indicator_offset_y: float = 6.0   # px above the bottom edge of the screen
     sounds: bool = True
     haptics: bool = True
-    start_sound: str = "Pop"
-    done_sound: str = "Tink"
-    handsfree_sound: str = "Bottle"   # distinct cue when entering hands-free
+    start_sound: str = "Pop"          # recording started
+    done_sound: str = "Tink"          # text inserted
+    handsfree_sound: str = "Submarine"  # entered hands-free mode
+    cancel_sound: str = "Morse"       # dictation cancelled (Escape / ✕)
+    warn_sound: str = "Frog"          # one minute left before the limit
 
     # Injection
     paste_restore_delay_s: float = 0.15
