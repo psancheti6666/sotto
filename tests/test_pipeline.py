@@ -4,6 +4,8 @@ Usage:
   .venv/bin/python tests/test_pipeline.py            # regex + dictionary units (no models)
   .venv/bin/python tests/test_pipeline.py --llm      # + Ollama cleaning cases
   .venv/bin/python tests/test_pipeline.py --asr      # + ASR on `say`-synthesized speech
+  .venv/bin/python tests/test_pipeline.py --asr-onnx # + the ONNX backend (Intel/Linux path;
+                                                     #   needs: pip install 'onnx-asr[cpu,hub]')
   .venv/bin/python tests/test_pipeline.py --all
 """
 
@@ -142,6 +144,44 @@ def test_asr():
             check(f"({dt:.2f}s, {score:.0f}% match) {sentence[:40]}…", score >= 85, f"got: {out!r}")
 
 
+def test_asr_onnx():
+    print("ASR (ONNX backend — the Intel Mac / Linux path) on say-synthesized speech:")
+    try:
+        from sotto.asr_onnx import OnnxParakeetASR
+        asr = OnnxParakeetASR()
+    except ImportError:
+        print("  [skip] onnx-asr not installed (pip install 'onnx-asr[cpu,hub]')")
+        return
+    import numpy as np
+    import wave as wavemod
+    from rapidfuzz import fuzz
+    norm = lambda s: "".join(c for c in s.lower() if c.isalnum() or c == " ")
+    clips = {}
+    for sentence in ASR_CASES:
+        with tempfile.TemporaryDirectory() as td:
+            wav = os.path.join(td, "t.wav")
+            subprocess.run(["say", "-o", wav, "--data-format=LEI16@16000", sentence], check=True)
+            with wavemod.open(wav) as w:
+                audio = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
+        clips[sentence] = audio.astype(np.float32) / 32768.0
+        t0 = time.perf_counter()
+        out = asr.transcribe(clips[sentence])
+        dt = time.perf_counter() - t0
+        score = fuzz.ratio(norm(sentence), norm(out))
+        check(f"({dt:.2f}s, {score:.0f}% match) {sentence[:40]}…", score >= 85, f"got: {out!r}")
+    # long-form: tile past the VAD threshold so the silero-segmented path runs
+    clip = clips[ASR_CASES[0]]
+    gap = np.zeros(8000, dtype=np.float32)
+    reps = int(125 * 16000 / (clip.size + gap.size)) + 1
+    audio = np.concatenate([np.concatenate([clip, gap]) for _ in range(reps)])
+    t0 = time.perf_counter()
+    out = asr.transcribe(audio)
+    dt = time.perf_counter() - t0
+    n = out.count("Friday")
+    print(f"  {audio.size/16000:.0f}s of audio, {reps} repeats → transcribed in {dt:.1f}s (VAD)")
+    check(f"long-form via VAD keeps every repeat ({n}/{reps})", n >= reps - 1, out[:200])
+
+
 def test_recorder_truncation():
     print("recorder keeps the BEGINNING when over the cap:")
     import numpy as np
@@ -214,5 +254,7 @@ if __name__ == "__main__":
         test_asr()
     if run_all or "--long" in args:
         test_asr_long()
+    if run_all or "--asr-onnx" in args:
+        test_asr_onnx()
     print(f"\n{'ALL PASS' if failures == 0 else f'{failures} FAILURE(S)'}")
     sys.exit(1 if failures else 0)
