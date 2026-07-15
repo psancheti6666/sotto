@@ -69,6 +69,9 @@ class Sotto:
         log.info("hands-free mode — press %s (or click ✓) to finish", self.cfg.hotkey)
         if self.overlay:
             self.overlay.show_handsfree()
+        if self.cfg.sounds:
+            from .overlay import play_sound
+            play_sound(self.cfg.handsfree_sound)
 
     def _on_start(self):
         self._cancelled = None  # a new dictation supersedes any pending undo

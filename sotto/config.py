@@ -58,6 +58,7 @@ class Config:
     haptics: bool = True
     start_sound: str = "Pop"
     done_sound: str = "Tink"
+    handsfree_sound: str = "Bottle"   # distinct cue when entering hands-free
 
     # Injection
     paste_restore_delay_s: float = 0.15
