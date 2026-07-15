@@ -96,9 +96,10 @@ class HotkeyListener:
         if not self._active:
             self._active = True
             self._press_time = now
-            if now - self._last_tap < self._double_tap_window:
-                self._enter_handsfree()
+            was_double_tap = now - self._last_tap < self._double_tap_window
             self._on_start()
+            if was_double_tap:
+                self._enter_handsfree()
 
     def _hotkey_release(self):
         now = time.monotonic()

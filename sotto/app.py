@@ -65,6 +65,11 @@ class Sotto:
                          self.cfg.max_utterance_s / 60)
                 self.listener.force_stop()
 
+    def _on_handsfree(self):
+        log.info("hands-free mode — press %s (or click ✓) to finish", self.cfg.hotkey)
+        if self.overlay:
+            self.overlay.show_handsfree()
+
     def _on_start(self):
         self._cancelled = None  # a new dictation supersedes any pending undo
         self.recorder.start()
@@ -175,16 +180,15 @@ class Sotto:
         self._asr_ready.wait()
         self.recorder.open()
         log.info("ready — hold %s to dictate (double-tap for hands-free)", self.cfg.hotkey)
-        on_handsfree = lambda: log.info("hands-free mode — press %s to stop", self.cfg.hotkey)
         if self.cfg.hotkey == "fn":
             self._check_globe_key_setting()
             listener = FnHotkeyListener(self._on_start, self._on_stop,
                                         self.cfg.tap_max_s, self.cfg.double_tap_window_s,
-                                        on_handsfree=on_handsfree, on_cancel=self._on_cancel)
+                                        on_handsfree=self._on_handsfree, on_cancel=self._on_cancel)
         else:
             listener = HotkeyListener(self.cfg.hotkey, self._on_start, self._on_stop,
                                       self.cfg.tap_max_s, self.cfg.double_tap_window_s,
-                                      on_handsfree=on_handsfree, on_cancel=self._on_cancel)
+                                      on_handsfree=self._on_handsfree, on_cancel=self._on_cancel)
         self.listener = listener
         threading.Thread(target=self._watchdog, daemon=True).start()
         if self.cfg.indicator:

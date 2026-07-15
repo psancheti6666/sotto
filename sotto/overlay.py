@@ -1,12 +1,14 @@
 """On-screen feedback: a small floating capsule at the bottom-center of the screen.
 
 Modes:
-- listening:  ✕ button | live waveform bars | ✓ button (+ amber countdown when
-              the dictation limit is near). ✕ cancels, ✓ finishes — clickable.
+- listening:  compact live waveform (hold-to-talk — the user's finger is on the
+              key, so no buttons; Escape cancels). Click-through.
+- handsfree:  slightly larger: ✕ button | waveform | ✓ button, clickable, plus
+              an amber countdown when the dictation limit is near.
 - processing: a dot spinner until the cleaned text is injected.
-- cancelled:  a slightly larger "Transcript cancelled  [Undo]" toast with a
-              progress line running left→right; when it completes the audio is
-              dropped and the toast fades out. Clicking Undo transcribes anyway.
+- cancelled:  a larger "Transcript cancelled  [Undo]" toast with a progress
+              line running left→right; when it completes the audio is dropped
+              and the toast fades out. Clicking Undo transcribes anyway.
 
 The panel is borderless and non-activating (clicks never steal focus from the
 app being dictated into). All AppKit mutations are dispatched to the main
@@ -44,10 +46,13 @@ _ACCESSORY = 1                 # NSApplicationActivationPolicyAccessory
 
 # capsule size per mode
 SIZES = {
-    "listening": (170, 26),
+    "listening": (110, 24),
+    "handsfree": (170, 26),
     "processing": (110, 24),
     "cancelled": (240, 32),
 }
+# modes that need mouse clicks; the rest stay click-through
+_CLICKABLE = {"handsfree", "cancelled"}
 BARS = 12
 FPS = 20.0
 BTN_R = 9.0                    # ✕ / ✓ button radius
@@ -105,7 +110,7 @@ class _IndicatorView(NSView):
     def tick_(self, _timer):
         if self.mode == "hidden":
             return
-        if self.mode == "listening":
+        if self.mode in ("listening", "handsfree"):
             if self.level_supplier is not None:
                 self.levels.append(min(1.0, float(self.level_supplier()) * 14.0))
             rem = self.remaining_supplier() if self.remaining_supplier else None
@@ -130,16 +135,19 @@ class _IndicatorView(NSView):
         NSColor.colorWithCalibratedWhite_alpha_(0.04, 0.88).setFill()
         capsule.fill()
         if self.mode == "listening":
-            self._draw_listening(b)
+            self._draw_waveform(b, buttons=False)
+        elif self.mode == "handsfree":
+            self._draw_waveform(b, buttons=True)
         elif self.mode == "processing":
             self._draw_spinner(b)
         elif self.mode == "cancelled":
             self._draw_cancelled(b)
 
-    def _draw_listening(self, b):
+    def _draw_waveform(self, b, buttons: bool):
         h = b.size.height
-        self._draw_x_button(14.0, h / 2.0)
-        self._draw_check_button(b.size.width - 14.0, h / 2.0)
+        if buttons:
+            self._draw_x_button(14.0, h / 2.0)
+            self._draw_check_button(b.size.width - 14.0, h / 2.0)
 
         warning = self.remaining is not None
         bar_w, gap = 2.0, 2.0
@@ -228,7 +236,7 @@ class _IndicatorView(NSView):
     def mouseDown_(self, event):
         p = self.convertPoint_fromView_(event.locationInWindow(), None)
         b = self.bounds()
-        if self.mode == "listening":
+        if self.mode == "handsfree":
             if math.hypot(p.x - 14.0, p.y - b.size.height / 2.0) <= BTN_R + 3:
                 if self.on_cancel_click:
                     self.on_cancel_click()
@@ -257,7 +265,7 @@ class Overlay:
         panel.setOpaque_(False)
         panel.setBackgroundColor_(NSColor.clearColor())
         panel.setLevel_(_LEVEL_STATUS)
-        panel.setIgnoresMouseEvents_(False)   # ✕ / ✓ / Undo are clickable
+        panel.setIgnoresMouseEvents_(True)    # per-mode: see _set_mode
         panel.setHasShadow_(True)
         panel.setCollectionBehavior_(_ALL_SPACES)
         view = _IndicatorView.alloc().initWithFrame_(NSMakeRect(0, 0, w, h))
@@ -289,6 +297,7 @@ class Overlay:
     def _set_mode(self, mode: str, toast_duration: float = 3.0):
         def go():
             self.view.mode = mode
+            self.panel.setIgnoresMouseEvents_(mode not in _CLICKABLE)
             if mode == "hidden":
                 self.panel.orderOut_(None)
                 return
@@ -310,6 +319,9 @@ class Overlay:
 
     def show_listening(self):
         self._set_mode("listening")
+
+    def show_handsfree(self):
+        self._set_mode("handsfree")
 
     def show_processing(self):
         self._set_mode("processing")
