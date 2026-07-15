@@ -14,8 +14,6 @@ ctrl) or an F-key ("f5", "f13", …) in config.
 import sys
 import time
 
-from pynput import keyboard
-
 _SPACE_KEYCODE = 49          # macOS virtual keycode for space
 _ESCAPE_KEYCODE = 53         # macOS virtual keycode for escape
 _KEY_DOWN, _KEY_UP = 10, 11  # kCGEventKeyDown / kCGEventKeyUp
@@ -28,6 +26,7 @@ class HotkeyListener:
         if key_name == "fn":
             self._key, self._vk = None, 63  # handled by FnHotkeyListener
         else:
+            from pynput import keyboard  # lazy: pynput exists only on macOS
             self._key = getattr(keyboard.Key, key_name, None) or keyboard.KeyCode.from_char(key_name)
             self._vk = getattr(self._key, "value", self._key).vk
         self._on_start = on_start
@@ -169,6 +168,7 @@ class HotkeyListener:
             return event
 
     def run(self):
+        from pynput import keyboard
         kwargs = {}
         if sys.platform == "darwin":
             kwargs["darwin_intercept"] = self._darwin_intercept

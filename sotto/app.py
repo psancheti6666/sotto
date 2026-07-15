@@ -13,7 +13,7 @@ from .clean import Cleaner
 from .config import CONFIG_DIR, DICTIONARY_PATH, Config, load_config
 from .dictionary import Dictionary
 from .inject import inject
-from .platform import IS_MACOS, active_app_id, haptic, play_sound
+from .platform import IS_LINUX, IS_MACOS, active_app_id, haptic, play_sound
 
 log = logging.getLogger("sotto")
 
@@ -172,6 +172,9 @@ class Sotto:
         kwargs = dict(tap_max_s=self.cfg.tap_max_s,
                       double_tap_window_s=self.cfg.double_tap_window_s,
                       on_handsfree=self._on_handsfree, on_cancel=self._on_cancel)
+        if IS_LINUX:
+            from .hotkey_evdev import EvdevHotkeyListener
+            return EvdevHotkeyListener(self.cfg.hotkey, self._on_start, self._on_stop, **kwargs)
         if IS_MACOS and self.cfg.hotkey == "fn":
             self._check_globe_key_setting()
             from .hotkey import FnHotkeyListener

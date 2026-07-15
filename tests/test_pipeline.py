@@ -214,6 +214,53 @@ def test_force_stop():
     check("idempotent when idle", ev == ["start", "stop"], str(ev))
 
 
+def test_evdev_gestures():
+    print("evdev hotkey gestures (Linux path, synthetic kernel events):")
+    from sotto.hotkey_evdev import EvdevHotkeyListener, KEY_CODES, KEY_ESC
+    RC = KEY_CODES["ctrl_r"]
+    KEY_A, KEY_SPACE = 30, 57
+
+    def make(tap_max=0.0, window=0.5):
+        ev = []
+        hl = EvdevHotkeyListener(
+            "ctrl_r",
+            on_start=lambda: ev.append("start"),
+            on_stop=lambda discard=False: ev.append("discard" if discard else "stop"),
+            tap_max_s=tap_max, double_tap_window_s=window,
+            on_handsfree=lambda: ev.append("handsfree"),
+            on_cancel=lambda: ev.append("cancel"))
+        return hl, ev
+
+    hl, ev = make()  # tap_max=0 → any hold counts as speech
+    hl._handle_event(RC, 1); hl._handle_event(RC, 2); hl._handle_event(RC, 0)
+    check("hold → start/stop, autorepeat ignored", ev == ["start", "stop"], str(ev))
+
+    hl, ev = make(tap_max=10)  # tap_max=10 → any press counts as a tap
+    hl._handle_event(RC, 1); hl._handle_event(RC, 0)
+    check("quick tap discards", ev == ["start", "discard"], str(ev))
+    hl._handle_event(RC, 1)  # second tap inside the double-tap window
+    check("double-tap → hands-free", ev[-2:] == ["start", "handsfree"], str(ev))
+    hl._handle_event(RC, 0)  # releasing in hands-free keeps recording
+    hl._handle_event(KEY_A, 1); hl._handle_event(KEY_A, 0)  # typing while hands-free is fine
+    hl._handle_event(RC, 1)  # press again finishes
+    check("press again stops hands-free", ev[-1] == "stop", str(ev))
+    hl._handle_event(RC, 0)
+
+    hl, ev = make()
+    hl._handle_event(RC, 1); hl._handle_event(KEY_ESC, 1)
+    check("Escape cancels", ev == ["start", "cancel"], str(ev))
+    hl._handle_event(KEY_ESC, 0); hl._handle_event(RC, 0)
+    check("hotkey release after cancel is consumed", ev == ["start", "cancel"], str(ev))
+
+    hl, ev = make()
+    hl._handle_event(RC, 1); hl._handle_event(KEY_A, 1)
+    check("other key while holding = combo, discards", ev == ["start", "discard"], str(ev))
+
+    hl, ev = make()
+    hl._handle_event(RC, 1); hl._handle_event(KEY_SPACE, 1)
+    check("hold+Space = combo on Linux (no key swallowing)", ev == ["start", "discard"], str(ev))
+
+
 def test_asr_long():
     print("ASR long-form chunking (tiled speech, forced multi-chunk):")
     from sotto.asr_mlx import ParakeetASR
@@ -247,6 +294,7 @@ if __name__ == "__main__":
     test_dictionary()
     test_recorder_truncation()
     test_force_stop()
+    test_evdev_gestures()
     test_llm_fallback()
     if run_all or "--llm" in args:
         test_llm()
