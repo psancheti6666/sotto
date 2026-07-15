@@ -210,25 +210,41 @@ class Sotto:
         listener = self._make_listener()
         self.listener = listener
         threading.Thread(target=self._watchdog, daemon=True).start()
-        if self.cfg.indicator:
-            # AppKit UI owns the main thread; the hotkey listener runs alongside.
-            from . import overlay
-            self.overlay = overlay.Overlay(
-                lambda: self.recorder.level,
-                self.cfg.indicator_offset_y,
-                remaining_supplier=self._remaining,
-                warn_remaining_s=self.cfg.warn_remaining_s,
-                on_cancel_click=listener.cancel,
-                on_done_click=listener.force_stop,
-                on_undo_click=self._undo_cancel,
-                on_cancel_expire=self._expire_cancel)
+        overlay_mod = self._overlay_module() if self.cfg.indicator else None
+        if overlay_mod:
+            # The UI run loop (AppKit or tk) owns the main thread; the hotkey
+            # listener runs alongside.
+            try:
+                self.overlay = overlay_mod.Overlay(
+                    lambda: self.recorder.level,
+                    self.cfg.indicator_offset_y,
+                    remaining_supplier=self._remaining,
+                    warn_remaining_s=self.cfg.warn_remaining_s,
+                    on_cancel_click=listener.cancel,
+                    on_done_click=listener.force_stop,
+                    on_undo_click=self._undo_cancel,
+                    on_cancel_expire=self._expire_cancel)
+            except Exception as e:
+                log.warning("indicator unavailable (%s) — running headless", e)
+                self.overlay = None
+        if self.overlay:
             threading.Thread(target=listener.run, daemon=True).start()
-            overlay.run_forever()
+            overlay_mod.run_forever()
         else:
             try:
                 listener.run()
             finally:
                 self.recorder.close()
+
+    def _overlay_module(self):
+        backend = self.cfg.indicator_backend
+        if backend == "auto":
+            backend = "appkit" if IS_MACOS else "tk"
+        if backend == "appkit":
+            from . import overlay
+            return overlay
+        from . import overlay_tk
+        return overlay_tk
 
 
 def main():
