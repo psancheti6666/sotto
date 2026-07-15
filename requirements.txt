@@ -1,0 +1,7 @@
+parakeet-mlx
+sounddevice
+pynput
+requests
+pyperclip
+rapidfuzz
+rumps

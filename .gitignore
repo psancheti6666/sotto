@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# macOS
+.DS_Store
+
+# Local state (never commit user config, dictionaries, or logs)
+*.log
+.env
+.env.*
+
+# Editor
+.idea/
+.vscode/

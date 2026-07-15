@@ -1,0 +1,222 @@
+"""Global push-to-talk hotkey.
+
+Behavior:
+- Hold the key to dictate; release inserts the cleaned text.
+- While holding, press SPACE to switch to hands-free (the space is swallowed,
+  Wispr-style); press the hotkey again to stop. Double-tap also enters hands-free.
+- If any OTHER key is pressed while holding, the hotkey is being used as a normal
+  modifier combo (e.g. Option+Delete) — dictation is cancelled and discarded.
+
+`fn` cannot be intercepted by pynput on macOS, so pick a modifier (alt_r, cmd_r,
+ctrl) or an F-key ("f5", "f13", …) in config.
+"""
+
+import sys
+import time
+
+from pynput import keyboard
+
+_SPACE_KEYCODE = 49          # macOS virtual keycode for space
+_KEY_DOWN, _KEY_UP = 10, 11  # kCGEventKeyDown / kCGEventKeyUp
+
+
+class HotkeyListener:
+    def __init__(self, key_name: str, on_start, on_stop,
+                 tap_max_s: float = 0.3, double_tap_window_s: float = 0.5,
+                 on_handsfree=None):
+        if key_name == "fn":
+            self._key, self._vk = None, 63  # handled by FnHotkeyListener
+        else:
+            self._key = getattr(keyboard.Key, key_name, None) or keyboard.KeyCode.from_char(key_name)
+            self._vk = getattr(self._key, "value", self._key).vk
+        self._on_start = on_start
+        self._on_stop = on_stop
+        self._on_handsfree = on_handsfree
+        self._tap_max = tap_max_s
+        self._double_tap_window = double_tap_window_s
+
+        self._down = False          # hotkey physically held
+        self._active = False        # capturing audio
+        self._toggle = False        # hands-free mode
+        self._press_time = 0.0
+        self._last_tap = 0.0
+        self._consume_release = False
+        self._swallow_space_up = False
+
+    def _matches(self, key) -> bool:
+        return key == self._key
+
+    def _enter_handsfree(self):
+        self._toggle = True
+        if self._on_handsfree:
+            self._on_handsfree()
+
+    def force_stop(self):
+        """Stop and process from outside the key handlers (e.g. the time limit)."""
+        if not self._active:
+            return
+        self._toggle = False
+        self._active = False
+        self._on_stop()
+
+    def _cancel_combo(self):
+        """Hotkey is being used as a modifier for a shortcut — discard dictation."""
+        self._active = False
+        self._toggle = False
+        self._on_stop(discard=True)
+
+    def _hotkey_press(self):
+        now = time.monotonic()
+        if self._active and self._toggle:
+            # Press during hands-free: stop and process.
+            self._toggle = False
+            self._active = False
+            self._consume_release = True
+            self._on_stop()
+            return
+        if not self._active:
+            self._active = True
+            self._press_time = now
+            if now - self._last_tap < self._double_tap_window:
+                self._enter_handsfree()
+            self._on_start()
+
+    def _hotkey_release(self):
+        now = time.monotonic()
+        if self._consume_release:
+            self._consume_release = False
+            return
+        if not self._active or self._toggle:
+            return
+        held = now - self._press_time
+        if held < self._tap_max:
+            # Quick tap: discard (too short to be speech); may be first of a double-tap.
+            self._active = False
+            self._last_tap = now
+            self._on_stop(discard=True)
+        else:
+            self._active = False
+            self._on_stop()
+
+    def _on_press(self, key):
+        if not self._matches(key):
+            return
+        if self._down:
+            return  # key autorepeat
+        self._down = True
+        self._hotkey_press()
+
+    def _on_release(self, key):
+        if not self._matches(key):
+            return
+        self._down = False
+        self._hotkey_release()
+
+    def _darwin_intercept(self, event_type, event):
+        """Runs inside the CGEventTap. Swallows space during hold (→ hands-free)
+        and cancels dictation when the hotkey is used in a combo. Must be fast
+        and never raise, or macOS disables the tap."""
+        try:
+            if event_type not in (_KEY_DOWN, _KEY_UP):
+                return event
+            import Quartz
+            keycode = Quartz.CGEventGetIntegerValueField(
+                event, Quartz.kCGKeyboardEventKeycode)
+            if keycode == _SPACE_KEYCODE:
+                if self._swallow_space_up and event_type == _KEY_UP:
+                    self._swallow_space_up = False
+                    return None
+                if (event_type == _KEY_DOWN and self._down
+                        and self._active and not self._toggle):
+                    self._swallow_space_up = True
+                    self._enter_handsfree()
+                    return None
+                return event
+            if (event_type == _KEY_DOWN and self._down and self._active
+                    and not self._toggle and keycode != self._vk):
+                self._cancel_combo()
+            return event
+        except Exception:
+            return event
+
+    def run(self):
+        kwargs = {}
+        if sys.platform == "darwin":
+            kwargs["darwin_intercept"] = self._darwin_intercept
+        with keyboard.Listener(on_press=self._on_press, on_release=self._on_release,
+                               **kwargs) as listener:
+            listener.join()
+
+
+class FnHotkeyListener(HotkeyListener):
+    """The fn/Globe key, Wispr-style. pynput cannot map fn, but a raw Quartz event
+    tap sees its flagsChanged events (keycode 63). Same gestures as the base class:
+    hold fn to dictate, fn+Space for hands-free, other keys cancel (so fn+Delete,
+    fn+arrows keep working).
+
+    Setup required once: System Settings → Keyboard → "Press 🌐 key to" → Do Nothing
+    (else macOS pops the emoji picker / input-source switcher on fn taps), and make
+    sure macOS's own hold-fn Dictation shortcut is off (Keyboard → Dictation).
+    """
+
+    _FN_FLAG = 0x800000  # kCGEventFlagMaskSecondaryFn
+
+    def __init__(self, on_start, on_stop, tap_max_s: float = 0.3,
+                 double_tap_window_s: float = 0.5, on_handsfree=None):
+        super().__init__("fn", on_start, on_stop, tap_max_s, double_tap_window_s,
+                         on_handsfree)
+        self._tap = None
+
+    def _tap_callback(self, _proxy, etype, event, _refcon):
+        import Quartz
+        try:
+            if etype in (Quartz.kCGEventTapDisabledByTimeout,
+                         Quartz.kCGEventTapDisabledByUserInput):
+                Quartz.CGEventTapEnable(self._tap, True)
+                return event
+            keycode = Quartz.CGEventGetIntegerValueField(
+                event, Quartz.kCGKeyboardEventKeycode)
+            if etype == Quartz.kCGEventFlagsChanged:
+                if keycode == self._vk:
+                    fn_down = bool(Quartz.CGEventGetFlags(event) & self._FN_FLAG)
+                    if fn_down and not self._down:
+                        self._down = True
+                        self._hotkey_press()
+                    elif not fn_down and self._down:
+                        self._down = False
+                        self._hotkey_release()
+                return event
+            if etype == Quartz.kCGEventKeyDown:
+                if (keycode == _SPACE_KEYCODE and self._down
+                        and self._active and not self._toggle):
+                    self._swallow_space_up = True
+                    self._enter_handsfree()
+                    return None
+                if self._down and self._active and not self._toggle:
+                    self._cancel_combo()  # fn used as a modifier (fn+Delete, fn+arrow…)
+                return event
+            if etype == Quartz.kCGEventKeyUp:
+                if keycode == _SPACE_KEYCODE and self._swallow_space_up:
+                    self._swallow_space_up = False
+                    return None
+            return event
+        except Exception:
+            return event
+
+    def run(self):
+        import Quartz
+        mask = (Quartz.CGEventMaskBit(Quartz.kCGEventKeyDown)
+                | Quartz.CGEventMaskBit(Quartz.kCGEventKeyUp)
+                | Quartz.CGEventMaskBit(Quartz.kCGEventFlagsChanged))
+        self._tap = Quartz.CGEventTapCreate(
+            Quartz.kCGSessionEventTap, Quartz.kCGHeadInsertEventTap,
+            Quartz.kCGEventTapOptionDefault, mask, self._tap_callback, None)
+        if self._tap is None:
+            raise RuntimeError(
+                "Could not create the fn event tap — grant Accessibility and "
+                "Input Monitoring permissions to your terminal, then restart.")
+        source = Quartz.CFMachPortCreateRunLoopSource(None, self._tap, 0)
+        Quartz.CFRunLoopAddSource(Quartz.CFRunLoopGetCurrent(), source,
+                                  Quartz.kCFRunLoopCommonModes)
+        Quartz.CGEventTapEnable(self._tap, True)
+        Quartz.CFRunLoopRun()
