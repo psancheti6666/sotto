@@ -161,8 +161,11 @@ class Sotto:
         t2 = time.perf_counter()
         if not cleaned:
             return
-        inject(cleaned, self.cfg.paste_restore_delay_s,
-               use_keystrokes=bundle_id in self.cfg.keystroke_apps)
+        mode = "type" if bundle_id in self.cfg.keystroke_apps else self.cfg.inject_mode
+        inject(cleaned, mode=mode,
+               type_max_chars=self.cfg.type_max_chars,
+               type_interval_s=self.cfg.type_interval_s,
+               restore_delay_s=self.cfg.paste_restore_delay_s)
         if self.cfg.sounds:
             from .overlay import play_sound
             play_sound(self.cfg.done_sound)

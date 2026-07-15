@@ -57,12 +57,18 @@ class Config:
     sounds: bool = True
     haptics: bool = True
     start_sound: str = "Pop"          # recording started
-    done_sound: str = "Tink"          # text inserted
-    handsfree_sound: str = "Purr"     # entered hands-free mode
-    cancel_sound: str = "Morse"       # dictation cancelled (Escape / ✕)
+    done_sound: str = "Morse"         # text inserted
+    handsfree_sound: str = "Frog"     # entered hands-free mode
+    cancel_sound: str = "Bottle"      # dictation cancelled (Escape / ✕)
     warn_sound: str = "Frog"          # one minute left before the limit
 
-    # Injection
+    # Injection. "auto" = type the text like real keystrokes, but fall back to
+    # clipboard-paste when the text has newlines (typed Enter would e.g. send a
+    # chat message per line) or is very long (typing 12k chars takes minutes).
+    # "type" / "paste" force one mode.
+    inject_mode: str = "auto"
+    type_max_chars: int = 2000
+    type_interval_s: float = 0.003    # per-char delay; 0 can drop keys in some apps
     paste_restore_delay_s: float = 0.15
     keystroke_apps: list = field(default_factory=list)  # bundle ids that block paste
 
