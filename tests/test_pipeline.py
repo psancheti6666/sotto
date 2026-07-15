@@ -122,30 +122,49 @@ ASR_CASES = [
 ]
 
 
-def test_asr():
-    print("ASR (parakeet-mlx) on say-synthesized speech:")
-    from sotto.asr_mlx import ParakeetASR
+def synthesize(sentence: str):
+    """16 kHz float32 mono speech — `say` on macOS, espeak-ng on Linux."""
     import numpy as np
     import wave as wavemod
+    with tempfile.TemporaryDirectory() as td:
+        wav = os.path.join(td, "t.wav")
+        if sys.platform == "darwin":
+            subprocess.run(["say", "-o", wav, "--data-format=LEI16@16000", sentence],
+                           check=True)
+        else:
+            subprocess.run(["espeak-ng", "-w", wav, sentence], check=True)
+        with wavemod.open(wav) as w:
+            sr = w.getframerate()
+            audio = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
+    audio = audio.astype(np.float32) / 32768.0
+    if sr != 16000:
+        n = int(audio.size * 16000 / sr)
+        audio = np.interp(np.linspace(0, audio.size - 1, n),
+                          np.arange(audio.size), audio).astype(np.float32)
+    return audio
+
+
+def _match_score(expected: str, got: str) -> float:
+    from rapidfuzz import fuzz
+    norm = lambda s: "".join(c for c in s.lower() if c.isalnum() or c == " ")
+    return fuzz.ratio(norm(expected), norm(got))
+
+
+def test_asr():
+    print("ASR (parakeet-mlx) on synthesized speech:")
+    from sotto.asr_mlx import ParakeetASR
     asr = ParakeetASR()
     for sentence in ASR_CASES:
-        with tempfile.TemporaryDirectory() as td:
-            wav = os.path.join(td, "t.wav")
-            subprocess.run(["say", "-o", wav, "--data-format=LEI16@16000", sentence], check=True)
-            with wavemod.open(wav) as w:
-                audio = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
-            audio = audio.astype(np.float32) / 32768.0
-            t0 = time.perf_counter()
-            out = asr.transcribe(audio)
-            dt = time.perf_counter() - t0
-            norm = lambda s: "".join(c for c in s.lower() if c.isalnum() or c == " ")
-            from rapidfuzz import fuzz
-            score = fuzz.ratio(norm(sentence), norm(out))
-            check(f"({dt:.2f}s, {score:.0f}% match) {sentence[:40]}…", score >= 85, f"got: {out!r}")
+        audio = synthesize(sentence)
+        t0 = time.perf_counter()
+        out = asr.transcribe(audio)
+        dt = time.perf_counter() - t0
+        score = _match_score(sentence, out)
+        check(f"({dt:.2f}s, {score:.0f}% match) {sentence[:40]}…", score >= 85, f"got: {out!r}")
 
 
 def test_asr_onnx():
-    print("ASR (ONNX backend — the Intel Mac / Linux path) on say-synthesized speech:")
+    print("ASR (ONNX backend — the Intel Mac / Linux path) on synthesized speech:")
     try:
         from sotto.asr_onnx import OnnxParakeetASR
         asr = OnnxParakeetASR()
@@ -153,21 +172,13 @@ def test_asr_onnx():
         print("  [skip] onnx-asr not installed (pip install 'onnx-asr[cpu,hub]')")
         return
     import numpy as np
-    import wave as wavemod
-    from rapidfuzz import fuzz
-    norm = lambda s: "".join(c for c in s.lower() if c.isalnum() or c == " ")
     clips = {}
     for sentence in ASR_CASES:
-        with tempfile.TemporaryDirectory() as td:
-            wav = os.path.join(td, "t.wav")
-            subprocess.run(["say", "-o", wav, "--data-format=LEI16@16000", sentence], check=True)
-            with wavemod.open(wav) as w:
-                audio = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
-        clips[sentence] = audio.astype(np.float32) / 32768.0
+        clips[sentence] = synthesize(sentence)
         t0 = time.perf_counter()
         out = asr.transcribe(clips[sentence])
         dt = time.perf_counter() - t0
-        score = fuzz.ratio(norm(sentence), norm(out))
+        score = _match_score(sentence, out)
         check(f"({dt:.2f}s, {score:.0f}% match) {sentence[:40]}…", score >= 85, f"got: {out!r}")
     # long-form: tile past the VAD threshold so the silero-segmented path runs
     clip = clips[ASR_CASES[0]]
@@ -261,6 +272,48 @@ def test_evdev_gestures():
     check("hold+Space = combo on Linux (no key swallowing)", ev == ["start", "discard"], str(ev))
 
 
+def test_platform_detection():
+    print("platform detection and Linux config defaults:")
+    import sotto.platform as sp
+    import sotto.config as sc
+    orig_flag = sp.IS_LINUX
+    saved_env = {k: os.environ.pop(k, None)
+                 for k in ("WAYLAND_DISPLAY", "XDG_SESSION_TYPE", "DISPLAY")}
+    try:
+        sp.IS_LINUX = True
+        os.environ["WAYLAND_DISPLAY"] = "wayland-0"
+        check("Wayland detected", sp.session_type() == "wayland", sp.session_type())
+        del os.environ["WAYLAND_DISPLAY"]
+        os.environ["XDG_SESSION_TYPE"] = "x11"
+        check("X11 detected", sp.session_type() == "x11", sp.session_type())
+        del os.environ["XDG_SESSION_TYPE"]
+        os.environ["DISPLAY"] = ":0"
+        check("DISPLAY alone → x11", sp.session_type() == "x11", sp.session_type())
+        del os.environ["DISPLAY"]
+        check("headless → ''", sp.session_type() == "", sp.session_type())
+    finally:
+        sp.IS_LINUX = orig_flag
+        for k, v in saved_env.items():
+            if v is not None:
+                os.environ[k] = v
+
+    orig_cfg_flag, orig_cfg_path = sc.IS_LINUX, sc.CONFIG_PATH
+    try:
+        sc.IS_LINUX, sc.CONFIG_PATH = True, "/nonexistent/config.toml"
+        cfg = sc.load_config()
+        check("Linux default hotkey is ctrl_r", cfg.hotkey == "ctrl_r", cfg.hotkey)
+        check("Linux sounds use freedesktop names", cfg.done_sound == "complete", cfg.done_sound)
+        check("Linux haptics off", cfg.haptics is False)
+        check("Linux terminals are keystroke apps", "konsole" in cfg.keystroke_apps,
+              str(cfg.keystroke_apps))
+        sc.IS_LINUX = False
+        cfg = sc.load_config()
+        check("macOS defaults untouched", cfg.hotkey == "fn" and cfg.done_sound == "Morse",
+              f"{cfg.hotkey}/{cfg.done_sound}")
+    finally:
+        sc.IS_LINUX, sc.CONFIG_PATH = orig_cfg_flag, orig_cfg_path
+
+
 def test_linux_injector_selection():
     print("Linux injector chain selection (mocked probes):")
     import sotto.inject_linux as il
@@ -310,16 +363,10 @@ def test_asr_long():
     print("ASR long-form chunking (tiled speech, forced multi-chunk):")
     from sotto.asr_mlx import ParakeetASR
     import numpy as np
-    import wave as wavemod
     asr = ParakeetASR()
     sentence = ("The first city is Amsterdam. The second city is Barcelona. "
                 "The third city is Chicago. The fourth city is Denver.")
-    with tempfile.TemporaryDirectory() as td:
-        wav = os.path.join(td, "t.wav")
-        subprocess.run(["say", "-o", wav, "--data-format=LEI16@16000", sentence], check=True)
-        with wavemod.open(wav) as w:
-            clip = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
-    clip = clip.astype(np.float32) / 32768.0
+    clip = synthesize(sentence)
     gap = np.zeros(8000, dtype=np.float32)  # 0.5 s pause between repeats
     reps = max(16, int(140 * 16000 / (clip.size + gap.size)) + 1)
     audio = np.concatenate([np.concatenate([clip, gap]) for _ in range(reps)])
@@ -340,6 +387,7 @@ if __name__ == "__main__":
     test_recorder_truncation()
     test_force_stop()
     test_evdev_gestures()
+    test_platform_detection()
     test_linux_injector_selection()
     test_llm_fallback()
     if run_all or "--llm" in args:

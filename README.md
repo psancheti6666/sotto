@@ -1,7 +1,8 @@
 # Sotto
 
-**Private, local dictation for macOS.** Hold a key, speak naturally — clean,
-punctuated text appears at your cursor in any app. Nothing ever leaves your Mac.
+**Private, local dictation for macOS and Linux.** Hold a key, speak naturally —
+clean, punctuated text appears at your cursor in any app. Nothing ever leaves
+your machine.
 
 Sotto is a local-first alternative to cloud dictation tools like Wispr Flow:
 same hold-to-talk workflow, but the speech recognition **and** the AI text
@@ -10,39 +11,60 @@ uploaded anywhere, **$0 to run**.
 
 ## What it does
 
-- **Hold `fn`, speak, release** → your words appear at the cursor, in whatever
-  app has focus (Notes, Slack, VS Code, Gmail, anything with a text field).
+- **Hold the hotkey, speak, release** → your words appear at the cursor, in
+  whatever app has focus (Notes, Slack, VS Code, Gmail, anything with a text
+  field). The hotkey is `fn` on macOS, `Right Ctrl` on Linux (configurable).
 - **AI cleanup on every dictation** — filler words ("um", "uh", "you know")
   removed, punctuation and capitalization added, spoken lists formatted as
   lists, and self-corrections resolved: say *"let's meet Tuesday — wait, no,
   Friday"* and it writes *"Let's meet Friday."* Your wording is preserved —
   it cleans, it never rewrites.
-- **Hands-free mode** — press Space while holding `fn` (or double-tap `fn`)
-  and keep talking for up to 15 minutes; press `fn` to finish. A live waveform
-  capsule at the bottom of the screen shows it's listening, with a countdown
-  when time is nearly up.
+- **Hands-free mode** — double-tap the hotkey (on macOS, also hold `fn` +
+  press Space) and keep talking for up to 15 minutes; press the hotkey again
+  to finish. A live waveform capsule at the bottom of the screen shows it's
+  listening, with a countdown when time is nearly up.
 - **Personal dictionary** — put names and jargon in `~/.sotto/dictionary.txt`
   (one per line) and Sotto will spell them correctly even when the recognizer
   mishears them.
-- **App-aware tone** — punctuation/formatting adapts to the frontmost app
+- **App-aware tone** — punctuation/formatting adapts to the focused app
   (chat vs. email vs. code editor).
+
+## Platform support
+
+| Platform | Status |
+|---|---|
+| macOS, Apple Silicon (M1+) | ✅ Developed and tested on real hardware |
+| macOS, Intel | 🤝 Community-tested — same code except the speech engine (ONNX instead of MLX), which is exercised in CI-style tests |
+| Linux, X11 (Ubuntu/Fedora…) | 🤝 Community-tested — all Linux logic is unit-tested, but not yet verified on real desktops |
+| Linux, Wayland | 🤝 Community-tested — works via wtype (KDE/wlroots) or ydotool (GNOME); see Linux notes |
+| Windows | ❌ Not supported |
+
+"Community-tested" means: the code paths exist, are unit-tested, and the
+speech/cleanup pipeline is verified — but the maintainer develops on an
+Apple-Silicon Mac. If you run Sotto on one of these platforms, please open an
+issue (working or not!) so this table can be updated.
 
 ## Requirements
 
-- **Mac with Apple Silicon** (M1 or newer) — macOS 14+. *macOS only for now.*
-- **~6 GB free memory** while running, **~4 GB disk** for the two AI models.
-- **[Homebrew](https://brew.sh)** — the setup script uses it to install the rest.
+**All platforms:** ~6 GB free memory while running, ~5 GB disk for the AI
+models.
+
+- **macOS 14+** (Apple Silicon or Intel) with [Homebrew](https://brew.sh) —
+  the setup script installs the rest.
+- **Linux** (Ubuntu/Debian or Fedora-family) with `sudo` — the setup script
+  installs system packages via apt/dnf.
 
 Everything else is installed automatically by `setup.sh`, including:
 
 - **[Ollama](https://ollama.com)** — a free, open-source runtime for running
   large language models locally. Sotto uses it to run **Qwen3-4B-Instruct**
   (~2.5 GB), the model that turns raw speech transcripts into clean text.
-  Ollama runs as a background service on your Mac and is never exposed to
-  the internet.
-- **NVIDIA Parakeet-TDT-0.6B-v3** (~600 MB) — the speech-recognition model,
-  running on Apple's Neural Engine via [MLX](https://github.com/ml-explore/mlx).
-  Fast (a few hundred milliseconds per utterance) and highly accurate.
+  It runs as a background service and is never exposed to the internet.
+- **NVIDIA Parakeet-TDT-0.6B-v3** — the speech-recognition model. On Apple
+  Silicon it runs on the Neural Engine via
+  [MLX](https://github.com/ml-explore/mlx) (~600 MB); on Intel Macs and Linux
+  the **same model** runs via ONNX on the CPU (~2.4 GB) — same accuracy,
+  still around a second per utterance.
 
 ## Install
 
@@ -52,10 +74,10 @@ cd sotto
 ./setup.sh
 ```
 
-That's the whole setup: it checks your machine, installs Python 3.11 and
-Ollama if missing, downloads both AI models, and offers to configure the `fn`
-key (macOS's Globe-key action must be set to "Do Nothing", or the emoji picker
-will pop up when you dictate — the script handles this with your permission).
+That's the whole setup: it detects your OS, installs Python and Ollama if
+missing, downloads both AI models, and handles the platform-specific bits
+(the macOS Globe-key setting; the Linux `input`-group permission — **log out
+and back in after the first setup** on Linux).
 
 ## Run
 
@@ -63,60 +85,67 @@ will pop up when you dictate — the script handles this with your permission).
 ./run.sh
 ```
 
-On **first launch**, macOS will prompt you to grant three permissions to your
-terminal app under **System Settings → Privacy & Security**:
+**macOS, first launch:** grant three permissions to your terminal app under
+**System Settings → Privacy & Security**, then restart `./run.sh`:
 
 | Permission | Why Sotto needs it |
 |---|---|
 | Microphone | to hear your dictation |
 | Accessibility | to type the cleaned text at your cursor |
-| Input Monitoring | to detect the `fn` hotkey globally |
+| Input Monitoring | to detect the hotkey globally |
 
-Grant them, restart `./run.sh`, and you're live: put your cursor in any text
-field, **hold `fn`**, speak, release.
+**Linux, first launch:** if setup just added you to the `input` group, log
+out and back in first — otherwise the hotkey can't be detected.
 
 ## Using Sotto
 
-| Gesture | Action |
-|---|---|
-| Hold `fn` + speak + release | Dictate one utterance |
-| Hold `fn` + press Space | Enter hands-free mode (space is swallowed) |
-| Double-tap `fn` | Also enters hands-free mode |
-| Press `fn` (in hands-free) | Finish and insert |
-| **Escape** (while dictating) | Cancel — shows a "Transcript cancelled" toast with **Undo** |
-| ✕ / ✓ buttons (hands-free only) | Cancel / finish with the mouse |
-| `fn` used in a shortcut (fn+Delete…) | Dictation silently cancels; shortcut works normally |
+| Gesture | macOS (`fn`) | Linux (`Right Ctrl`) |
+|---|---|---|
+| Hold + speak + release | ✅ dictate one utterance | ✅ dictate one utterance |
+| Double-tap → hands-free | ✅ | ✅ |
+| Hold + press Space → hands-free | ✅ (Space is swallowed) | — (would leak Ctrl+Space; use double-tap) |
+| Press hotkey again (in hands-free) | ✅ finish and insert | ✅ finish and insert |
+| **Escape** while dictating | ✅ cancel (swallowed) | ✅ cancel (the Escape also reaches the app) |
+| ✕ / ✓ capsule buttons (hands-free) | ✅ | ✅ |
+| Hotkey used in a shortcut (fn+Delete, Ctrl+C…) | dictation silently cancels; the shortcut works | same |
 
 While holding the key, a compact capsule at the bottom-center shows a live
-waveform (no buttons — your finger is already on the key; Escape cancels).
-In hands-free mode the capsule grows slightly and adds clickable ✕ (cancel)
-and ✓ (finish) buttons. It switches to a spinner while transcribing.
-Cancelling (Escape or ✕) pops a larger "Transcript cancelled" toast with an
-**Undo** button and a progress line — click Undo within ~3 seconds and the
-recording is transcribed after all; otherwise it's discarded and the toast
-fades out. In the last minute
-of a long hands-free session the bars turn amber with a seconds countdown,
-then the recording finishes and is transcribed **in full** — long dictations
-are chunked and stitched, never truncated. A soft sound marks start and finish.
+waveform. In hands-free mode it grows slightly and adds clickable ✕ (cancel)
+and ✓ (finish) buttons; it switches to a spinner while transcribing.
+Cancelling pops a "Transcript cancelled" toast with an **Undo** button and a
+progress line — click Undo within ~3 seconds and the recording is transcribed
+after all. In the last minute of a long session the bars turn amber with a
+seconds countdown, then the recording finishes and is transcribed **in full**
+— long dictations are chunked and stitched, never truncated. A soft sound
+marks start and finish (Apple system sounds on macOS, the freedesktop sound
+theme on Linux).
 
-Dictation is intentionally inactive in password fields (macOS secure input).
+macOS note: dictation is intentionally inactive in password fields (secure
+input). **Linux has no such mechanism — Sotto will type into password fields
+too**, so mind where your cursor is.
 
 ## Configuration
 
 Optional — create `~/.sotto/config.toml`:
 
 ```toml
-hotkey = "fn"              # or "alt_r", "cmd_r", "ctrl", "f13", …
+hotkey = "fn"              # macOS: "fn", "alt_r", "cmd_r", "f13", …
+                           # Linux: "ctrl_r" (default), "alt_r", "super_r", "f9", …
 max_utterance_s = 900.0    # dictation limit (seconds)
-ollama_model = "qwen3:4b-instruct"  # "llama3.2:3b" fits 8 GB Macs
+ollama_model = "qwen3:4b-instruct"  # "llama3.2:3b" is faster on CPU / 8 GB machines
+asr_backend = "auto"       # "mlx" (Apple Silicon) | "onnx" (everything else)
+onnx_quantization = ""     # set "int8" for slow CPUs (smaller + faster, tiny accuracy cost)
 indicator = true           # on-screen capsule
 sounds = true              # start/finish sounds
-haptics = true             # trackpad tap on start
+haptics = true             # trackpad tap on start (macOS only)
 indicator_offset_y = 6.0   # capsule distance from screen bottom (px)
-keystroke_apps = []        # bundle ids of apps where paste doesn't work
+keystroke_apps = []        # apps where paste doesn't work (bundle ids on macOS,
+                           # lowercased WM_CLASS on Linux; Linux terminals are
+                           # included by default — they paste with Ctrl+Shift+V)
 
-[tone_map]                 # bundle id -> tone hint
+[tone_map]                 # app id -> tone hint (bundle id / WM_CLASS)
 "com.example.chat" = "casual chat message"
+"signal" = "casual chat message"
 ```
 
 Personal dictionary — `~/.sotto/dictionary.txt`, one term per line:
@@ -130,16 +159,24 @@ Saanvi Reddy
 ## How it works
 
 ```
-hold fn ──► mic capture (16 kHz) ──► Parakeet ASR (Neural Engine, ~0.3 s)
-        ──► personal-dictionary fix ──► LLM cleanup (Ollama, ~1 s)
-        ──► paste at cursor (clipboard is saved and restored)
+hold hotkey ──► mic capture (16 kHz) ──► Parakeet ASR (MLX or ONNX, ~0.3–1 s)
+            ──► personal-dictionary fix ──► LLM cleanup (Ollama, ~1 s on GPU)
+            ──► typed at your cursor (clipboard-paste fallback for long text)
 ```
 
-Typical end-to-end latency is **1–2 seconds** from key-release to text for a
-normal utterance. A full 15-minute dictation takes about 1–2 minutes to clean —
-the spinner stays up while it works. If the cleanup model is ever unavailable,
+Typical end-to-end latency on Apple Silicon is **1–2 seconds** from
+key-release to text. On CPU-only machines (Intel Macs, Linux without a GPU)
+speech recognition stays fast, but the cleanup model is the bottleneck —
+expect several seconds per dictation; switch `ollama_model` to
+`"llama3.2:3b"` if that's too slow. If the cleanup model is ever unavailable,
 Sotto falls back to a basic regex cleanup rather than blocking or emitting
 raw transcript.
+
+Linux specifics: the hotkey is read from `/dev/input` (works on X11 **and**
+Wayland; needs the `input` group), and text is injected with the best
+available tool — `xdotool` on X11; `wtype` (KDE/wlroots) or `ydotool` (GNOME;
+needs the `ydotoold` service) on Wayland. If no injection tool works, the
+transcript is copied to the clipboard and a notification asks you to paste.
 
 ## Verify your install
 
@@ -148,22 +185,26 @@ raw transcript.
 ```
 
 Runs the unit tests plus live checks of the speech recognizer (using
-macOS-synthesized speech — no microphone needed) and the cleanup model.
+OS-synthesized speech — no microphone needed; `espeak-ng` on Linux) and the
+cleanup model.
 
 ## Privacy & cost
 
 - Audio, transcripts, and cleaned text never leave your machine. Works fully
   offline after setup.
 - No telemetry, no account, no API keys.
-- Recurring cost: electricity for ~1 second of compute per dictation.
+- Recurring cost: electricity for a few seconds of compute per dictation.
 
 ## Limitations
 
-- **macOS on Apple Silicon only** (for now). Intel Macs, Windows, and Linux
-  are not supported.
 - English works best (the ASR model also covers 24 other European languages;
   the cleanup prompt is English-tuned).
 - Very heavy phonetic mishearings can escape the personal-dictionary fix.
+- Linux: keys can't be swallowed, so Escape (cancel) also reaches the focused
+  app, and remapped keyboards (keyd/kmonad) may report the hotkey from its
+  pre-remap position. Keyboards connected while Sotto is running are picked
+  up after the next rescan.
+- Windows is not supported.
 
 ## License
 
