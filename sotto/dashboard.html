@@ -29,6 +29,11 @@
     --bar: #2e3247;
     --wash: rgba(217, 111, 87, 0.05);
     --grain-opacity: 0.5;
+    /* ground layers for pinned bars: same wash+grain as body::before but
+       with its opacity pre-multiplied (0.05 × 0.5), so a sticky bar is
+       tonally identical to the page it covers */
+    --wash-pinned: rgba(217, 111, 87, 0.025);
+    --grain-pinned: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.47 0 0 0 0 0.42 0 0 0 0.025 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
   }
   :root[data-theme="dark"] {
     --bg: #15171e;
@@ -43,6 +48,8 @@
     --bar: #c9c2b0;
     --wash: rgba(224, 135, 108, 0.04);
     --grain-opacity: 0.25;
+    --wash-pinned: rgba(224, 135, 108, 0.01);
+    --grain-pinned: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.47 0 0 0 0 0.42 0 0 0 0.0125 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
   }
   * { box-sizing: border-box; margin: 0; }
   html { scrollbar-gutter: stable; }
@@ -160,7 +167,31 @@
 
   /* ---------- history (full width) ---------- */
   .history-sec { margin-top: 44px; }
-  .listhead { display: flex; align-items: center; gap: 16px; margin-bottom: 6px; }
+  /* The exact ground the page shows: base color + warm wash + grain, all
+     viewport-anchored so a pinned bar is tonally identical to (and aligned
+     with) the page it covers. body::before is the page's own grain layer —
+     hands off; pinned bars use ::after and these layers instead. */
+  .pinned-ground, .listhead, .day, body::after {
+    background-color: var(--bg);
+    background-image: radial-gradient(900px 420px at 12% -8%,
+                                      var(--wash-pinned), transparent 70%),
+                      var(--grain-pinned);
+    background-attachment: fixed, fixed;
+  }
+  /* Fully opaque band over the titlebar / traffic-lights area: nothing may
+     scroll visibly behind it. Click-through always, and hidden until the
+     page actually scrolls — at the top it would otherwise sit over the
+     topbar and cover the theme toggle. */
+  body::after { content: ""; position: fixed; top: 0; left: 0; right: 0;
+                height: 34px; z-index: 5; pointer-events: none;
+                opacity: 0; transition: opacity 0.15s; }
+  html.scrolled body::after { opacity: 1; }
+  /* "History" + search stay pinned just below that band while the section is
+     on screen — the user always knows where they are and can reach search.
+     Fully opaque: no content may ghost through it. */
+  .listhead { display: flex; align-items: center; gap: 16px;
+              position: sticky; top: 34px; z-index: 6;
+              padding: 10px 0 12px; margin-bottom: 0; }
   .listhead h2 { font-size: 24px; font-weight: 400; }
   #search {
     margin-left: auto; width: 230px; padding: 9px 14px; font: inherit;
@@ -170,8 +201,22 @@
   }
   #search::placeholder { color: var(--faint); }
   #search:focus { border-color: var(--accent); }
+  .entry mark { background: var(--accent-soft); color: var(--accent-ink);
+                border-radius: 3px; padding: 0 1px; }
 
-  .day { margin: 26px 0 10px 4px; }
+  .day-group { margin-top: 26px; }
+  /* The date floats pinned just BELOW the History bar (never above it) while
+     its day scrolls; the next day's date pushes it away (native sticky
+     within each group). No box — just text over the page, with a soft bg
+     fade so cards stay readable under it. top must clear .listhead's
+     rendered height. */
+  /* tucked a few px under the opaque listhead so there is never a seam
+     between the two (34px band + ~62px listhead); the soft bottom fade
+     comes from a mask so all ground layers fade together */
+  .day { position: sticky; top: 92px; z-index: 4; margin: 0 0 10px 0;
+         padding: 8px 4px 14px;
+         -webkit-mask-image: linear-gradient(to bottom, black 68%, transparent);
+         mask-image: linear-gradient(to bottom, black 68%, transparent); }
   .day span { color: var(--faint); font-weight: 500; }
   .entry {
     display: flex; gap: 18px; background: var(--card);
@@ -611,6 +656,23 @@ function addTerm() {
 }
 
 /* ---------- history list ---------- */
+function appendHighlighted(el, text) {
+  // Wrap every case-insensitive occurrence of the search query in <mark>.
+  // Built from DOM nodes only — transcripts are untrusted text and must
+  // never go through innerHTML.
+  if (!query) { el.textContent = text; return; }
+  const low = text.toLowerCase(), q = query.toLowerCase();
+  let i = 0;
+  for (let hit = low.indexOf(q); hit !== -1; hit = low.indexOf(q, i)) {
+    el.appendChild(document.createTextNode(text.slice(i, hit)));
+    const m = document.createElement("mark");
+    m.textContent = text.slice(hit, hit + q.length);
+    el.appendChild(m);
+    i = hit + q.length;
+  }
+  el.appendChild(document.createTextNode(text.slice(i)));
+}
+
 function entryCard(e) {
   const d = new Date(e.ts);
   const card = document.createElement("div");
@@ -622,7 +684,7 @@ function entryCard(e) {
   time.textContent = isNaN(d) ? "" : relTime(d);
   const body = document.createElement("div");
   body.className = "text";
-  body.textContent = e.text || "";
+  appendHighlighted(body, e.text || "");
   const meta = document.createElement("div");
   meta.className = "meta";
   const parts = [(e.words || 0) + " words"];
@@ -665,23 +727,33 @@ function renderList(reset) {
   }
   const batch = entries.slice(shown, shown + PAGE);
   let lastDay = shown > 0 ? new Date(entries[shown - 1].ts).toDateString() : null;
+  // each day lives in its own group so its sticky date gets pushed away by
+  // the next day's date ("Show more" batches keep appending to the last group)
+  let group = list.lastElementChild?.classList?.contains("day-group")
+      ? list.lastElementChild : null;
   for (const e of batch) {
     const d = new Date(e.ts);
     const key = isNaN(d) ? "unknown" : d.toDateString();
-    if (key !== lastDay) {
+    if (key !== lastDay || !group) {
+      group = document.createElement("section");
+      group.className = "day-group";
       const h = document.createElement("div");
       h.className = "day label";
       const s = document.createElement("span");
       s.textContent = isNaN(d) ? "Unknown date" : dayLabel(d);
       h.appendChild(s);
-      list.appendChild(h);
+      group.appendChild(h);
+      list.appendChild(group);
       lastDay = key;
     }
-    list.appendChild(entryCard(e));
+    group.appendChild(entryCard(e));
   }
   shown += batch.length;
   more.style.display = shown < entries.length ? "block" : "none";
 }
+
+addEventListener("scroll", () => document.documentElement.classList.toggle(
+    "scrolled", scrollY > 8), { passive: true });
 
 document.getElementById("more").addEventListener("click", () => renderList(false));
 document.getElementById("search").addEventListener("input", ev => {

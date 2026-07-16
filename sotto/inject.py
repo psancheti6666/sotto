@@ -27,6 +27,15 @@ def _get_injector():
     return _injector
 
 
+def prewarm():
+    """Build the injector on the MAIN thread at startup. pynput's Controller
+    reads the keyboard layout through TSM/TIS Carbon calls, and macOS asserts
+    those run on the main queue once anything (e.g. the Insights WKWebView)
+    has armed the Text Services machinery — built lazily on the ASR worker
+    thread instead, the first injection kills the whole app with SIGTRAP."""
+    _get_injector()
+
+
 class _MacInjector:
     def __init__(self):
         from pynput.keyboard import Controller

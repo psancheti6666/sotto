@@ -384,9 +384,12 @@ class Overlay:
 def run_forever():
     """Own the main thread with the AppKit run loop (Ctrl+C exits)."""
     app = NSApplication.sharedApplication()
-    app.setActivationPolicy_(_ACCESSORY)
     from . import menubar
-    menubar.install()  # status item + Quit inside the .app bundle; no-op from a checkout
+    # The bundle is a regular app (Dock icon + Cmd+Tab, like Wispr Flow);
+    # a terminal checkout stays an accessory so no Dock icon appears for
+    # what is visibly a python process.
+    app.setActivationPolicy_(0 if menubar.running_in_bundle() else _ACCESSORY)
+    menubar.install()  # menu bar + main menu inside the .app; no-op from a checkout
     # MachSignals, not signal.signal: a plain Python handler only runs when the
     # main thread executes bytecode, and with the tick timer stopped while the
     # capsule is hidden an idle run loop never does — Ctrl+C would be ignored
