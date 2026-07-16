@@ -260,8 +260,19 @@ class Overlay:
         view.on_toast_expire = self._toast_expired
         panel.setContentView_(view)
         self.panel, self.view = panel, view
-        NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
-            1.0 / FPS, view, "tick:", None, True)
+        # The animation timer runs ONLY while the capsule is visible; an idle,
+        # hidden Sotto must not wake the CPU 20×/s. Managed on the main thread.
+        self._timer = None
+
+    def _start_timer(self):
+        if self._timer is None:
+            self._timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+                1.0 / FPS, self.view, "tick:", None, True)
+
+    def _stop_timer(self):
+        if self._timer is not None:
+            self._timer.invalidate()
+            self._timer = None
 
     def _place(self, mode: str):
         w, h = SIZES.get(mode, SIZES["processing"])
@@ -281,6 +292,7 @@ class Overlay:
             self.view.mode = mode
             self.panel.setIgnoresMouseEvents_(mode not in _CLICKABLE)
             if mode == "hidden":
+                self._stop_timer()          # idle: no CPU wakeups
                 self.panel.orderOut_(None)
                 return
             if mode == "listening":
@@ -289,8 +301,14 @@ class Overlay:
                 self.view.toast_started = time.monotonic()
                 self.view.toast_duration = toast_duration
                 self.view.toast_expired = False
+            # Re-assert level + all-Spaces behavior on every show: a long-idle
+            # process can have these dropped by the window server, which is what
+            # made the capsule stop floating over full-screen apps after hours.
+            self.panel.setLevel_(_LEVEL_STATUS)
+            self.panel.setCollectionBehavior_(_ALL_SPACES)
             self.panel.setAlphaValue_(1.0)
             self._place(mode)
+            self._start_timer()
             self.panel.orderFrontRegardless()
         _on_main(go)
 

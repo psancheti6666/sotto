@@ -13,7 +13,9 @@ from .clean import Cleaner
 from .config import CONFIG_DIR, DICTIONARY_PATH, Config, load_config
 from .dictionary import Dictionary
 from .inject import inject
-from .platform import IS_LINUX, IS_MACOS, active_app_id, haptic, play_sound
+from .platform import (
+    IS_LINUX, IS_MACOS, active_app_id, end_app_nap, haptic, play_sound,
+    prevent_app_nap)
 
 log = logging.getLogger("sotto")
 
@@ -37,6 +39,9 @@ class Sotto:
         # so a single persistent worker owns the ASR model and processes jobs.
         self._jobs: queue.Queue = queue.Queue()
         self._asr_ready = threading.Event()
+        # macOS App Nap opt-out, held only while a dictation is in flight so an
+        # idle Sotto stays low-power (None when idle or off-macOS).
+        self._app_nap_token = None
 
     def tone_for(self, bundle_id: str) -> str:
         if bundle_id in self.cfg.tone_map:
@@ -56,6 +61,20 @@ class Sotto:
         if not self.recorder.is_recording or self._rec_started is None:
             return None
         return self.cfg.max_utterance_s - (time.monotonic() - self._rec_started)
+
+    def _begin_activity(self):
+        """Hold full CPU/timer priority for the dictation now starting (macOS
+        App Nap opt-out). Idempotent — safe to call when already held."""
+        if self._app_nap_token is None:
+            self._app_nap_token = prevent_app_nap()
+
+    def _end_activity(self):
+        """Re-allow App Nap, but only once fully idle: nothing is being recorded
+        and no job is queued/processing. Called at every return-to-idle point."""
+        if (self._app_nap_token is not None
+                and not self.recorder.is_recording and self._jobs.empty()):
+            end_app_nap(self._app_nap_token)
+            self._app_nap_token = None
 
     def _watchdog(self):
         while True:
@@ -80,6 +99,7 @@ class Sotto:
             play_sound(self.cfg.handsfree_sound)
 
     def _on_start(self):
+        self._begin_activity()  # full priority while we record + process
         self._cancelled = None  # a new dictation supersedes any pending undo
         self._warned = False
         self.recorder.start()
@@ -97,10 +117,11 @@ class Sotto:
         if discard or audio.size == 0:
             if self.overlay:
                 self.overlay.hide()
+            self._end_activity()  # nothing queued — back to idle
             return
         if self.overlay:
             self.overlay.show_processing()
-        self._jobs.put((audio, active_app_id()))
+        self._jobs.put((audio, active_app_id()))  # worker releases when done
 
     def _on_cancel(self):
         """Escape or ✕: stop recording but hold the audio for the Undo window."""
@@ -108,7 +129,10 @@ class Sotto:
         if audio.size == 0:
             if self.overlay:
                 self.overlay.hide()
+            self._end_activity()
             return
+        # Recording stopped; audio just waits for an Undo decision — go idle.
+        self._end_activity()
         self._cancelled = (audio, active_app_id())
         log.info("dictation cancelled — Undo available for %.0fs", self.cfg.undo_window_s)
         if self.cfg.sounds:
@@ -124,6 +148,7 @@ class Sotto:
         if pending is None:
             return
         log.info("undo — transcribing the cancelled dictation")
+        self._begin_activity()  # full priority for the (re)transcription
         if self.overlay:
             self.overlay.show_processing()
         self._jobs.put(pending)
@@ -143,6 +168,7 @@ class Sotto:
             finally:
                 if self.overlay:
                     self.overlay.hide()
+                self._end_activity()  # dictation fully done — re-allow App Nap
 
     def _process_audio(self, audio, bundle_id):
         t0 = time.perf_counter()

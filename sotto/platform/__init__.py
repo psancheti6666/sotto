@@ -53,3 +53,20 @@ def active_app_id() -> str:
         from . import linux
         return linux.active_app_id()
     return ""
+
+
+def prevent_app_nap():
+    """macOS only: hold full CPU/timer priority (and panel-over-fullscreen
+    behavior) for one dictation. Returns a token the caller must retain and later
+    pass to end_app_nap() (None elsewhere)."""
+    if IS_MACOS:
+        from . import macos
+        return macos.prevent_app_nap()
+    return None
+
+
+def end_app_nap(token):
+    """Release a prevent_app_nap() token, re-allowing App Nap. No-op if None."""
+    if token is not None and IS_MACOS:
+        from . import macos
+        macos.end_app_nap(token)
