@@ -34,10 +34,10 @@ the app so settled questions don't get reopened.
 
 ## Milestones (one PR each, in order)
 
-1. **Bundling proof** — unsigned menu-bar Sotto.app builds with py2app and
-   runs full dictation on the dev M3 (existing brew Ollama is fine here).
-   Models load from `~/.sotto` as today. Deliverable: `./build_app.sh` or
-   equivalent that produces a working .app locally.
+1. **Bundling proof** — ✅ done (PR for issue #3). Unsigned menu-bar Sotto.app
+   builds with py2app and runs full dictation on the dev M3 (existing brew
+   Ollama is fine here). Models load from `~/.sotto` as today. Deliverable:
+   `./packaging/build_app.sh` → `dist/Sotto.app`.
 2. **Self-contained LLM** — resolve the open decision above; app works on a
    Mac with no brew, no Ollama installed.
 3. **First-run experience** — welcome window: model downloads with progress,

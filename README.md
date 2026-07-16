@@ -1,6 +1,6 @@
 # Sotto
 
-[![tests](https://github.com/psancheti6666/sotto/actions/workflows/tests.yml/badge.svg)](https://github.com/psancheti6666/sotto/actions/workflows/tests.yml)
+[![tests](https://github.com/psancheti6666/sotto/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/psancheti6666/sotto/actions/workflows/tests.yml)
 
 **Private, local dictation for macOS and Linux.** Hold a key, speak naturally —
 clean, punctuated text appears at your cursor in any app. Nothing ever leaves
