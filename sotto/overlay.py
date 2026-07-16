@@ -36,6 +36,7 @@ from AppKit import (
     NSView,
 )
 from Foundation import NSString
+from PyObjCTools import MachSignals
 
 _STYLE = 0 | (1 << 7)          # borderless | non-activating panel
 _BACKING_BUFFERED = 2
@@ -337,5 +338,10 @@ def run_forever():
     """Own the main thread with the AppKit run loop (Ctrl+C exits)."""
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(_ACCESSORY)
-    signal.signal(signal.SIGINT, lambda *_: app.terminate_(None))
+    # MachSignals, not signal.signal: a plain Python handler only runs when the
+    # main thread executes bytecode, and with the tick timer stopped while the
+    # capsule is hidden an idle run loop never does — Ctrl+C would be ignored
+    # until the next dictation (then kill it mid-flight). The mach-port source
+    # wakes the run loop itself, so SIGINT works while fully idle.
+    MachSignals.signal(signal.SIGINT, lambda *_: app.terminate_(None))
     app.run()
