@@ -46,8 +46,10 @@ issue (working or not!) so this table can be updated.
 
 ## Requirements
 
-**All platforms:** ~6 GB free memory while running, ~5 GB disk for the AI
-models.
+**All platforms:** ~6 GB free memory while dictating, ~5 GB disk for the AI
+models. Memory is only held around actual use: the cleaning LLM unloads after
+5 minutes idle and ASR inference buffers are freed after every dictation, so
+an idle Sotto holds ~1.5 GB.
 
 - **macOS 14+** (Apple Silicon or Intel) with [Homebrew](https://brew.sh) —
   the setup script installs the rest.

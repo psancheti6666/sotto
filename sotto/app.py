@@ -104,6 +104,10 @@ class Sotto:
         self._warned = False
         self.recorder.start()
         self._rec_started = time.monotonic()
+        # Warm the cleaning model while the user speaks, so a cold load (after
+        # the keep_alive window expired) overlaps the recording instead of
+        # delaying the clean stage. Near-instant no-op when already loaded.
+        threading.Thread(target=self.cleaner.warm, daemon=True).start()
         if self.overlay:
             self.overlay.show_listening()
         if self.cfg.sounds:
@@ -228,8 +232,6 @@ class Sotto:
     def run(self):
         os.makedirs(CONFIG_DIR, exist_ok=True)
         threading.Thread(target=self._worker, daemon=True).start()
-        log.info("warming Ollama model %s…", self.cfg.ollama_model)
-        self.cleaner.warm()
         self._asr_ready.wait()
         self.recorder.open()
         log.info("ready — hold %s to dictate (double-tap for hands-free)", self.cfg.hotkey)

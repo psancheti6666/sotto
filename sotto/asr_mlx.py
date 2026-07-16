@@ -35,6 +35,19 @@ class ParakeetASR:
         sr = cfg.sample_rate
         if audio.size < sr * 0.2:  # <200 ms: nothing useful
             return ""
+        try:
+            return self._transcribe(audio, chunk_duration, overlap_duration)
+        finally:
+            # MLX keeps freed inference buffers pooled at the high-water mark
+            # (~2 GB for a minute of audio) — return them to the OS; only the
+            # ~1.2 GB of weights stay resident. Re-allocating on the next
+            # dictation costs milliseconds.
+            mx.clear_cache()
+
+    def _transcribe(self, audio: np.ndarray,
+                    chunk_duration: float, overlap_duration: float) -> str:
+        cfg = self.model.preprocessor_config
+        sr = cfg.sample_rate
         data = mx.array(audio.astype(np.float32))
 
         if audio.size <= int(chunk_duration * sr):

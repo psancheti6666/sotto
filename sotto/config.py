@@ -92,7 +92,8 @@ class Config:
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "qwen3:4b-instruct"
     llm_timeout_s: float = 6.0
-    keep_alive: int = -1            # keep model resident
+    keep_alive: str = "5m"          # idle window before Ollama unloads the model
+                                    # (Ollama duration; -1 = resident forever)
     default_tone: str = "neutral written text"
 
     # Feedback (on-screen capsule, sounds, trackpad haptics)

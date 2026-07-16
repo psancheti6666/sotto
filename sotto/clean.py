@@ -63,7 +63,8 @@ def regex_clean(text: str) -> str:
 
 
 class Cleaner:
-    def __init__(self, url: str, model: str, timeout_s: float = 6.0, keep_alive: int = -1):
+    def __init__(self, url: str, model: str, timeout_s: float = 6.0,
+                 keep_alive: str | int = "5m"):
         self.url = url.rstrip("/")
         self.model = model
         self.timeout_s = timeout_s
@@ -74,7 +75,10 @@ class Cleaner:
     NUM_CTX = 8192
 
     def warm(self):
-        """Load the model into memory at startup so the first dictation isn't slow."""
+        """Ask Ollama to (re)load the model without generating anything. Called
+        when a recording starts so the load overlaps the user speaking; when the
+        model is already resident this is near-instant and just refreshes the
+        keep_alive countdown."""
         try:
             requests.post(f"{self.url}/api/chat",
                           json={"model": self.model, "messages": [],
