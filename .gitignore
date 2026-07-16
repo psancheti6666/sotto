@@ -9,11 +9,16 @@ __pycache__/
 
 # Personal Claude session notes
 CLAUDE.md
+.claude/
 
-# Local state (never commit user config, dictionaries, or logs)
+# Local state (never commit user config, dictation history, dictionaries, or logs)
 *.log
+*.bak
 .env
 .env.*
+history*.jsonl
+dictionary.txt
+config.toml
 
 # Editor
 .idea/

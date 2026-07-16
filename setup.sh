@@ -29,11 +29,22 @@ wait_for_ollama() {
 
 # =============================================================== macOS =======
 if [[ "$OS" == "Darwin" ]]; then
-  command -v brew >/dev/null || {
-    echo "Homebrew is required. Install it first:"
-    echo '  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
-    exit 1
-  }
+  if ! command -v brew >/dev/null; then
+    step "Homebrew (the standard macOS package manager) is not installed"
+    read -r -p "Install Homebrew now? It will ask for your Mac password. [Y/n] " ans
+    if [[ "$ans" =~ ^[Nn] ]]; then
+      echo "Setup needs Homebrew — install it from https://brew.sh and re-run ./setup.sh"
+      exit 1
+    fi
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    # Make brew usable in THIS shell (the installer only updates future ones).
+    if [[ "$ARCH" == "arm64" ]]; then
+      eval "$(/opt/homebrew/bin/brew shellenv)"
+    else
+      eval "$(/usr/local/bin/brew shellenv)"
+    fi
+    command -v brew >/dev/null || { echo "Homebrew install did not complete — re-run ./setup.sh"; exit 1; }
+  fi
 
   step "Checking Python 3.10+"
   if ! find_python; then

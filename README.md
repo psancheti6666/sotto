@@ -53,8 +53,8 @@ models. Memory is only held around actual use: the cleaning LLM unloads after
 5 minutes idle and ASR inference buffers are freed after every dictation, so
 an idle Sotto holds ~1.5 GB.
 
-- **macOS 14+** (Apple Silicon or Intel) with [Homebrew](https://brew.sh) —
-  the setup script installs the rest.
+- **macOS 14+** (Apple Silicon or Intel) — the setup script installs
+  everything, including [Homebrew](https://brew.sh) if it's missing.
 - **Linux** (Ubuntu/Debian or Fedora-family) with `sudo` — the setup script
   installs system packages via apt/dnf.
 
@@ -70,27 +70,60 @@ Everything else is installed automatically by `setup.sh`, including:
   the **same model** runs via ONNX on the CPU (~2.4 GB) — same accuracy,
   still around a second per utterance.
 
-## Install
+## Getting started
+
+You don't need to be a developer — it's one setup script, on any of the
+supported machines (Mac with Apple Silicon, Mac with an Intel chip, or a
+Linux desktop). You need ~10 GB of free disk for the AI models and an
+internet connection during setup (never after).
+
+### 1. Open a terminal
+
+- **macOS**: press `⌘ Space`, type `Terminal`, press Enter.
+- **Linux**: press `Ctrl+Alt+T`, or search your apps for "Terminal".
+
+### 2. Get Sotto
+
+Copy-paste these two lines and press Enter:
 
 ```sh
 git clone https://github.com/psancheti6666/sotto.git
 cd sotto
+```
+
+**macOS note:** the very first `git` command may pop up a dialog asking to
+install Apple's *Command Line Developer Tools*. Click Install, let it finish,
+then run the two lines again. (Alternatively, skip git entirely: on the
+GitHub page press the green **Code** button → **Download ZIP**, unzip it, and
+`cd` into that folder — everything works the same, you just won't get
+automatic updates.)
+
+### 3. Run setup — once
+
+```sh
 ./setup.sh
 ```
 
-That's the whole setup: it detects your OS, installs Python and Ollama if
-missing, downloads both AI models, and handles the platform-specific bits
-(the macOS Globe-key setting; the Linux `input`-group permission — **log out
-and back in after the first setup** on Linux).
+The script detects your machine and installs everything else itself,
+narrating each step: Homebrew if missing (macOS, asks you first), Python,
+Ollama, both AI models (~5 GB download — this is the long part), and the
+platform-specific bits — the Globe-key setting on macOS (asks first), system
+packages and the hotkey permission on Linux (asks for your password). Intel
+Macs and Linux automatically get the CPU speech engine; Apple Silicon gets
+the faster Neural Engine one. Nothing to choose.
 
-## Run
+**Linux only: log out and back in once after setup** — the hotkey permission
+takes effect on a fresh login.
+
+### 4. Start Sotto
 
 ```sh
 ./run.sh
 ```
 
-**macOS, first launch:** grant three permissions to your terminal app under
-**System Settings → Privacy & Security**, then restart `./run.sh`:
+**macOS, first launch:** macOS will ask you to grant three permissions to
+your terminal app under **System Settings → Privacy & Security**. Grant
+them, then run `./run.sh` again:
 
 | Permission | Why Sotto needs it |
 |---|---|
@@ -98,8 +131,12 @@ and back in after the first setup** on Linux).
 | Accessibility | to type the cleaned text at your cursor |
 | Input Monitoring | to detect the hotkey globally |
 
-**Linux, first launch:** if setup just added you to the `input` group, log
-out and back in first — otherwise the hotkey can't be detected.
+That's it: hold the hotkey (`fn` on a Mac, `Right Ctrl` on Linux), speak,
+release — the text appears at your cursor, and the dashboard opens in your
+browser.
+
+`./run.sh` also quietly updates Sotto to the latest version each time you
+start it (if you got it via git). To skip that: `SOTTO_NO_UPDATE=1 ./run.sh`.
 
 ## Using Sotto
 
