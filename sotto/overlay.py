@@ -385,6 +385,8 @@ def run_forever():
     """Own the main thread with the AppKit run loop (Ctrl+C exits)."""
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(_ACCESSORY)
+    from . import menubar
+    menubar.install()  # status item + Quit inside the .app bundle; no-op from a checkout
     # MachSignals, not signal.signal: a plain Python handler only runs when the
     # main thread executes bytecode, and with the tick timer stopped while the
     # capsule is hidden an idle run loop never does — Ctrl+C would be ignored

@@ -4,6 +4,10 @@ __pycache__/
 *.pyc
 *.egg-info/
 
+# py2app build artifacts (packaging/build_app.sh)
+build/
+dist/
+
 # macOS
 .DS_Store
 
