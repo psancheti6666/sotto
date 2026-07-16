@@ -59,10 +59,15 @@ the app so settled questions don't get reopened.
    waveform mark, click opens Insights, main menu with Edit/Window); sticky
    History/date headers + search highlighting in the page; fixed the
    pynput/TSM main-thread crash the WKWebView exposed (inject.prewarm).
-5. **DMG + release pipeline** — GitHub Actions builds both DMGs (a bundled
-   README.txt in each explains the unsigned-app "Open Anyway" steps), attached
-   to a GitHub Release. Intel build is CI-built and community-tested (no Intel
-   hardware available).
+5. **DMG + release pipeline** — ✅ done (PR for issue #10).
+   `macapp/make_dmg.sh` packages `dist/Sotto.app` into
+   `Sotto-<version>-<arch>.dmg` (app + /Applications symlink + a README.txt
+   explaining the unsigned-app "Open Anyway" steps); build_app.sh/setup_app.py
+   are arch-aware (x86_64 swaps in the ONNX ASR stack and prunes ollama to
+   x86_64 slices); `.github/workflows/release.yml` builds both DMGs on `v*`
+   tag push into a **draft** GitHub Release (published manually) or as
+   workflow artifacts on manual dispatch. Intel build is CI-built and
+   community-tested (no Intel hardware available).
 6. **"Check for updates"** menu item (manual, on-click only).
 
 ## Constraints that apply to every milestone

@@ -1,13 +1,16 @@
 #!/bin/bash
 # Created by Pratik Sancheti / https://github.com/psancheti6666
-# Build the unsigned menu-bar Sotto.app (Apple Silicon).
+# Build the unsigned menu-bar Sotto.app for the machine's architecture:
+# arm64 → MLX ASR backend, x86_64 → ONNX (setup_app.py swaps the stacks).
 # Usage: ./macapp/build_app.sh   →   dist/Sotto.app
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PY=.venv/bin/python
 [[ -x $PY ]] || { echo "No .venv — run ./setup.sh first (the build reuses the project venv)."; exit 1; }
-[[ "$(uname -sm)" == "Darwin arm64" ]] || { echo "Apple Silicon macOS only for now (Intel build lands with the DMG milestone)."; exit 1; }
+[[ "$(uname -s)" == "Darwin" ]] || { echo "macOS only."; exit 1; }
+ARCH=$(uname -m)
+[[ "$ARCH" == "arm64" || "$ARCH" == "x86_64" ]] || { echo "Unsupported architecture: $ARCH"; exit 1; }
 
 # Build-only dependency, pinned. Never goes in requirements.txt (CI stays lean).
 # Always `python -m pip`: the venv's pip script has a stale shebang from a
@@ -17,8 +20,11 @@ PY=.venv/bin/python
 # The mlx wheel ships no top-level __init__.py (namespace package), which
 # py2app's `packages` collector can't locate. An empty regular-package marker
 # is harmless at runtime and makes the verbatim copy work. Idempotent.
-MLX_INIT="$("$PY" -c 'import mlx.core, os; print(os.path.join(os.path.dirname(os.path.dirname(mlx.core.__file__)), "mlx", "__init__.py"))')"
-[[ -f "$MLX_INIT" ]] || touch "$MLX_INIT"
+# arm64 only — the Intel build has no mlx installed (ONNX backend instead).
+if [[ "$ARCH" == "arm64" ]]; then
+  MLX_INIT="$("$PY" -c 'import mlx.core, os; print(os.path.join(os.path.dirname(os.path.dirname(mlx.core.__file__)), "mlx", "__init__.py"))')"
+  [[ -f "$MLX_INIT" ]] || touch "$MLX_INIT"
+fi
 
 # Stale py2app build dirs produce subtly broken bundles — always start clean.
 rm -rf build dist
@@ -45,18 +51,20 @@ echo "$OLLAMA_SHA256  $TGZ" | shasum -a 256 -c - >/dev/null
 OLDIR=dist/Sotto.app/Contents/Resources/ollama
 mkdir -p "$OLDIR"
 tar -xzf "$TGZ" -C "$OLDIR"
-# Prune to what serving a GGUF model on Apple Silicon actually uses (verified:
-# Metal is embedded in libggml — all layers GPU-offload without these):
-#  - mlx_metal_*: ollama's optional MLX engine, 348 MB
-#  - anything without an arm64 slice (Intel CPU variants, x86-only dylibs;
-#    fat binaries are thinned to their arm64 half)
+# Prune the universal tarball to what serving a GGUF model on THIS arch uses
+# (verified on arm64: Metal is embedded in libggml — all layers GPU-offload
+# without these; the same thinning applies symmetrically on x86_64):
+#  - mlx_metal_*: ollama's optional MLX engine, 348 MB, Apple-Silicon-only
+#    and unused by the GGUF path — dropped on both arches
+#  - anything without a slice for the build arch (the other arch's CPU
+#    variants and dylibs; fat binaries are thinned to the matching half)
 rm -rf "$OLDIR"/mlx_metal_*
 find "$OLDIR" -type f | while read -r f; do
   archs=$(lipo -archs "$f" 2>/dev/null) || continue   # not Mach-O (LICENSE etc.)
   case "$archs" in
-    arm64)    ;;                                       # already thin arm64
-    *arm64*)  lipo -thin arm64 "$f" -output "$f.thin" && mv "$f.thin" "$f" ;;
-    *)        rm "$f" ;;
+    "$ARCH")   ;;                                      # already thin
+    *"$ARCH"*) lipo -thin "$ARCH" "$f" -output "$f.thin" && mv "$f.thin" "$f" ;;
+    *)         rm "$f" ;;
   esac
 done
 find "$OLDIR" -type l ! -exec test -e {} \; -delete    # now-dangling symlinks
