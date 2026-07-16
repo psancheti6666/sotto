@@ -4,108 +4,250 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>sotto</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cg fill='%23e8836f'%3E%3Crect x='3' y='13' width='3' height='6' rx='1.5'/%3E%3Crect x='8' y='9' width='3' height='14' rx='1.5'/%3E%3Crect x='13' y='4' width='3' height='24' rx='1.5'/%3E%3Crect x='18' y='9' width='3' height='14' rx='1.5' opacity='.75'/%3E%3Crect x='23' y='13' width='3' height='6' rx='1.5' opacity='.5'/%3E%3Ccircle cx='29' cy='16' r='1.5' opacity='.3'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cg fill='%23d96f57'%3E%3Crect x='3' y='13' width='3' height='6' rx='1.5'/%3E%3Crect x='8' y='9' width='3' height='14' rx='1.5'/%3E%3Crect x='13' y='4' width='3' height='24' rx='1.5'/%3E%3Crect x='18' y='9' width='3' height='14' rx='1.5' opacity='.75'/%3E%3Crect x='23' y='13' width='3' height='6' rx='1.5' opacity='.5'/%3E%3Ccircle cx='29' cy='16' r='1.5' opacity='.3'/%3E%3C/g%3E%3C/svg%3E">
+<script>
+  // Set the theme before first paint — no flash. Stored choice wins,
+  // otherwise follow the OS.
+  (function () {
+    const saved = localStorage.getItem("sotto-theme");
+    document.documentElement.dataset.theme =
+      saved || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  })();
+</script>
 <style>
-  :root {
-    --bg: #faf7f2;         /* warm off-white, from the logo */
-    --card: #ffffff;
-    --ink: #232939;        /* deep ink navy, from the logo */
-    --muted: #8a8f9c;
-    --line: #e8e3da;
-    --accent: #232939;
-    --bar: #232939;
-    --hover: #f3efe8;
+  :root[data-theme="light"] {
+    --bg: #f6f1e7;
+    --card: #fdfaf3;
+    --ink: #262a3a;
+    --muted: #96907e;
+    --faint: #b8b09b;
+    --line: #e5dcc8;
+    --accent: #d96f57;
+    --accent-ink: #b5543e;
+    --accent-soft: rgba(217, 111, 87, 0.12);
+    --bar: #2e3247;
+    --wash: rgba(217, 111, 87, 0.05);
+    --grain-opacity: 0.5;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #16181f;
-      --card: #1e212b;
-      --ink: #f0ede7;
-      --muted: #8a8f9c;
-      --line: #2c303c;
-      --accent: #f0ede7;
-      --bar: #b8bdca;
-      --hover: #262a36;
-    }
+  :root[data-theme="dark"] {
+    --bg: #15171e;
+    --card: #1d2029;
+    --ink: #eae4d6;
+    --muted: #8d897c;
+    --faint: #5d5a50;
+    --line: #2b2e39;
+    --accent: #e0876c;
+    --accent-ink: #e0876c;
+    --accent-soft: rgba(224, 135, 108, 0.14);
+    --bar: #c9c2b0;
+    --wash: rgba(224, 135, 108, 0.04);
+    --grain-opacity: 0.25;
   }
   * { box-sizing: border-box; margin: 0; }
+  html { scrollbar-gutter: stable; }
   body {
     background: var(--bg); color: var(--ink);
-    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-          "Helvetica Neue", Arial, sans-serif;
+    font: 15px/1.55 "Avenir Next", Avenir, Seravek, "Gill Sans",
+          "Helvetica Neue", Helvetica, Arial, sans-serif;
+    transition: background 0.3s, color 0.3s;
+    min-height: 100vh;
   }
-  .wrap { max-width: 860px; margin: 0 auto; padding: 40px 24px 80px; }
-
-  header { display: flex; align-items: center; gap: 12px; margin-bottom: 36px; }
-  header svg { display: block; }
-  header .mark { fill: var(--ink); }
-  header h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.5px; }
-  header .sub { margin-left: auto; color: var(--muted); font-size: 13px; }
-
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-           gap: 14px; margin-bottom: 14px; }
-  .stat {
-    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
-    padding: 18px 20px;
+  /* paper: a faint warm wash + grain, both generated locally */
+  body::before {
+    content: ""; position: fixed; inset: 0; z-index: -1;
+    background:
+      radial-gradient(900px 420px at 12% -8%, var(--wash), transparent 70%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.47 0 0 0 0 0.42 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+    opacity: var(--grain-opacity);
   }
-  .stat .num { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
-  .stat .label { color: var(--muted); font-size: 12px; text-transform: uppercase;
-                 letter-spacing: 0.6px; margin-top: 2px; }
-
-  .chart-card {
-    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
-    padding: 18px 20px 12px; margin-bottom: 36px;
+  .serif { font-family: "Iowan Old Style", "Palatino", "Book Antiqua",
+           "URW Palladio L", Georgia, serif; }
+  .label {
+    font: 600 10px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
   }
-  .chart-card .label { color: var(--muted); font-size: 12px; text-transform: uppercase;
-                       letter-spacing: 0.6px; margin-bottom: 10px; }
-  #chart { width: 100%; height: 110px; display: block; }
-  #chart rect { fill: var(--bar); opacity: 0.85; }
-  #chart rect.empty { opacity: 0.12; }
-  #chart text { fill: var(--muted); font-size: 9px; }
 
-  .listhead { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; }
-  .listhead h2 { font-size: 17px; font-weight: 650; }
+  .wrap { max-width: 1020px; margin: 0 auto; padding: 30px 28px 90px; }
+
+  /* ---------- top bar ---------- */
+  .topbar { display: flex; align-items: center; gap: 14px; margin-bottom: 54px; }
+  .topbar .mark { fill: var(--ink); display: block; }
+  .topbar .name { font-size: 21px; font-weight: 700; letter-spacing: -0.02em; }
+  .chip {
+    font: 500 10px/1 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);
+    border: 1px solid var(--line); border-radius: 999px; padding: 6px 11px;
+  }
+  .chip .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+               background: var(--accent); margin-right: 6px; vertical-align: 1px; }
+  #theme {
+    margin-left: auto; cursor: pointer; border: 1px solid var(--line);
+    background: var(--card); color: var(--muted); border-radius: 999px;
+    width: 36px; height: 36px; display: grid; place-items: center;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  #theme:hover { color: var(--ink); border-color: var(--muted); }
+  #theme svg { width: 16px; height: 16px; fill: none; stroke: currentColor;
+               stroke-width: 1.6; stroke-linecap: round; }
+  :root[data-theme="light"] .only-dark { display: none; }
+  :root[data-theme="dark"] .only-light { display: none; }
+
+  /* ---------- reveal ---------- */
+  @keyframes rise { from { opacity: 0; transform: translateY(14px); }
+                    to { opacity: 1; transform: none; } }
+  .reveal { opacity: 0; animation: rise 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) forwards; }
+
+  /* ---------- hero ---------- */
+  .hero h1 { font-size: clamp(30px, 4.6vw, 44px); font-weight: 400;
+             letter-spacing: -0.01em; }
+  .hero h1 em { font-style: italic; color: var(--accent-ink); }
+  .hero .sub { color: var(--muted); margin-top: 8px; font-size: 15px; }
+
+  /* ---------- stat band ---------- */
+  .band { display: grid; grid-template-columns: 1.1fr 1.4fr; gap: 16px;
+          margin: 40px 0 16px; }
+  .feature {
+    background: var(--card); border: 1px solid var(--line); border-radius: 18px;
+    padding: 26px 30px 22px; display: flex; flex-direction: column;
+  }
+  .feature .num { font-size: clamp(52px, 7vw, 76px); line-height: 1.05;
+                  letter-spacing: -0.02em; margin-top: 14px;
+                  font-variant-numeric: oldstyle-nums; }
+  .feature .foot { color: var(--muted); font-size: 13px; margin-top: auto;
+                   padding-top: 12px; }
+  .smalls { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .stat { background: var(--card); border: 1px solid var(--line);
+          border-radius: 18px; padding: 18px 22px 15px; }
+  .stat .num { font-size: 30px; letter-spacing: -0.01em; margin-top: 8px;
+               font-variant-numeric: oldstyle-nums; }
+  .stat .num small { font-size: 15px; color: var(--muted); font-family: inherit; }
+
+  /* ---------- chart ---------- */
+  .chart-card { background: var(--card); border: 1px solid var(--line);
+                border-radius: 18px; padding: 20px 24px 12px; }
+  .chart-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+  .chart-head .hint { margin-left: auto; color: var(--faint); font-size: 12px; }
+  #chart { width: 100%; height: 120px; display: block; }
+  #chart rect { fill: var(--bar); opacity: 0.82;
+                transform-box: fill-box; transform-origin: bottom; }
+  #chart rect:hover { opacity: 1; }
+  #chart rect.today { fill: var(--accent); opacity: 1; }
+  #chart rect.zero { opacity: 0.1; }
+  #chart text { fill: var(--faint); font-size: 9px;
+                font-family: ui-monospace, Menlo, monospace; }
+  @keyframes grow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+  #chart rect { animation: grow 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) backwards; }
+
+  /* ---------- main grid ---------- */
+  .main { display: grid; grid-template-columns: 1fr 300px; gap: 16px;
+          align-items: start; margin-top: 44px; }
+  .col-history { min-width: 0; }
+  .listhead { display: flex; align-items: center; gap: 16px; margin-bottom: 6px; }
+  .listhead h2 { font-size: 24px; font-weight: 400; }
   #search {
-    margin-left: auto; width: 240px; padding: 8px 12px; font: inherit;
+    margin-left: auto; width: 230px; padding: 9px 14px; font: inherit;
     font-size: 14px; color: var(--ink); background: var(--card);
-    border: 1px solid var(--line); border-radius: 10px; outline: none;
+    border: 1px solid var(--line); border-radius: 999px; outline: none;
+    transition: border-color 0.2s;
   }
-  #search:focus { border-color: var(--muted); }
+  #search::placeholder { color: var(--faint); }
+  #search:focus { border-color: var(--accent); }
 
-  .day { color: var(--muted); font-size: 12px; text-transform: uppercase;
-         letter-spacing: 0.8px; margin: 26px 0 10px 4px; }
+  .day { margin: 26px 0 10px 4px; }
+  .day span { color: var(--faint); font-weight: 500; }
   .entry {
     display: flex; gap: 18px; background: var(--card);
-    border: 1px solid var(--line); border-radius: 14px;
-    padding: 14px 18px; margin-bottom: 10px; cursor: pointer;
-    transition: background 0.12s;
-    position: relative;
+    border: 1px solid var(--line); border-radius: 16px;
+    padding: 15px 18px; margin-bottom: 10px; cursor: pointer;
+    position: relative; transition: border-color 0.15s, transform 0.15s;
   }
-  .entry:hover { background: var(--hover); }
-  .entry .time { color: var(--muted); font-size: 13px; white-space: nowrap;
-                 min-width: 64px; padding-top: 1px; }
-  .entry .text { flex: 1; white-space: pre-wrap; word-break: break-word; }
-  .entry .meta { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .entry:hover { border-color: var(--muted); transform: translateY(-1px); }
+  .entry:active { transform: none; }
+  .entry .time { color: var(--muted); font-size: 12.5px; white-space: nowrap;
+                 min-width: 62px; padding-top: 2px;
+                 font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .entry .text { flex: 1; white-space: pre-wrap; word-break: break-word;
+                 font-size: 15px; }
+  .entry .meta { color: var(--muted); font-size: 12px; margin-top: 7px; }
   .entry .copied {
     position: absolute; top: 12px; right: 14px; font-size: 12px;
-    color: var(--bg); background: var(--accent); border-radius: 8px;
-    padding: 3px 9px; opacity: 0; transition: opacity 0.15s; pointer-events: none;
+    color: var(--card); background: var(--accent); border-radius: 999px;
+    padding: 3px 10px; opacity: 0; transition: opacity 0.15s; pointer-events: none;
   }
   .entry .copied.show { opacity: 1; }
-
   #more {
-    display: none; margin: 18px auto 0; padding: 9px 22px; font: inherit;
+    display: none; margin: 18px auto 0; padding: 9px 24px; font: inherit;
     font-size: 14px; color: var(--ink); background: var(--card);
-    border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+    border: 1px solid var(--line); border-radius: 999px; cursor: pointer;
   }
-  #more:hover { background: var(--hover); }
-  .empty-state { color: var(--muted); text-align: center; padding: 48px 0; }
+  #more:hover { border-color: var(--muted); }
+  .empty-state { color: var(--muted); text-align: center; padding: 44px 0;
+                 font-style: italic; }
+
+  /* ---------- sidebar ---------- */
+  .side { position: sticky; top: 22px; display: flex; flex-direction: column;
+          gap: 16px; }
+  .panel { background: var(--card); border: 1px solid var(--line);
+           border-radius: 18px; padding: 18px 20px; }
+  .streak-row { display: flex; align-items: baseline; gap: 10px; margin-top: 10px; }
+  .streak-row .num { font-size: 34px; }
+  .streak-row .unit { color: var(--muted); font-size: 13px; }
+  .dots { display: flex; gap: 6px; margin-top: 12px; }
+  .dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+  .dots i.on { background: var(--accent); }
+  .dots i.today { outline: 2px solid var(--accent-soft); outline-offset: 2px; }
+
+  .apps { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .app-row .top { display: flex; justify-content: space-between; font-size: 13px; }
+  .app-row .top b { font-weight: 600; }
+  .app-row .top span { color: var(--muted); font-size: 12px; }
+  .app-row .track { height: 4px; border-radius: 2px; background: var(--accent-soft);
+                    margin-top: 5px; overflow: hidden; }
+  .app-row .fill { height: 100%; border-radius: 2px; background: var(--accent);
+                   transform-origin: left; animation: growx 0.6s 0.3s
+                   cubic-bezier(0.2, 0.7, 0.2, 1) backwards; }
+  @keyframes growx { from { transform: scaleX(0); } }
+
+  .dict-hint { color: var(--muted); font-size: 12.5px; margin-top: 8px; }
+  .dict-form { display: flex; gap: 8px; margin-top: 12px; }
+  #dict-input { flex: 1; min-width: 0; padding: 8px 12px; font: inherit;
+                font-size: 13.5px; color: var(--ink); background: var(--bg);
+                border: 1px solid var(--line); border-radius: 10px; outline: none; }
+  #dict-input:focus { border-color: var(--accent); }
+  #dict-add { padding: 8px 14px; font: inherit; font-size: 13.5px; font-weight: 600;
+              color: var(--card); background: var(--ink); border: 0;
+              border-radius: 10px; cursor: pointer; }
+  #dict-add:hover { background: var(--accent); }
+  .terms { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
+  .term {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 13px;
+    border: 1px solid var(--line); border-radius: 999px; padding: 4px 6px 4px 11px;
+    animation: rise 0.3s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+  }
+  .term button {
+    border: 0; background: none; color: var(--faint); cursor: pointer;
+    font-size: 13px; line-height: 1; padding: 2px 4px; border-radius: 50%;
+  }
+  .term button:hover { color: var(--accent-ink); }
+  .dict-empty { color: var(--faint); font-size: 13px; font-style: italic;
+                margin-top: 12px; }
+
+  footer { margin-top: 70px; text-align: center; color: var(--faint);
+           font-size: 12.5px; }
+  footer .tilde { color: var(--accent); }
+
+  @media (max-width: 900px) {
+    .band { grid-template-columns: 1fr; }
+    .main { grid-template-columns: 1fr; }
+    .side { position: static; }
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header>
-    <svg class="mark" width="34" height="34" viewBox="0 0 32 32" aria-hidden="true">
+
+  <div class="topbar reveal">
+    <svg class="mark" width="30" height="30" viewBox="0 0 32 32" aria-hidden="true">
       <rect x="3" y="13" width="3" height="6" rx="1.5"/>
       <rect x="8" y="9" width="3" height="14" rx="1.5"/>
       <rect x="13" y="4" width="3" height="24" rx="1.5"/>
@@ -113,23 +255,86 @@
       <rect x="23" y="13" width="3" height="6" rx="1.5" opacity=".5"/>
       <circle cx="29" cy="16" r="1.5" opacity=".3"/>
     </svg>
-    <h1>sotto</h1>
-    <span class="sub">everything on this page stays on your machine</span>
-  </header>
+    <span class="name serif">sotto</span>
+    <span class="chip" id="local-chip"><span class="dot"></span>100% local</span>
+    <button id="theme" title="Toggle light / dark" aria-label="Toggle theme">
+      <svg class="only-light" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.4"/><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5 5l1.7 1.7M17.3 17.3 19 19M19 5l-1.7 1.7M6.7 17.3 5 19"/></svg>
+      <svg class="only-dark" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5Z"/></svg>
+    </button>
+  </div>
 
-  <div class="stats" id="stats"></div>
+  <div class="hero reveal" style="animation-delay:.06s">
+    <h1 class="serif" id="greeting">&nbsp;</h1>
+    <p class="sub" id="subline"></p>
+  </div>
 
-  <div class="chart-card">
-    <div class="label">Words per day — last 14 days</div>
+  <div class="band reveal" style="animation-delay:.14s">
+    <div class="feature">
+      <span class="label">Total words dictated</span>
+      <div class="num serif" id="total-words">—</div>
+      <div class="foot" id="feature-foot"></div>
+    </div>
+    <div class="smalls">
+      <div class="stat"><span class="label">Today</span>
+        <div class="num serif" id="today-words">—</div></div>
+      <div class="stat"><span class="label">Dictations</span>
+        <div class="num serif" id="dictations">—</div></div>
+      <div class="stat"><span class="label">Speaking pace</span>
+        <div class="num serif" id="wpm">—</div></div>
+      <div class="stat"><span class="label">Saved vs typing</span>
+        <div class="num serif" id="saved">—</div></div>
+    </div>
+  </div>
+
+  <div class="chart-card reveal" style="animation-delay:.22s">
+    <div class="chart-head">
+      <span class="label">Words per day</span>
+      <span class="hint">last 14 days</span>
+    </div>
     <svg id="chart" preserveAspectRatio="none"></svg>
   </div>
 
-  <div class="listhead">
-    <h2>History</h2>
-    <input id="search" type="search" placeholder="Search dictations…">
+  <div class="main reveal" style="animation-delay:.3s">
+    <div class="col-history">
+      <div class="listhead">
+        <h2 class="serif">History</h2>
+        <input id="search" type="search" placeholder="Search dictations…">
+      </div>
+      <div id="list"></div>
+      <button id="more">Show more</button>
+    </div>
+
+    <div class="side">
+      <div class="panel">
+        <span class="label">Streak</span>
+        <div class="streak-row">
+          <span class="num serif" id="streak">0</span>
+          <span class="unit" id="streak-unit">days in a row</span>
+        </div>
+        <div class="dots" id="dots"></div>
+      </div>
+
+      <div class="panel">
+        <span class="label">Where you dictate</span>
+        <div class="apps" id="apps"></div>
+      </div>
+
+      <div class="panel">
+        <span class="label">Personal dictionary</span>
+        <p class="dict-hint">Names and jargon Sotto should always spell right.
+           Changes apply to the next dictation.</p>
+        <div class="dict-form">
+          <input id="dict-input" placeholder="Add a term…" spellcheck="false">
+          <button id="dict-add">Add</button>
+        </div>
+        <div class="terms" id="terms"></div>
+      </div>
+    </div>
   </div>
-  <div id="list"></div>
-  <button id="more">Show more</button>
+
+  <footer class="reveal" style="animation-delay:.4s">
+    <span class="tilde">~</span> everything on this page lives in ~/.sotto — nothing leaves this machine <span class="tilde">~</span>
+  </footer>
 </div>
 
 <script>
@@ -137,6 +342,14 @@
 const PAGE = 200;
 let allEntries = [], shown = 0, query = "";
 
+/* ---------- theme ---------- */
+document.getElementById("theme").addEventListener("click", () => {
+  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  localStorage.setItem("sotto-theme", next);
+});
+
+/* ---------- formatting ---------- */
 function fmtDuration(s) {
   const t = Math.round(s);
   if (t < 60) return t + "s";
@@ -166,33 +379,64 @@ function dayLabel(d) {
   if (diff === 1) return "Yesterday";
   return d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
 }
+const APP_NAMES = {   // bundle-id tails that don't read as app names
+  slackmacgap: "Slack", mobilesms: "Messages", iterm2: "iTerm",
+  "230313mzl4w4u92": "Cursor", hnc: "Discord", wezterm: "WezTerm",
+};
 function appName(id) {
   if (!id) return "";
   const last = id.split(".").pop();          // bundle id → last segment
-  return last.charAt(0).toUpperCase() + last.slice(1);
+  const known = APP_NAMES[last.toLowerCase()];
+  return known || last.charAt(0).toUpperCase() + last.slice(1);
 }
 
-function statCard(num, label) {
-  const div = document.createElement("div");
-  div.className = "stat";
-  const n = document.createElement("div"); n.className = "num"; n.textContent = num;
-  const l = document.createElement("div"); l.className = "label"; l.textContent = label;
-  div.append(n, l);
-  return div;
+/* ---------- hero ---------- */
+function renderHero(meta, stats) {
+  const h = new Date().getHours();
+  const part = h < 5 ? "Up late" : h < 12 ? "Good morning" :
+               h < 18 ? "Good afternoon" : "Good evening";
+  const g = document.getElementById("greeting");
+  g.textContent = part + (meta.user ? ", " : ".");
+  if (meta.user) {
+    const em = document.createElement("em");
+    em.textContent = meta.user;
+    g.append(em, document.createTextNode("."));
+  }
+  const sub = document.getElementById("subline");
+  if (stats.total_words > 0) {
+    sub.textContent = stats.total_words.toLocaleString() + " words spoken into " +
+      (meta.host || "this machine") + " — every one of them still on it.";
+  } else {
+    sub.textContent = "Hold the hotkey and speak — your dictations will appear here.";
+  }
+  const chip = document.getElementById("local-chip");
+  if (meta.host) chip.lastChild.textContent = "100% local · " + meta.host;
 }
 
+/* ---------- stats ---------- */
+function setNum(id, text) { document.getElementById(id).textContent = text; }
 function renderStats(s) {
-  const box = document.getElementById("stats");
-  box.replaceChildren(
-    statCard(s.total_words.toLocaleString(), "total words"),
-    statCard(s.total_dictations.toLocaleString(), "dictations"),
-    statCard(s.avg_wpm ? Math.round(s.avg_wpm) : "—", "words / minute"),
-    statCard(fmtSaved(s.time_saved_min), "saved vs typing"));
+  setNum("total-words", s.total_words.toLocaleString());
+  setNum("today-words", s.today_words.toLocaleString());
+  setNum("dictations", s.total_dictations.toLocaleString());
+  const wpm = document.getElementById("wpm");
+  wpm.textContent = s.avg_wpm ? Math.round(s.avg_wpm) : "—";
+  if (s.avg_wpm) {
+    const small = document.createElement("small");
+    small.textContent = " wpm";
+    wpm.appendChild(small);
+  }
+  setNum("saved", fmtSaved(s.time_saved_min));
+  const mins = Math.round(s.total_audio_s / 60);
+  document.getElementById("feature-foot").textContent = s.total_dictations
+    ? "across " + fmtSaved(mins) + " of speaking"
+    : "";
 }
 
+/* ---------- chart ---------- */
 function renderChart(days) {
   const svg = document.getElementById("chart");
-  const W = 700, H = 110, pad = 2, labelH = 14;
+  const W = 700, H = 120, pad = 2, labelH = 14;
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   svg.replaceChildren();
   const max = Math.max(1, ...days.map(d => d.words));
@@ -205,7 +449,9 @@ function renderChart(days) {
     r.setAttribute("width", bw - pad * 2);
     r.setAttribute("height", h);
     r.setAttribute("rx", 3);
-    if (!d.words) r.setAttribute("class", "empty");
+    r.style.animationDelay = (0.25 + i * 0.03) + "s";
+    if (i === days.length - 1) r.setAttribute("class", "today");
+    else if (!d.words) r.setAttribute("class", "zero");
     const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
     title.textContent = `${d.date}: ${d.words.toLocaleString()} words`;
     r.appendChild(title);
@@ -219,6 +465,94 @@ function renderChart(days) {
   });
 }
 
+/* ---------- sidebar: streak + apps ---------- */
+function renderStreak(s) {
+  setNum("streak", s.streak_days);
+  document.getElementById("streak-unit").textContent =
+    s.streak_days === 1 ? "day — keep it going" : "days in a row";
+  const dots = document.getElementById("dots");
+  dots.replaceChildren();
+  const week = s.words_per_day.slice(-7);
+  week.forEach((d, i) => {
+    const dot = document.createElement("i");
+    if (d.words) dot.className = "on";
+    if (i === week.length - 1) dot.classList.add("today");
+    dot.title = `${d.date}: ${d.words.toLocaleString()} words`;
+    dots.appendChild(dot);
+  });
+}
+function renderApps(apps) {
+  const box = document.getElementById("apps");
+  box.replaceChildren();
+  if (!apps.length) {
+    const p = document.createElement("p");
+    p.className = "dict-empty";
+    p.textContent = "No dictations yet.";
+    box.appendChild(p);
+    return;
+  }
+  const max = apps[0].words || 1;
+  for (const a of apps) {
+    const row = document.createElement("div"); row.className = "app-row";
+    const top = document.createElement("div"); top.className = "top";
+    const name = document.createElement("b"); name.textContent = appName(a.app);
+    const count = document.createElement("span");
+    count.textContent = a.words.toLocaleString() + " words";
+    top.append(name, count);
+    const track = document.createElement("div"); track.className = "track";
+    const fill = document.createElement("div"); fill.className = "fill";
+    fill.style.width = Math.max(4, (a.words / max) * 100) + "%";
+    track.appendChild(fill);
+    row.append(top, track);
+    box.appendChild(row);
+  }
+}
+
+/* ---------- dictionary ---------- */
+function renderTerms(terms) {
+  const box = document.getElementById("terms");
+  box.replaceChildren();
+  if (!terms.length) {
+    const p = document.createElement("p");
+    p.className = "dict-empty";
+    p.textContent = "Nothing yet — add a name the recognizer keeps mishearing.";
+    box.appendChild(p);
+    return;
+  }
+  terms.forEach((term, i) => {
+    const chip = document.createElement("span");
+    chip.className = "term";
+    chip.style.animationDelay = Math.min(i * 0.02, 0.3) + "s";
+    const label = document.createElement("span");
+    label.textContent = term;
+    const x = document.createElement("button");
+    x.textContent = "✕";
+    x.title = "Remove " + term;
+    x.addEventListener("click", () => mutateDict({ remove: term }));
+    chip.append(label, x);
+    box.appendChild(chip);
+  });
+}
+function mutateDict(body) {
+  fetch("/api/dictionary", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Sotto": "1" },
+    body: JSON.stringify(body),
+  }).then(r => r.json()).then(d => renderTerms(d.terms)).catch(() => {});
+}
+document.getElementById("dict-add").addEventListener("click", addTerm);
+document.getElementById("dict-input").addEventListener("keydown", ev => {
+  if (ev.key === "Enter") addTerm();
+});
+function addTerm() {
+  const input = document.getElementById("dict-input");
+  const term = input.value.trim();
+  if (!term) return;
+  input.value = "";
+  mutateDict({ add: term });
+}
+
+/* ---------- history list ---------- */
 function entryCard(e) {
   const d = new Date(e.ts);
   const card = document.createElement("div");
@@ -277,8 +611,10 @@ function renderList(reset) {
     const key = isNaN(d) ? "unknown" : d.toDateString();
     if (key !== lastDay) {
       const h = document.createElement("div");
-      h.className = "day";
-      h.textContent = isNaN(d) ? "Unknown date" : dayLabel(d);
+      h.className = "day label";
+      const s = document.createElement("span");
+      s.textContent = isNaN(d) ? "Unknown date" : dayLabel(d);
+      h.appendChild(s);
       list.appendChild(h);
       lastDay = key;
     }
@@ -294,17 +630,25 @@ document.getElementById("search").addEventListener("input", ev => {
   renderList(true);
 });
 
+/* ---------- load ---------- */
 fetch("/api/history")
   .then(r => r.json())
   .then(data => {
     allEntries = data.entries || [];
+    renderHero(data.meta || {}, data.stats);
     renderStats(data.stats);
     renderChart(data.stats.words_per_day || []);
+    renderStreak(data.stats);
+    renderApps(data.stats.top_apps || []);
     renderList(true);
   })
   .catch(() => {
     document.getElementById("list").textContent = "Could not load history.";
   });
+fetch("/api/dictionary")
+  .then(r => r.json())
+  .then(d => renderTerms(d.terms || []))
+  .catch(() => {});
 </script>
 </body>
 </html>

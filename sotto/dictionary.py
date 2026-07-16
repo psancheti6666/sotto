@@ -11,6 +11,38 @@ import re
 from rapidfuzz import fuzz
 
 
+def read_terms(path: str) -> list:
+    if not os.path.exists(path):
+        return []
+    with open(path) as f:
+        return [line.strip() for line in f
+                if line.strip() and not line.startswith("#")]
+
+
+def add_term(term: str, path: str) -> list:
+    """Append a term (no-op if already present, case-insensitively)."""
+    term = term.strip()
+    terms = read_terms(path)
+    if term and term.lower() not in (t.lower() for t in terms):
+        with open(path, "a") as f:
+            f.write(term + "\n")
+        terms.append(term)
+    return terms
+
+
+def remove_term(term: str, path: str) -> list:
+    """Delete a term, keeping any comment/blank lines the user put in the file."""
+    term = term.strip().lower()
+    if not os.path.exists(path):
+        return []
+    with open(path) as f:
+        lines = f.readlines()
+    kept = [l for l in lines if l.strip().lower() != term or l.startswith("#")]
+    with open(path, "w") as f:
+        f.writelines(kept)
+    return read_terms(path)
+
+
 class Dictionary:
     def __init__(self, path: str, threshold: int = 85):
         self.path = path

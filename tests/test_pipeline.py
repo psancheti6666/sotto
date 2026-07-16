@@ -402,9 +402,23 @@ def test_stats():
     check("14 zero-filled day buckets", len(days) == 14 and days[0]["words"] == 0, str(len(days)))
     check("today bucketed", days[-1] == {"date": "2026-07-16", "words": 100}, str(days[-1]))
     check("yesterday bucketed", days[-2] == {"date": "2026-07-15", "words": 20}, str(days[-2]))
+    check("today's words", s["today_words"] == 100, str(s["today_words"]))
+    check("streak counts consecutive days", s["streak_days"] == 2, str(s["streak_days"]))
+    # streak survives when today has no dictations yet
+    s2 = compute_stats(entries[1:], today=today)
+    check("streak not broken before dictating today", s2["streak_days"] == 1,
+          str(s2["streak_days"]))
+    apps = compute_stats([
+        {"ts": "2026-07-16T10:00:00", "words": 5, "duration_s": 1, "app": "slack"},
+        {"ts": "2026-07-16T10:01:00", "words": 9, "duration_s": 1, "app": "code"},
+        {"ts": "2026-07-16T10:02:00", "words": 4, "duration_s": 1, "app": "code"},
+    ], today=today)["top_apps"]
+    check("top apps by words", [a["app"] for a in apps] == ["code", "slack"]
+          and apps[0] == {"app": "code", "words": 13, "count": 2}, str(apps))
     empty = compute_stats([], today=today)
     check("empty history → zeros, no div-by-zero",
-          empty["avg_wpm"] == 0.0 and empty["total_words"] == 0)
+          empty["avg_wpm"] == 0.0 and empty["total_words"] == 0
+          and empty["streak_days"] == 0 and empty["top_apps"] == [])
 
 
 def test_dashboard():
@@ -419,9 +433,20 @@ def test_dashboard():
                               "words": 1, "duration_s": 1.0, "app": "x"}, path)
         history.append_entry({"ts": "2026-07-16T10:05:00+05:30", "text": "second",
                               "words": 1, "duration_s": 1.0, "app": "x"}, path)
-        server = dashboard.start(0, history_path=path)  # port 0 = ephemeral
+        dict_path = os.path.join(td, "dictionary.txt")
+        with open(dict_path, "w") as f:
+            f.write("# names\nAnthropic\n")
+        server = dashboard.start(0, history_path=path,  # port 0 = ephemeral
+                                 dictionary_path=dict_path)
         check("server started", server is not None)
         base = f"http://127.0.0.1:{server.server_address[1]}"
+
+        def post(body, headers=None):
+            req = urllib.request.Request(
+                base + "/api/dictionary", data=jsonmod.dumps(body).encode(),
+                headers={"Content-Type": "application/json", **(headers or {})})
+            return jsonmod.loads(urllib.request.urlopen(req, timeout=5).read())
+
         try:
             page = urllib.request.urlopen(base + "/", timeout=5).read().decode()
             check("page served", "sotto" in page and "/api/history" in page)
@@ -431,6 +456,27 @@ def test_dashboard():
             check("entries newest first", texts == ["second", "first"], str(texts))
             check("stats included", data["stats"]["total_words"] == 2,
                   str(data["stats"]))
+            check("meta has user + host", "user" in data["meta"] and "host" in data["meta"],
+                  str(data["meta"]))
+            terms = jsonmod.loads(urllib.request.urlopen(
+                base + "/api/dictionary", timeout=5).read())["terms"]
+            check("dictionary read (comments skipped)", terms == ["Anthropic"], str(terms))
+            got = post({"add": "Kubernetes"}, {"X-Sotto": "1"})
+            check("dictionary add", got["terms"] == ["Anthropic", "Kubernetes"],
+                  str(got))
+            got = post({"add": "kubernetes"}, {"X-Sotto": "1"})
+            check("duplicate add is a no-op", got["terms"] == ["Anthropic", "Kubernetes"],
+                  str(got))
+            got = post({"remove": "Anthropic"}, {"X-Sotto": "1"})
+            check("dictionary remove", got["terms"] == ["Kubernetes"], str(got))
+            with open(dict_path) as f:
+                check("comment lines survive edits", f.read().startswith("# names"),
+                      open(dict_path).read())
+            try:
+                post({"add": "Evil"})
+                check("mutation without X-Sotto → 403", False, "no error raised")
+            except urllib.error.HTTPError as e:
+                check("mutation without X-Sotto → 403", e.code == 403, str(e.code))
             try:
                 urllib.request.urlopen(base + "/nope", timeout=5)
                 check("unknown path → 404", False, "no error raised")

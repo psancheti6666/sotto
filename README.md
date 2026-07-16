@@ -24,8 +24,8 @@ uploaded anywhere, **$0 to run**.
   to finish. A live waveform capsule at the bottom of the screen shows it's
   listening, with a countdown when time is nearly up.
 - **Personal dictionary** — put names and jargon in `~/.sotto/dictionary.txt`
-  (one per line) and Sotto will spell them correctly even when the recognizer
-  mishears them.
+  (one per line, or manage it from the dashboard) and Sotto will spell them
+  correctly even when the recognizer mishears them.
 - **App-aware tone** — punctuation/formatting adapts to the focused app
   (chat vs. email vs. code editor).
 
@@ -136,9 +136,15 @@ you can:
   duration, and the app it was typed into. **Click any entry to copy it** to
   the clipboard — handy when an app swallowed the text or you want it again.
 - **Search** your history as you type.
-- **See insights**: total words dictated, number of dictations, your speaking
-  rate (words per minute), estimated time saved vs typing, and a words-per-day
-  chart for the last two weeks.
+- **See insights**: total words dictated (all-time and today), number of
+  dictations, your speaking rate (words per minute), estimated time saved vs
+  typing, a words-per-day chart for the last two weeks, a day streak, and
+  which apps you dictate into most.
+- **Manage your personal dictionary**: view, add, and remove terms right on
+  the page — edits update `~/.sotto/dictionary.txt` and apply from the very
+  next dictation, no restart needed.
+- Light and dark theme, with a toggle in the header (follows your system
+  setting until you choose).
 
 Like everything in Sotto, this is 100% local: the page is served by the Sotto
 process itself, binds only to 127.0.0.1, loads nothing from the internet, and

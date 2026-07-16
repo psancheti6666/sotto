@@ -254,7 +254,8 @@ class Sotto:
         if self.cfg.dashboard:
             # Serves from its own daemon thread — the AppKit/tk run loop below
             # and the ASR worker are untouched.
-            server = dashboard.start(self.cfg.dashboard_port)
+            server = dashboard.start(self.cfg.dashboard_port,
+                                     dictionary=self.dictionary)
             if server and self.cfg.open_dashboard_on_start:
                 dashboard.open_in_browser(self.cfg.dashboard_port)
         overlay_mod = self._overlay_module() if self.cfg.indicator else None

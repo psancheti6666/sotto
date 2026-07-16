@@ -64,10 +64,30 @@ def compute_stats(entries: list, today: date = None) -> dict:
         today = datetime.now().astimezone().date()
     days = [today - timedelta(days=i) for i in range(13, -1, -1)]
     per_day = {d.isoformat(): 0 for d in days}
+    active_days = set()
+    per_app = {}
     for e in entries:
         day = str(e.get("ts", ""))[:10]  # ISO-8601 prefix is the date
         if day in per_day:
             per_day[day] += e.get("words", 0)
+        if day:
+            active_days.add(day)
+        app = e.get("app") or ""
+        if app:
+            agg = per_app.setdefault(app, {"app": app, "words": 0, "count": 0})
+            agg["words"] += e.get("words", 0)
+            agg["count"] += 1
+
+    # Streak: consecutive active days ending today — or yesterday, so the
+    # streak isn't shown as broken before the user has dictated today.
+    streak, d = 0, today
+    if d.isoformat() not in active_days:
+        d = today - timedelta(days=1)
+    while d.isoformat() in active_days:
+        streak += 1
+        d -= timedelta(days=1)
+
+    top_apps = sorted(per_app.values(), key=lambda a: a["words"], reverse=True)[:4]
 
     return {
         "total_words": total_words,
@@ -75,5 +95,8 @@ def compute_stats(entries: list, today: date = None) -> dict:
         "total_audio_s": round(total_audio_s, 1),
         "avg_wpm": round(avg_wpm, 1),
         "time_saved_min": round(time_saved_min, 1),
+        "today_words": per_day[today.isoformat()],
+        "streak_days": streak,
+        "top_apps": top_apps,
         "words_per_day": [{"date": d, "words": w} for d, w in per_day.items()],
     }
