@@ -1,5 +1,5 @@
 # Created by Pratik Sancheti / https://github.com/psancheti6666
-"""py2app setup for Sotto.app. Run via packaging/build_app.sh, never in CI.
+"""py2app setup for Sotto.app. Run via macapp/build_app.sh, never in CI.
 
 Sotto selects its platform backends with lazy imports, which py2app's static
 module graph cannot follow — so every runtime dependency is force-included
@@ -87,6 +87,6 @@ OPTIONS = {
 setup(
     name="Sotto",
     version=VERSION,
-    app=["packaging/sotto_app.py"],
+    app=["macapp/sotto_app.py"],
     options={"py2app": OPTIONS},
 )

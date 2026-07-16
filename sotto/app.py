@@ -9,7 +9,7 @@ import threading
 import time
 from datetime import datetime
 
-from . import dashboard, history
+from . import dashboard, history, llm_server
 from .asr import make_asr
 from .audio import Recorder
 from .clean import Cleaner
@@ -17,7 +17,7 @@ from .config import CONFIG_DIR, DICTIONARY_PATH, Config, load_config
 from .dictionary import Dictionary
 from .inject import inject
 from .platform import (
-    IS_LINUX, IS_MACOS, active_app_id, end_app_nap, haptic, play_sound,
+    IS_LINUX, IS_MACOS, active_app_id, alert, end_app_nap, haptic, play_sound,
     prevent_app_nap)
 
 log = logging.getLogger("sotto")
@@ -245,6 +245,10 @@ class Sotto:
 
     def run(self):
         os.makedirs(CONFIG_DIR, exist_ok=True)
+        # Bundled ollama (if any) spawns while the ASR model loads; from a
+        # checkout this is one fast probe and a return.
+        threading.Thread(target=llm_server.ensure, args=(self.cfg,),
+                         daemon=True).start()
         threading.Thread(target=self._worker, daemon=True).start()
         self._asr_ready.wait()
         self.recorder.open()
@@ -277,13 +281,37 @@ class Sotto:
                 log.warning("indicator unavailable (%s) — running headless", e)
                 self.overlay = None
         if self.overlay:
-            threading.Thread(target=listener.run, daemon=True).start()
+            threading.Thread(target=self._run_listener, args=(listener,),
+                             daemon=True).start()
             overlay_mod.run_forever()
         else:
             try:
                 listener.run()
             finally:
                 self.recorder.close()
+
+    LISTENER_RETRY_S = 3.0
+
+    def _run_listener(self, listener):
+        """Daemon-thread wrapper around listener.run(). A missing keyboard
+        permission must not die silently (a Finder-launched app has no visible
+        stderr): tell the user once, then keep retrying — TCC is re-checked on
+        every attempt, so dictation starts the moment the grant lands, no
+        relaunch needed."""
+        warned = False
+        while True:
+            try:
+                listener.run()
+                return
+            except RuntimeError as e:
+                if not warned:
+                    warned = True
+                    log.error("hotkey listener: %s", e)
+                    alert("Sotto can't listen for the dictation hotkey",
+                          f"{e}\n\nSotto keeps retrying in the background — "
+                          "once both are enabled, dictation starts working "
+                          "immediately, no relaunch needed.")
+                time.sleep(self.LISTENER_RETRY_S)
 
     def _overlay_module(self):
         backend = self.cfg.indicator_backend

@@ -6,7 +6,7 @@ onto a transparent square canvas (aspect preserved, with breathing room), then
 scaled to every iconset size with sips and packed with iconutil. Uses AppKit
 via pyobjc — no Pillow dependency.
 
-Usage: python packaging/make_icns.py logo/sottoLogo.png build/Sotto.icns
+Usage: python macapp/make_icns.py logo/sottoLogo.png build/Sotto.icns
 """
 import os
 import subprocess

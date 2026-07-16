@@ -137,6 +137,71 @@ def test_llm_fallback():
     check("falls back to regex-cleaned", out == "Hello there friend", repr(out))
 
 
+def test_llm_server():
+    print("bundled-ollama manager (no server, no bundle → fast no-op):")
+    from sotto import llm_server
+    from sotto.config import Config
+
+    had = os.environ.pop("RESOURCEPATH", None)
+    try:
+        check("no RESOURCEPATH → no bundled binary",
+              llm_server.bundled_binary() is None)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["RESOURCEPATH"] = tmp
+            check("empty bundle → no binary", llm_server.bundled_binary() is None)
+            os.makedirs(os.path.join(tmp, "ollama"))
+            fake = os.path.join(tmp, "ollama", "ollama")
+            with open(fake, "w") as f:
+                f.write("#!/bin/sh\n")
+            check("non-executable file ignored",
+                  llm_server.bundled_binary() is None)
+            os.chmod(fake, 0o755)
+            check("executable found", llm_server.bundled_binary() == fake)
+        del os.environ["RESOURCEPATH"]
+
+        check("host:port parsed", llm_server._host_port(
+            "http://localhost:11434") == "localhost:11434")
+        check("defaults filled", llm_server._host_port(
+            "http://127.0.0.1") == "127.0.0.1:11434")
+
+        cfg = Config()
+        cfg.ollama_url = "http://127.0.0.1:9"  # closed port → instant refusal
+        t0 = time.time()
+        llm_server.ensure(cfg)  # unreachable + no bundle: must no-op, not raise
+        check(f"ensure() no-ops in {time.time()-t0:.2f}s without a bundle",
+              time.time() - t0 < 5.0)
+        check("no child spawned", llm_server._child is None)
+    finally:
+        if had is not None:
+            os.environ["RESOURCEPATH"] = had
+
+
+def test_listener_retry():
+    print("hotkey-permission retry (failure alerts once, retries until up):")
+    from sotto import app as app_mod
+    from sotto.app import Sotto
+
+    s = Sotto.__new__(Sotto)  # the wrapper touches no __init__ state
+    calls, alerts = [], []
+
+    class FakeListener:
+        def run(self):
+            calls.append(1)
+            if len(calls) < 3:
+                raise RuntimeError("no keyboard access")
+
+    old_alert, old_retry = app_mod.alert, Sotto.LISTENER_RETRY_S
+    app_mod.alert = lambda title, text: alerts.append(title)
+    Sotto.LISTENER_RETRY_S = 0.01
+    try:
+        s._run_listener(FakeListener())
+    finally:
+        app_mod.alert, Sotto.LISTENER_RETRY_S = old_alert, old_retry
+    check("retries until the listener stays up", len(calls) == 3, str(calls))
+    check("alerts exactly once", len(alerts) == 1, str(alerts))
+
+
 ASR_CASES = [
     "Let's meet on Friday at three PM to review the quarterly report.",
     "The quick brown fox jumps over the lazy dog.",
@@ -547,6 +612,8 @@ if __name__ == "__main__":
     test_stats()
     test_dashboard()
     test_llm_fallback()
+    test_llm_server()
+    test_listener_retry()
     if run_all or "--llm" in args:
         test_llm()
     if run_all or "--asr" in args:

@@ -250,8 +250,9 @@ class FnHotkeyListener(HotkeyListener):
             Quartz.kCGEventTapOptionDefault, mask, self._tap_callback, None)
         if self._tap is None:
             raise RuntimeError(
-                "Could not create the fn event tap — grant Accessibility and "
-                "Input Monitoring permissions to your terminal, then restart.")
+                "macOS hasn't granted keyboard access: enable Sotto (or your "
+                "terminal, when running from a checkout) under System Settings "
+                "→ Privacy & Security → Accessibility AND Input Monitoring.")
         source = Quartz.CFMachPortCreateRunLoopSource(None, self._tap, 0)
         Quartz.CFRunLoopAddSource(Quartz.CFRunLoopGetCurrent(), source,
                                   Quartz.kCFRunLoopCommonModes)
