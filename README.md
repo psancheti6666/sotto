@@ -9,6 +9,8 @@ same hold-to-talk workflow, but the speech recognition **and** the AI text
 cleanup run entirely on your machine. No account, no subscription, no audio
 uploaded anywhere, **$0 to run**.
 
+![Sotto's dashboard — usage insights, a year of dictation activity, and your personal dictionary](media/demo_ss_1.png)
+
 ## What it does
 
 - **Hold the hotkey, speak, release** → your words appear at the cursor, in
@@ -147,12 +149,17 @@ you can:
 - Light and dark theme, with a toggle in the header (follows your system
   setting until you choose).
 
+![Every dictation, newest first — click any entry to copy it](media/demo_ss_2.png)
+
 Like everything in Sotto, this is 100% local: the page is served by the Sotto
 process itself, binds only to 127.0.0.1, loads nothing from the internet, and
 the history lives in a single human-readable file, `~/.sotto/history.jsonl`
 (one JSON object per line — delete the file to wipe your history). Config
 switches: `dashboard` (serve it at all), `open_dashboard_on_start` (auto-open
 the browser), `dashboard_port`.
+
+*(The screenshots above show demo data — a real install starts with an empty
+history.)*
 
 ## Configuration
 
