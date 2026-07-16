@@ -5,11 +5,14 @@ Sotto selects its platform backends with lazy imports, which py2app's static
 module graph cannot follow — so every runtime dependency is force-included
 via `packages` (verbatim directory copies, which also preserves wheel-internal
 native files: mlx's mx.metallib, portaudio/libsndfile dylibs, libllvmlite,
-certifi's cacert.pem, and sotto/dashboard.html). The Linux/Intel chains are
-cut with `excludes`; onnxruntime in particular is installed in the dev venv
-and would otherwise ride in through sotto/asr.py's lazy import.
+certifi's cacert.pem, and sotto/dashboard.html). The build is arch-aware:
+only the ASR stack differs (sotto/asr.py "auto" picks MLX on Apple Silicon,
+ONNX on Intel), so each arch force-includes its own backend and excludes the
+other's — on arm64 the exclusion matters because onnxruntime is installed in
+the dev venv and would otherwise ride in through sotto/asr.py's lazy import.
 """
 import pathlib
+import platform
 import re
 
 from setuptools import setup
@@ -18,20 +21,19 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 VERSION = re.search(r'__version__\s*=\s*"([^"]+)"',
                     (ROOT / "sotto" / "__init__.py").read_text()).group(1)
 
+ARM64 = platform.machine() == "arm64"
+
 PACKAGES = [
     "sotto",  # includes dashboard.html and all lazily-imported backends
-    # ASR stack (reached only via lazy imports)
-    "mlx", "parakeet_mlx", "numpy", "dacite",
+    # ASR-stack pieces shared by both backends (model downloads go through
+    # huggingface_hub on MLX and ONNX alike)
+    "numpy", "packaging",
     "huggingface_hub", "filelock", "fsspec", "tqdm", "hf_xet",
-    # librosa chain (parakeet_mlx.audio hard-imports librosa)
-    "librosa", "lazy_loader", "numba", "llvmlite", "scipy", "sklearn",
-    "joblib", "soxr", "audioread", "msgpack",
-    "pooch", "platformdirs", "decorator", "packaging",
     # py2app's boot script imports pkg_resources, which resolves its jaraco.*
     # deps from setuptools/_vendor — both must ship verbatim
     "setuptools", "pkg_resources",
-    # audio I/O native data (portaudio / libsndfile dylibs live here)
-    "_sounddevice_data", "_soundfile_data", "cffi",
+    # audio I/O native data (the portaudio dylib lives here)
+    "_sounddevice_data", "cffi",
     # hotkey + injection
     "pynput",
     # LLM cleanup client + dictionary fuzzy matching
@@ -45,17 +47,47 @@ PACKAGES = [
     "AVFoundation", "CoreMedia", "CoreAudio",  # first-run mic authorization
 ]
 
+if ARM64:
+    PACKAGES += [
+        # MLX ASR backend (reached only via lazy imports)
+        "mlx", "parakeet_mlx", "dacite",
+        # librosa chain (parakeet_mlx.audio hard-imports librosa)
+        "librosa", "lazy_loader", "numba", "llvmlite", "scipy", "sklearn",
+        "joblib", "soxr", "audioread", "msgpack",
+        "pooch", "platformdirs", "decorator",
+        "_soundfile_data",  # libsndfile dylib (librosa's audio reader)
+    ]
+    ASR_EXCLUDES = ["onnx_asr", "onnxruntime", "onnx"]
+    ASR_INCLUDES = ["soundfile", "threadpoolctl"]  # librosa / sklearn deps
+else:
+    PACKAGES += [
+        # ONNX ASR backend. onnx-asr is deliberately lightweight: its import
+        # graph is numpy + onnxruntime + huggingface_hub + typing_extensions,
+        # nothing else — the librosa/numba/llvmlite chain above is
+        # parakeet-mlx's and stays out of the Intel bundle. flatbuffers is
+        # onnxruntime's; protobuf (`google.*` namespace package — a py2app
+        # `packages` landmine like mlx below) is NOT bundled: only
+        # onnxruntime's offline tools import it, never the InferenceSession
+        # path onnx_asr uses. The `onnx` package likewise isn't a runtime
+        # dep of onnx-asr and isn't even installed by requirements.txt.
+        "onnx_asr", "onnxruntime", "flatbuffers",
+    ]
+    ASR_EXCLUDES = ["mlx", "parakeet_mlx", "dacite",
+                    "librosa", "lazy_loader", "numba", "llvmlite", "scipy",
+                    "sklearn", "joblib", "soxr", "audioread", "msgpack",
+                    "pooch", "decorator"]
+    ASR_INCLUDES = ["typing_extensions"]  # single module, can't go in packages
+
 OPTIONS = {
     "packages": PACKAGES,
     # single-file modules can't go in `packages`
     "includes": ["sounddevice", "_sounddevice", "_cffi_backend", "pyperclip",
-                 "PyObjCTools.MachSignals", "threadpoolctl", "soundfile",
+                 "PyObjCTools.MachSignals",
                  # charset_normalizer's mypyc-compiled half; modulegraph
                  # misses it and requests then can't import the package
-                 "ada92cb5d92a588d1b93__mypyc"],
-    "excludes": [
-        "onnx_asr", "onnxruntime", "onnx",  # Intel/Linux ASR backend
-        "evdev",                            # Linux hotkey backend
+                 "ada92cb5d92a588d1b93__mypyc"] + ASR_INCLUDES,
+    "excludes": ASR_EXCLUDES + [             # the other arch's ASR backend
+        "evdev",                             # Linux hotkey backend
         "tkinter", "_tkinter",              # overlay_tk fallback
         "typer", "click", "rich", "shellingham",  # parakeet_mlx CLI only
         "rumps", "PyObjCTest", "matplotlib",
