@@ -9,7 +9,7 @@ import threading
 import time
 from datetime import datetime
 
-from . import dashboard, history
+from . import dashboard, history, llm_server
 from .asr import make_asr
 from .audio import Recorder
 from .clean import Cleaner
@@ -245,6 +245,10 @@ class Sotto:
 
     def run(self):
         os.makedirs(CONFIG_DIR, exist_ok=True)
+        # Bundled ollama (if any) spawns while the ASR model loads; from a
+        # checkout this is one fast probe and a return.
+        threading.Thread(target=llm_server.ensure, args=(self.cfg,),
+                         daemon=True).start()
         threading.Thread(target=self._worker, daemon=True).start()
         self._asr_ready.wait()
         self.recorder.open()

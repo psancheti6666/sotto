@@ -21,25 +21,30 @@ the app so settled questions don't get reopened.
 
 ## Open decisions
 
-- **LLM engine inside the app** (decide at Milestone 2):
-  1. **Bundle the `ollama` binary** (MIT-licensed) inside Sotto.app, run as a
-     hidden child process — recommended; +~30–60 MB DMG, least code change.
-  2. In-process LLM (llama.cpp / MLX-LM) — cleanest long-term, bigger rewrite
-     of `clean.py`.
-  3. Keep Ollama external with a guided install — rejected for the final app
-     (breaks double-click-and-it-works), but it's fine during Milestone 1 on
-     the dev machine.
-  Size note: the 2.5 GB model downloads on first run under every option; only
-  the engine binary differs.
+- ~~**LLM engine inside the app**~~ **Resolved at Milestone 2 (2026-07-17):
+  option 1, bundle the `ollama` runtime** (MIT) in
+  `Contents/Resources/ollama/`, spawned as a hidden child only when the
+  configured `ollama_url` doesn't answer. Measured (v0.32.1): the arm64-pruned
+  runtime is **48 MB** uncompressed — the tarball's optional `mlx_metal_*`
+  engine (348 MB) and everything without an arm64 slice (Intel ggml CPU
+  variants, x86-only dylibs) are dropped; the arm64 `llama-server` links
+  ggml/Metal statically, so GGUF serving runs fully GPU-offloaded without
+  them (verified with qwen3:4b-instruct on the M3). Rejected: in-process MLX-LM (would fork the
+  code path for the Intel build); external install (breaks
+  double-click-and-it-works). The 2.5 GB model still downloads on first use,
+  into ollama's default `~/.ollama` store until Milestone 3 consolidates
+  model downloads.
 
 ## Milestones (one PR each, in order)
 
 1. **Bundling proof** — ✅ done (PR for issue #3). Unsigned menu-bar Sotto.app
    builds with py2app and runs full dictation on the dev M3 (existing brew
    Ollama is fine here). Models load from `~/.sotto` as today. Deliverable:
-   `./packaging/build_app.sh` → `dist/Sotto.app`.
-2. **Self-contained LLM** — resolve the open decision above; app works on a
-   Mac with no brew, no Ollama installed.
+   `./macapp/build_app.sh` → `dist/Sotto.app`.
+2. **Self-contained LLM** — ✅ done (PR for issue #5). Decision above
+   resolved; `sotto/llm_server.py` probes → spawns the bundled runtime →
+   auto-pulls the model (log-only); app works on a Mac with no brew, no
+   Ollama installed.
 3. **First-run experience** — welcome window: model downloads with progress,
    permission walkthrough (mic / Accessibility / Input Monitoring), Globe-key
    fix offer. Replaces setup.sh for app users.
