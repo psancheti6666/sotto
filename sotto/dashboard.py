@@ -44,7 +44,8 @@ class _Handler(BaseHTTPRequestHandler):
     dictionary = None        # the running app's Dictionary, reloaded after edits
 
     def do_GET(self):
-        if self.path in ("/", "/index.html"):
+        route = self.path.split("?", 1)[0]
+        if route in ("/", "/index.html"):
             try:
                 with open(PAGE_PATH, "rb") as f:
                     body = f.read()
@@ -52,14 +53,14 @@ class _Handler(BaseHTTPRequestHandler):
                 self.send_error(500, str(e))
                 return
             self._respond(body, "text/html; charset=utf-8")
-        elif self.path == "/api/history":
+        elif route == "/api/history":
             entries = history.read_entries(**self._path_kw("history_path"))
             payload = {"entries": sorted(entries, key=lambda e: str(e.get("ts", "")),
                                          reverse=True),  # newest first for the UI
                        "stats": history.compute_stats(entries),
                        "meta": {"user": _user_name(), "host": _host_name()}}
             self._json(payload)
-        elif self.path == "/api/dictionary":
+        elif route == "/api/dictionary":
             self._json({"terms": dictionary_mod.read_terms(self._dict_path())})
         else:
             self.send_error(404)

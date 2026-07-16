@@ -138,8 +138,9 @@ you can:
 - **Search** your history as you type.
 - **See insights**: total words dictated (all-time and today), number of
   dictations, your speaking rate (words per minute), estimated time saved vs
-  typing, a words-per-day chart for the last two weeks, a day streak, and
-  which apps you dictate into most.
+  typing, a day streak, and which apps you dictate into most. Activity has
+  three views — two-week bars, a monthly trend line, and a GitHub-style
+  contribution heatmap of the last year.
 - **Manage your personal dictionary**: view, add, and remove terms right on
   the page — edits update `~/.sotto/dictionary.txt` and apply from the very
   next dictation, no restart needed.
