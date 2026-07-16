@@ -1,0 +1,27 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  units:
+    # Unit tier only: no models, no Ollama, no mic — see tests/test_pipeline.py.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install PortAudio (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y libportaudio2
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run unit tests
+        run: python tests/test_pipeline.py

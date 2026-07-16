@@ -1,5 +1,7 @@
 # Sotto
 
+[![tests](https://github.com/psancheti6666/sotto/actions/workflows/tests.yml/badge.svg)](https://github.com/psancheti6666/sotto/actions/workflows/tests.yml)
+
 **Private, local dictation for macOS and Linux.** Hold a key, speak naturally —
 clean, punctuated text appears at your cursor in any app. Nothing ever leaves
 your machine.
@@ -286,6 +288,15 @@ cleanup model.
   pre-remap position. Keyboards connected while Sotto is running are picked
   up after the next rescan.
 - Windows is not supported.
+
+## Contributing
+
+Bug reports, PRs, and "it works on my machine" reports are all welcome —
+especially from Intel Mac and Linux users, since Sotto is developed on Apple
+Silicon. Start with [CONTRIBUTING.md](CONTRIBUTING.md); the short version is:
+everything stays 100% local, cleanup stays faithful to what you said, and the
+unit tests (`tests/test_pipeline.py`) should pass. We follow the
+[Contributor Covenant](CODE_OF_CONDUCT.md).
 
 ## License
 
