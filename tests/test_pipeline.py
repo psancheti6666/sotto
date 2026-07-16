@@ -236,6 +236,10 @@ def test_recorder_truncation():
 
 def test_force_stop():
     print("watchdog force-stop:")
+    if sys.platform != "darwin":
+        print("  (skipped — HotkeyListener needs pynput, which is macOS-only;"
+              " the shared gesture state machine is covered by test_evdev_gestures)")
+        return
     from sotto.hotkey import HotkeyListener
     ev = []
     hl = HotkeyListener("alt_r", on_start=lambda: ev.append("start"),
