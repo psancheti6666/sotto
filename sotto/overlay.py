@@ -37,6 +37,11 @@ from AppKit import (
 )
 from Foundation import NSString
 from PyObjCTools import MachSignals
+from Quartz import (
+    CGWindowListCopyWindowInfo,
+    kCGWindowIsOnscreen,
+    kCGWindowListOptionIncludingWindow,
+)
 
 _STYLE = 0 | (1 << 7)          # borderless | non-activating panel
 _BACKING_BUFFERED = 2
@@ -57,6 +62,7 @@ BARS = 12
 FPS = 20.0
 BTN_R = 9.0                    # ✕ / ✓ button radius
 FADE_S = 0.35                  # toast fade-out duration
+VERIFY_S = 0.3                 # delay before checking a show really reached the screen
 
 
 def _on_main(fn):
@@ -243,14 +249,7 @@ class Overlay:
         self.offset_y = offset_y
         self._on_cancel_expire = on_cancel_expire
         w, h = SIZES["listening"]
-        panel = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
-            NSMakeRect(0, 0, w, h), _STYLE, _BACKING_BUFFERED, False)
-        panel.setOpaque_(False)
-        panel.setBackgroundColor_(NSColor.clearColor())
-        panel.setLevel_(_LEVEL_STATUS)
-        panel.setIgnoresMouseEvents_(True)    # per-mode: see _set_mode
-        panel.setHasShadow_(True)
-        panel.setCollectionBehavior_(_ALL_SPACES)
+        panel = self._make_panel()
         view = _IndicatorView.alloc().initWithFrame_(NSMakeRect(0, 0, w, h))
         view.level_supplier = level_supplier
         view.remaining_supplier = remaining_supplier
@@ -264,6 +263,48 @@ class Overlay:
         # The animation timer runs ONLY while the capsule is visible; an idle,
         # hidden Sotto must not wake the CPU 20×/s. Managed on the main thread.
         self._timer = None
+
+    @staticmethod
+    def _make_panel():
+        w, h = SIZES["listening"]
+        panel = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
+            NSMakeRect(0, 0, w, h), _STYLE, _BACKING_BUFFERED, False)
+        panel.setOpaque_(False)
+        panel.setBackgroundColor_(NSColor.clearColor())
+        panel.setLevel_(_LEVEL_STATUS)
+        panel.setIgnoresMouseEvents_(True)    # per-mode: see _set_mode
+        panel.setHasShadow_(True)
+        panel.setCollectionBehavior_(_ALL_SPACES)
+        return panel
+
+    def _server_onscreen(self) -> bool:
+        num = self.panel.windowNumber()
+        if num <= 0:
+            return False
+        info = CGWindowListCopyWindowInfo(kCGWindowListOptionIncludingWindow, num)
+        return bool(info) and bool(info[0].get(kCGWindowIsOnscreen))
+
+    def _verify_visible(self, mode: str):
+        """Runs on the main thread ~VERIFY_S after a show. If the window server
+        never actually put the capsule onscreen, the server-side window is a
+        zombie: after a forced hibernate (battery death mid-sleep) it keeps
+        accepting property updates but silently ignores every order-in, forever.
+        AppKit still reports isVisible=YES, so the only tell is asking the
+        window server itself — and the only cure is a brand-new window, which
+        the same process CAN show fine. Rebuild the panel around the live view."""
+        if self.view.mode != mode or mode == "hidden":
+            return  # capsule changed state since this check was scheduled
+        if self._server_onscreen():
+            return
+        old = self.panel
+        old.orderOut_(None)
+        old.setContentView_(None)
+        self.panel = self._make_panel()
+        self.panel.setContentView_(self.view)
+        self.panel.setIgnoresMouseEvents_(mode not in _CLICKABLE)
+        self.panel.setAlphaValue_(1.0)
+        self._place(mode)
+        self.panel.orderFrontRegardless()
 
     def _start_timer(self):
         if self._timer is None:
@@ -311,6 +352,11 @@ class Overlay:
             self._place(mode)
             self._start_timer()
             self.panel.orderFrontRegardless()
+            # The order-in can be silently ignored (zombie window after a
+            # forced hibernate) — check it truly landed once the commit had
+            # time to reach the window server, and rebuild if not.
+            NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
+                VERIFY_S, False, lambda _t: self._verify_visible(mode))
         _on_main(go)
 
     def _toast_expired(self):
