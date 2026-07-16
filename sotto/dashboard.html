@@ -538,7 +538,10 @@ function mutateDict(body) {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Sotto": "1" },
     body: JSON.stringify(body),
-  }).then(r => r.json()).then(d => renderTerms(d.terms)).catch(() => {});
+  }).then(r => r.json()).then(d => {
+    lastTerms = JSON.stringify(d.terms || []);
+    renderTerms(d.terms || []);
+  }).catch(() => {});
 }
 document.getElementById("dict-add").addEventListener("click", addTerm);
 document.getElementById("dict-input").addEventListener("keydown", ev => {
@@ -560,6 +563,7 @@ function entryCard(e) {
   card.title = "Click to copy";
   const time = document.createElement("div");
   time.className = "time";
+  time.dataset.ts = e.ts || "";
   time.textContent = isNaN(d) ? "" : relTime(d);
   const body = document.createElement("div");
   body.className = "text";
@@ -630,25 +634,57 @@ document.getElementById("search").addEventListener("input", ev => {
   renderList(true);
 });
 
-/* ---------- load ---------- */
-fetch("/api/history")
-  .then(r => r.json())
-  .then(data => {
-    allEntries = data.entries || [];
-    renderHero(data.meta || {}, data.stats);
-    renderStats(data.stats);
-    renderChart(data.stats.words_per_day || []);
-    renderStreak(data.stats);
-    renderApps(data.stats.top_apps || []);
-    renderList(true);
-  })
-  .catch(() => {
-    document.getElementById("list").textContent = "Could not load history.";
-  });
-fetch("/api/dictionary")
-  .then(r => r.json())
-  .then(d => renderTerms(d.terms || []))
-  .catch(() => {});
+/* ---------- load + auto-refresh ---------- */
+let lastData = "", lastTerms = "";
+
+function refreshTimes() {  // keep "2m ago" honest without re-rendering cards
+  for (const el of document.querySelectorAll(".time[data-ts]")) {
+    const d = new Date(el.dataset.ts);
+    if (!isNaN(d)) el.textContent = relTime(d);
+  }
+}
+
+function loadAll(first) {
+  fetch("/api/history")
+    .then(r => r.json())
+    .then(data => {
+      const sig = JSON.stringify(data);
+      if (sig === lastData) { refreshTimes(); return; }  // nothing new
+      lastData = sig;
+      allEntries = data.entries || [];
+      renderHero(data.meta || {}, data.stats);
+      renderStats(data.stats);
+      renderChart(data.stats.words_per_day || []);
+      renderStreak(data.stats);
+      renderApps(data.stats.top_apps || []);
+      const keep = shown;  // don't collapse "Show more" progress on refresh
+      renderList(true);
+      while (shown < keep && shown < filtered().length) renderList(false);
+    })
+    .catch(() => {
+      if (first) document.getElementById("list").textContent = "Could not load history.";
+    });
+  fetch("/api/dictionary")
+    .then(r => r.json())
+    .then(d => {
+      const sig = JSON.stringify(d.terms || []);
+      if (sig === lastTerms) return;
+      lastTerms = sig;
+      renderTerms(d.terms || []);
+    })
+    .catch(() => {});
+}
+
+loadAll(true);
+// Fresh data whenever the user comes back to the tab/window, plus a light
+// poll while it stays open — localhost only, and no-ops when nothing changed.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") loadAll();
+});
+window.addEventListener("focus", () => loadAll());
+setInterval(() => {
+  if (document.visibilityState === "visible") loadAll();
+}, 30000);
 </script>
 </body>
 </html>
