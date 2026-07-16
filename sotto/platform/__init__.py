@@ -56,6 +56,14 @@ def active_app_id() -> str:
     return ""
 
 
+def alert(title: str, text: str):
+    """Show a user-visible alert dialog (macOS; logged-only elsewhere).
+    Safe to call from any thread — the dialog is dispatched to the UI thread."""
+    if IS_MACOS:
+        from . import macos
+        macos.alert(title, text)
+
+
 def prevent_app_nap():
     """macOS only: hold full CPU/timer priority (and panel-over-fullscreen
     behavior) for one dictation. Returns a token the caller must retain and later

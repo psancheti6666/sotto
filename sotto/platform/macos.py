@@ -25,6 +25,23 @@ def haptic():
         pass
 
 
+def alert(title: str, text: str):
+    """Modal alert on the UI thread. Used for failures the user must act on
+    (a Finder-launched app has no visible stderr to complain to)."""
+    def go():
+        try:
+            from AppKit import NSAlert, NSApp
+            a = NSAlert.alloc().init()
+            a.setMessageText_(title)
+            a.setInformativeText_(text)
+            a.addButtonWithTitle_("OK")
+            NSApp.activateIgnoringOtherApps_(True)
+            a.runModal()
+        except Exception:
+            pass
+    _on_main(go)
+
+
 def active_app_id() -> str:
     try:
         from AppKit import NSWorkspace

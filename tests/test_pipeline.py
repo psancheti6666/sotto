@@ -177,6 +177,31 @@ def test_llm_server():
             os.environ["RESOURCEPATH"] = had
 
 
+def test_listener_retry():
+    print("hotkey-permission retry (failure alerts once, retries until up):")
+    from sotto import app as app_mod
+    from sotto.app import Sotto
+
+    s = Sotto.__new__(Sotto)  # the wrapper touches no __init__ state
+    calls, alerts = [], []
+
+    class FakeListener:
+        def run(self):
+            calls.append(1)
+            if len(calls) < 3:
+                raise RuntimeError("no keyboard access")
+
+    old_alert, old_retry = app_mod.alert, Sotto.LISTENER_RETRY_S
+    app_mod.alert = lambda title, text: alerts.append(title)
+    Sotto.LISTENER_RETRY_S = 0.01
+    try:
+        s._run_listener(FakeListener())
+    finally:
+        app_mod.alert, Sotto.LISTENER_RETRY_S = old_alert, old_retry
+    check("retries until the listener stays up", len(calls) == 3, str(calls))
+    check("alerts exactly once", len(alerts) == 1, str(alerts))
+
+
 ASR_CASES = [
     "Let's meet on Friday at three PM to review the quarterly report.",
     "The quick brown fox jumps over the lazy dog.",
@@ -588,6 +613,7 @@ if __name__ == "__main__":
     test_dashboard()
     test_llm_fallback()
     test_llm_server()
+    test_listener_retry()
     if run_all or "--llm" in args:
         test_llm()
     if run_all or "--asr" in args:
