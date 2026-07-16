@@ -45,6 +45,7 @@ PACKAGES = [
     "objc", "AppKit", "Foundation", "CoreFoundation", "Quartz",
     "ApplicationServices", "CoreText",
     "AVFoundation", "CoreMedia", "CoreAudio",  # first-run mic authorization
+    "WebKit",  # native Insights window
 ]
 
 if ARM64:
@@ -101,7 +102,7 @@ OPTIONS = {
         "CFBundleIdentifier": "io.github.psancheti6666.sotto",
         "CFBundleShortVersionString": VERSION,
         "CFBundleVersion": VERSION,
-        "LSUIElement": True,  # menu-bar accessory, no Dock icon
+        "LSUIElement": False,  # regular app: Dock icon + menu-bar waveform
         "LSMinimumSystemVersion": "13.0",
         "NSHighResolutionCapable": True,
         "LSApplicationCategoryType": "public.app-category.productivity",
@@ -110,6 +111,9 @@ OPTIONS = {
             "transcribes it entirely on this Mac. Audio never leaves your "
             "computer.",
         "NSHumanReadableCopyright": "© 2026 Pratik Sancheti. MIT License.",
+        # the Insights WKWebView loads the dashboard over plain HTTP from
+        # 127.0.0.1 — local traffic only, never the network
+        "NSAppTransportSecurity": {"NSAllowsLocalNetworking": True},
     },
     "iconfile": "build/Sotto.icns",
     "argv_emulation": False,

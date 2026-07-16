@@ -12,7 +12,7 @@ the app so settled questions don't get reopened.
 |---|---|---|
 | Distribution | Direct DMG download from GitHub Releases. **No App Store.** | Side project; no review process wanted. |
 | Signing | **Unsigned for now.** No Apple Developer Program, no $99/yr. Dev builds sign with a local self-signed **"Sotto Dev"** cert (build_app.sh auto-detects it; see below) purely so TCC grants survive rebuilds — Gatekeeper still treats the app as unsigned. | Users are friends who can use Privacy & Security → "Open Anyway". A README beside the app in the DMG explains the two clicks. Revisit signing+notarization only if/when strangers start downloading. Ad-hoc signatures change hash every rebuild and macOS silently invalidates Accessibility/Input Monitoring grants (learned the hard way, 2026-07-17); a stable cert identity (`identifier + certificate leaf`) fixes that, and the release pipeline should sign with one consistent cert for the same reason. |
-| App shape | Menu-bar app (LSUIElement / accessory), no Dock icon. Python code stays; **py2app** bundles it into Sotto.app. No Swift rewrite. | Feature parity for free; hotkey/overlay/pipeline are already AppKit-native via pyobjc. |
+| App shape | **Regular app**: Dock icon (waveform tile; click opens Insights) + menu-bar waveform, like Wispr Flow. Python code stays; **py2app** bundles it into Sotto.app. No Swift rewrite. *(Revised from "no Dock icon" at Milestone 4 — Pratik wanted visible Dock presence.)* | Feature parity for free; hotkey/overlay/pipeline are already AppKit-native via pyobjc. |
 | Insights UI | Native window hosting a **WKWebView** rendering the existing `dashboard.html` (same localhost server). | Reuses the whole dashboard; stops feeling like "a website". |
 | Models | **Never in the DMG.** First launch downloads ASR (~600 MB MLX / ~2.4 GB ONNX) + LLM (~2.5 GB) into `~/.sotto` with progress UI. | Keeps DMG ~300–400 MB (Apple Silicon) / ~150–200 MB (Intel). Total disk after setup ~4 GB, same as the dev install. |
 | Per-arch builds | **Two DMGs**: Apple Silicon (MLX backend) and Intel (ONNX backend). Built by GitHub Actions (arm64 + Intel macOS runners) on release. | Matches the existing backend split; universal2 not worth it with MLX being arm-only. |
@@ -52,8 +52,13 @@ the app so settled questions don't get reopened.
    Monitoring needs a fresh process; macOS may force that restart itself —
    a one-time "Sotto is ready" note covers both paths). Replaces setup.sh
    for app users. `SOTTO_FIRSTRUN=1` forces the window for previewing.
-4. **Insights window** — WKWebView window on the menu-bar menu, rendering the
-   existing dashboard.
+4. **Insights window** — ✅ done (PR for issue #9). `sotto/insights.py`:
+   WKWebView window rendering the existing dashboard (auto-opens in-bundle
+   instead of the browser); native chrome (transparent titlebar + drag strip,
+   real fullscreen); app became a **regular app** (Dock tile from the
+   waveform mark, click opens Insights, main menu with Edit/Window); sticky
+   History/date headers + search highlighting in the page; fixed the
+   pynput/TSM main-thread crash the WKWebView exposed (inject.prewarm).
 5. **DMG + release pipeline** — ✅ done (PR for issue #10).
    `macapp/make_dmg.sh` packages `dist/Sotto.app` into
    `Sotto-<version>-<arch>.dmg` (app + /Applications symlink + a README.txt
