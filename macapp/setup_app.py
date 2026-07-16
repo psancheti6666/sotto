@@ -42,6 +42,7 @@ PACKAGES = [
     # its one used submodule goes through `includes` instead
     "objc", "AppKit", "Foundation", "CoreFoundation", "Quartz",
     "ApplicationServices", "CoreText",
+    "AVFoundation", "CoreMedia", "CoreAudio",  # first-run mic authorization
 ]
 
 OPTIONS = {

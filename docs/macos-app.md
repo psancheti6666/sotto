@@ -45,9 +45,13 @@ the app so settled questions don't get reopened.
    resolved; `sotto/llm_server.py` probes → spawns the bundled runtime →
    auto-pulls the model (log-only); app works on a Mac with no brew, no
    Ollama installed.
-3. **First-run experience** — welcome window: model downloads with progress,
-   permission walkthrough (mic / Accessibility / Input Monitoring), Globe-key
-   fix offer. Replaces setup.sh for app users.
+3. **First-run experience** — ✅ done (PR for issue #7). `sotto/firstrun.py`:
+   welcome window with live-polling permission rows (proper request APIs),
+   Globe-key fix, model downloads with progress (~/.sotto on fresh machines,
+   existing default stores reused), quit-&-relaunch completion (Input
+   Monitoring needs a fresh process; macOS may force that restart itself —
+   a one-time "Sotto is ready" note covers both paths). Replaces setup.sh
+   for app users. `SOTTO_FIRSTRUN=1` forces the window for previewing.
 4. **Insights window** — WKWebView window on the menu-bar menu, rendering the
    existing dashboard.
 5. **DMG + release pipeline** — GitHub Actions builds both DMGs (a bundled

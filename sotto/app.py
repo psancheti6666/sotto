@@ -245,6 +245,19 @@ class Sotto:
 
     def run(self):
         os.makedirs(CONFIG_DIR, exist_ok=True)
+        if IS_MACOS:
+            from . import menubar
+            if menubar.running_in_bundle():
+                from . import firstrun
+                if firstrun.needed(self.cfg):
+                    # Welcome window owns the process; when setup completes
+                    # it relaunches the app (Input Monitoring grants only
+                    # apply to a fresh process), so this never returns.
+                    firstrun.launch(self.cfg)
+                    return
+                # Fresh machines download models into ~/.sotto; must run
+                # before anything imports huggingface_hub.
+                firstrun.consolidate_model_stores(self.cfg)
         # Bundled ollama (if any) spawns while the ASR model loads; from a
         # checkout this is one fast probe and a return.
         threading.Thread(target=llm_server.ensure, args=(self.cfg,),
@@ -253,6 +266,12 @@ class Sotto:
         self._asr_ready.wait()
         self.recorder.open()
         log.info("ready — hold %s to dictate (double-tap for hands-free)", self.cfg.hotkey)
+        if IS_MACOS:
+            from . import firstrun, menubar
+            if menubar.running_in_bundle():
+                # macOS may have quit-&-reopened us to apply Input Monitoring
+                # — tell the user setup finished if the welcome window ran.
+                firstrun.announce_if_setup_just_finished()
         listener = self._make_listener()
         self.listener = listener
         threading.Thread(target=self._watchdog, daemon=True).start()
