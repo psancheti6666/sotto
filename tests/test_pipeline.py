@@ -238,6 +238,21 @@ def test_firstrun():
                 os.environ[k] = v
 
 
+def test_insights_config():
+    print("insights window config (pure logic, no UI):")
+    from sotto import insights
+    old = insights._port
+    try:
+        insights._port = None
+        check("not available before configure", not insights.available())
+        insights.show()  # unconfigured → returns before any AppKit import
+        check("show() is a safe no-op when unconfigured", True)
+        insights.configure(8377)
+        check("available after configure", insights.available())
+    finally:
+        insights._port = old
+
+
 def test_listener_retry():
     print("hotkey-permission retry (failure alerts once, retries until up):")
     from sotto import app as app_mod
@@ -675,6 +690,7 @@ if __name__ == "__main__":
     test_llm_fallback()
     test_llm_server()
     test_firstrun()
+    test_insights_config()
     test_listener_retry()
     if run_all or "--llm" in args:
         test_llm()

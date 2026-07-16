@@ -15,7 +15,7 @@ from .audio import Recorder
 from .clean import Cleaner
 from .config import CONFIG_DIR, DICTIONARY_PATH, Config, load_config
 from .dictionary import Dictionary
-from .inject import inject
+from .inject import inject, prewarm as inject_prewarm
 from .platform import (
     IS_LINUX, IS_MACOS, active_app_id, alert, end_app_nap, haptic, play_sound,
     prevent_app_nap)
@@ -246,6 +246,7 @@ class Sotto:
     def run(self):
         os.makedirs(CONFIG_DIR, exist_ok=True)
         if IS_MACOS:
+            inject_prewarm()  # main thread — see prewarm()'s docstring
             from . import menubar
             if menubar.running_in_bundle():
                 from . import firstrun
@@ -280,8 +281,19 @@ class Sotto:
             # and the ASR worker are untouched.
             server = dashboard.start(self.cfg.dashboard_port,
                                      dictionary=self.dictionary)
+            in_bundle = False
+            if server and IS_MACOS:
+                from . import insights, menubar
+                in_bundle = menubar.running_in_bundle()
+                if in_bundle:
+                    # arms the menu-bar "Insights" item (menu built later, in
+                    # overlay.run_forever)
+                    insights.configure(self.cfg.dashboard_port)
             if server and self.cfg.open_dashboard_on_start:
-                dashboard.open_in_browser(self.cfg.dashboard_port)
+                if in_bundle:
+                    insights.show_soon()  # native window, not a browser tab
+                else:
+                    dashboard.open_in_browser(self.cfg.dashboard_port)
         overlay_mod = self._overlay_module() if self.cfg.indicator else None
         if overlay_mod:
             # The UI run loop (AppKit or tk) owns the main thread; the hotkey

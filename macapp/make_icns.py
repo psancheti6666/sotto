@@ -1,10 +1,11 @@
 # Created by Pratik Sancheti / https://github.com/psancheti6666
-"""Build an .icns app icon from the Sotto wordmark PNG.
+"""Build an .icns app icon from the Sotto logo PNG.
 
-The logo is a wide wordmark (1170x340), so it is first composited centered
-onto a transparent square canvas (aspect preserved, with breathing room), then
-scaled to every iconset size with sips and packed with iconutil. Uses AppKit
-via pyobjc — no Pillow dependency.
+The Dock tile is a macOS-style rounded square: the logo's warm-white paper
+color fills a rounded rect, and the waveform mark (cropped from the left of
+the wordmark — same background, so the crop blends seamlessly) sits centered.
+Rendered once at 1024px, then scaled to every iconset size with sips and
+packed with iconutil. Uses AppKit via pyobjc — no Pillow dependency.
 
 Usage: python macapp/make_icns.py logo/sottoLogo.png build/Sotto.icns
 """
@@ -13,15 +14,23 @@ import subprocess
 import sys
 
 CANVAS = 1024
-INSET = 0.82  # logo occupies at most this fraction of the canvas
+TILE_INSET = 92        # transparent margin around the rounded tile (macOS grid)
+CORNER = 185           # rounded-rect radius at 1024px
+# x, y, w, h of the waveform mark as FRACTIONS of the logo (the PNG carries
+# 2x-DPI metadata, so absolute pixel coords would be wrong in AppKit points)
+MARK_CROP = (0.02, 0.05, 0.28, 0.90)
+MARK_SPAN = 0.60       # mark height as a fraction of the tile
+PAPER = (0.970, 0.968, 0.960)  # the logo's warm off-white background
 SIZES = [16, 32, 128, 256, 512]
 
 
 def make_square_master(src: str, dst: str):
     from AppKit import (
+        NSBezierPath,
         NSBitmapImageFileTypePNG,
         NSBitmapImageRep,
         NSCalibratedRGBColorSpace,
+        NSColor,
         NSCompositingOperationSourceOver,
         NSGraphicsContext,
         NSImage,
@@ -31,9 +40,6 @@ def make_square_master(src: str, dst: str):
     logo = NSImage.alloc().initWithContentsOfFile_(os.path.abspath(src))
     if logo is None:
         raise SystemExit(f"could not read {src}")
-    w, h = logo.size().width, logo.size().height
-    scale = (CANVAS * INSET) / max(w, h)
-    dw, dh = w * scale, h * scale
 
     rep = NSBitmapImageRep.alloc(
     ).initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel_(
@@ -42,12 +48,27 @@ def make_square_master(src: str, dst: str):
     ctx = NSGraphicsContext.graphicsContextWithBitmapImageRep_(rep)
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.setCurrentContext_(ctx)
+
+    tile = NSMakeRect(TILE_INSET, TILE_INSET,
+                      CANVAS - 2 * TILE_INSET, CANVAS - 2 * TILE_INSET)
+    NSColor.colorWithCalibratedRed_green_blue_alpha_(*PAPER, 1.0).set()
+    NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+        tile, CORNER, CORNER).fill()
+
+    lw, lh = logo.size().width, logo.size().height
+    fx, fy, fw, fh = MARK_CROP
+    mx, my, mw, mh = fx * lw, fy * lh, fw * lw, fh * lh
+    span = (CANVAS - 2 * TILE_INSET) * MARK_SPAN
+    scale = span / mh
+    dw, dh = mw * scale, mh * scale
+    # NSImage source rects are bottom-left origin; the crop box is given
+    # top-left like image editors, so flip y
+    src_rect = NSMakeRect(mx, lh - my - mh, mw, mh)
     logo.drawInRect_fromRect_operation_fraction_(
         NSMakeRect((CANVAS - dw) / 2, (CANVAS - dh) / 2, dw, dh),
-        NSMakeRect(0, 0, w, h),
-        NSCompositingOperationSourceOver, 1.0)
-    NSGraphicsContext.restoreGraphicsState()
+        src_rect, NSCompositingOperationSourceOver, 1.0)
 
+    NSGraphicsContext.restoreGraphicsState()
     png = rep.representationUsingType_properties_(NSBitmapImageFileTypePNG, {})
     png.writeToFile_atomically_(os.path.abspath(dst), True)
 

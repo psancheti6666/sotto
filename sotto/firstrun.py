@@ -290,7 +290,7 @@ def launch(cfg):
     from . import menubar
 
     app = NSApplication.sharedApplication()
-    app.setActivationPolicy_(1)  # accessory: no Dock icon, same as overlay
+    app.setActivationPolicy_(0)  # regular: Dock icon, same as the main app
     menubar.install()
 
     W, H, PAD, ROW_H = 560, 470, 24, 58
