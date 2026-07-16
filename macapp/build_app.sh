@@ -68,9 +68,20 @@ cp "$CACHE/ollama-LICENSE-$OLLAMA_VERSION" "$OLDIR/LICENSE"
 echo "bundled ollama $OLLAMA_VERSION ($(du -sh "$OLDIR" | cut -f1))"
 # -------------------------------------------------------------------------
 
-# arm64 refuses to run unsigned binaries, so re-seal the finished bundle with
-# an ad-hoc signature. This is NOT Developer ID signing or notarization —
-# users still go through Privacy & Security → "Open Anyway" on first launch.
-codesign --force --deep --sign - dist/Sotto.app
+# arm64 refuses to run unsigned binaries, so the bundle must be sealed.
+# Preferred: a local self-signed "Sotto Dev" certificate (see docs/macos-app.md)
+# — it gives the app a STABLE identity, so Accessibility/Input Monitoring
+# grants survive rebuilds. Fallback: ad-hoc, where every rebuild changes the
+# signature hash and macOS silently invalidates those grants. Neither is
+# Developer ID signing/notarization — users still go through Privacy &
+# Security → "Open Anyway" on first launch.
+SIGN_ID="${SOTTO_SIGN_IDENTITY:-Sotto Dev}"
+if security find-identity -p codesigning -v 2>/dev/null | grep -q "\"$SIGN_ID\""; then
+  echo "signing with local identity: $SIGN_ID (permission grants survive rebuilds)"
+  codesign --force --deep --sign "$SIGN_ID" dist/Sotto.app
+else
+  echo "no '$SIGN_ID' certificate — ad-hoc signing (permission grants will reset on every rebuild)"
+  codesign --force --deep --sign - dist/Sotto.app
+fi
 
 echo "OK: dist/Sotto.app ($(du -sh dist/Sotto.app | cut -f1))"
