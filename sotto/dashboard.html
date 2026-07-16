@@ -113,9 +113,11 @@
   .hero h1 em { font-style: italic; color: var(--accent-ink); }
   .hero .sub { color: var(--muted); margin-top: 8px; font-size: 15px; }
 
-  /* ---------- stat band ---------- */
-  .band { display: grid; grid-template-columns: 1.1fr 1.4fr; gap: 16px;
-          margin: 40px 0 16px; }
+  /* ---------- top grid: insights + activity left, panels right ---------- */
+  .top-grid { display: grid; grid-template-columns: 1fr 300px; gap: 16px;
+              align-items: stretch; margin-top: 40px; }
+  .top-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .band { display: grid; grid-template-columns: 1.1fr 1.4fr; gap: 16px; }
   .feature {
     background: var(--card); border: 1px solid var(--line); border-radius: 18px;
     padding: 26px 30px 22px; display: flex; flex-direction: column;
@@ -125,6 +127,10 @@
                   font-variant-numeric: oldstyle-nums; }
   .feature .foot { color: var(--muted); font-size: 13px; margin-top: auto;
                    padding-top: 12px; }
+  .feature-streak { margin-top: 14px; padding-top: 16px;
+                    border-top: 1px solid var(--line); }
+  .feature-streak .streak-row { margin-top: 6px; }
+  .feature-streak .num { font-size: 26px; }
   .smalls { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .stat { background: var(--card); border: 1px solid var(--line);
           border-radius: 18px; padding: 18px 22px 15px; }
@@ -134,40 +140,25 @@
 
   /* ---------- chart ---------- */
   .chart-card { background: var(--card); border: 1px solid var(--line);
-                border-radius: 18px; padding: 20px 24px 12px; }
-  .chart-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-  .tabs { margin-left: auto; display: flex; gap: 3px;
-          border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
-  .tabs button {
-    border: 0; background: none; cursor: pointer; border-radius: 999px;
-    padding: 4px 11px; color: var(--muted);
-    font: 600 10px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
-    letter-spacing: 0.1em; text-transform: uppercase;
-  }
-  .tabs button:hover { color: var(--ink); }
-  .tabs button.active { background: var(--ink); color: var(--card); }
-  #chart { width: 100%; height: 120px; display: block; }
-  #chart text { fill: var(--faint); font-size: 9px;
+                border-radius: 18px; padding: 20px 24px 16px;
+                flex: 1; display: flex; flex-direction: column; }
+  .chart-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .legend { margin-left: auto; display: flex; align-items: center; gap: 4px;
+            color: var(--faint); font-size: 11px; }
+  .legend i { width: 10px; height: 10px; border-radius: 2px;
+              background: var(--accent); }
+  .legend i.l0 { background: var(--line); opacity: 0.55; }
+  .legend i.l1 { opacity: 0.3; }
+  .legend i.l2 { opacity: 0.53; }
+  .legend i.l3 { opacity: 0.77; }
+  #chart { width: 100%; height: auto; display: block; }
+  #chart text { fill: var(--faint); font-size: 10.5px;
                 font-family: ui-monospace, Menlo, monospace; }
-  @keyframes grow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
-  #chart.bars rect { fill: var(--bar); opacity: 0.82;
-                     transform-box: fill-box; transform-origin: bottom;
-                     animation: grow 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) backwards; }
-  #chart.bars rect:hover { opacity: 1; }
-  #chart.bars rect.today { fill: var(--accent); opacity: 1; }
-  #chart.bars rect.zero { opacity: 0.1; }
-  #chart.line .trend { stroke: var(--accent); stroke-width: 2; fill: none;
-                       stroke-linecap: round; stroke-linejoin: round; }
-  #chart.line .area { fill: var(--accent-soft); }
-  #chart.line circle { fill: var(--accent); }
-  #chart.line .grid { stroke: var(--line); stroke-width: 1; }
-  #chart.heat rect { rx: 2px; }
-  #chart.heat rect:hover { stroke: var(--muted); stroke-width: 1; }
+  #chart rect { rx: 2px; }
+  #chart rect:hover { stroke: var(--muted); stroke-width: 1; }
 
-  /* ---------- main grid ---------- */
-  .main { display: grid; grid-template-columns: 1fr 300px; gap: 16px;
-          align-items: start; margin-top: 44px; }
-  .col-history { min-width: 0; }
+  /* ---------- history (full width) ---------- */
+  .history-sec { margin-top: 44px; }
   .listhead { display: flex; align-items: center; gap: 16px; margin-bottom: 6px; }
   .listhead h2 { font-size: 24px; font-weight: 400; }
   #search {
@@ -210,9 +201,8 @@
   .empty-state { color: var(--muted); text-align: center; padding: 44px 0;
                  font-style: italic; }
 
-  /* ---------- sidebar ---------- */
-  .side { position: sticky; top: 22px; display: flex; flex-direction: column;
-          gap: 16px; }
+  /* ---------- side panels (right of the insights) ---------- */
+  .side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   .panel { background: var(--card); border: 1px solid var(--line);
            border-radius: 18px; padding: 18px 20px; }
   .streak-row { display: flex; align-items: baseline; gap: 10px; margin-top: 10px; }
@@ -264,8 +254,7 @@
 
   @media (max-width: 900px) {
     .band { grid-template-columns: 1fr; }
-    .main { grid-template-columns: 1fr; }
-    .side { position: static; }
+    .top-grid { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -295,56 +284,46 @@
     <p class="sub" id="subline"></p>
   </div>
 
-  <div class="band reveal" style="animation-delay:.14s">
-    <div class="feature">
-      <span class="label">Total words dictated</span>
-      <div class="num serif" id="total-words">—</div>
-      <div class="foot" id="feature-foot"></div>
-    </div>
-    <div class="smalls">
-      <div class="stat"><span class="label">Today</span>
-        <div class="num serif" id="today-words">—</div></div>
-      <div class="stat"><span class="label">Dictations</span>
-        <div class="num serif" id="dictations">—</div></div>
-      <div class="stat"><span class="label">Speaking pace</span>
-        <div class="num serif" id="wpm">—</div></div>
-      <div class="stat"><span class="label">Saved vs typing</span>
-        <div class="num serif" id="saved">—</div></div>
-    </div>
-  </div>
-
-  <div class="chart-card reveal" style="animation-delay:.22s">
-    <div class="chart-head">
-      <span class="label">Dictation activity</span>
-      <div class="tabs" id="period-tabs">
-        <button data-period="weeks">2 weeks</button>
-        <button data-period="month">Month</button>
-        <button data-period="year">Year</button>
+  <div class="top-grid reveal" style="animation-delay:.14s">
+    <div class="top-main">
+      <div class="band">
+        <div class="feature">
+          <span class="label">Total words dictated</span>
+          <div class="num serif" id="total-words">—</div>
+          <div class="foot" id="feature-foot"></div>
+          <div class="feature-streak">
+            <span class="label">Streak</span>
+            <div class="streak-row">
+              <span class="num serif" id="streak">0</span>
+              <span class="unit" id="streak-unit">days in a row</span>
+            </div>
+            <div class="dots" id="dots"></div>
+          </div>
+        </div>
+        <div class="smalls">
+          <div class="stat"><span class="label">Today</span>
+            <div class="num serif" id="today-words">—</div></div>
+          <div class="stat"><span class="label">Dictations</span>
+            <div class="num serif" id="dictations">—</div></div>
+          <div class="stat"><span class="label">Speaking pace</span>
+            <div class="num serif" id="wpm">—</div></div>
+          <div class="stat"><span class="label">Saved vs typing</span>
+            <div class="num serif" id="saved">—</div></div>
+        </div>
       </div>
-    </div>
-    <svg id="chart" preserveAspectRatio="none"></svg>
-  </div>
 
-  <div class="main reveal" style="animation-delay:.3s">
-    <div class="col-history">
-      <div class="listhead">
-        <h2 class="serif">History</h2>
-        <input id="search" type="search" placeholder="Search dictations…">
+      <div class="chart-card">
+        <div class="chart-head">
+          <span class="label">Dictation activity — last 12 months</span>
+          <span class="legend">less
+            <i class="l0"></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i>
+            more</span>
+        </div>
+        <svg id="chart" preserveAspectRatio="xMidYMid meet"></svg>
       </div>
-      <div id="list"></div>
-      <button id="more">Show more</button>
     </div>
 
     <div class="side">
-      <div class="panel">
-        <span class="label">Streak</span>
-        <div class="streak-row">
-          <span class="num serif" id="streak">0</span>
-          <span class="unit" id="streak-unit">days in a row</span>
-        </div>
-        <div class="dots" id="dots"></div>
-      </div>
-
       <div class="panel">
         <span class="label">Where you dictate</span>
         <div class="apps" id="apps"></div>
@@ -361,6 +340,15 @@
         <div class="terms" id="terms"></div>
       </div>
     </div>
+  </div>
+
+  <div class="history-sec reveal" style="animation-delay:.26s">
+    <div class="listhead">
+      <h2 class="serif">History</h2>
+      <input id="search" type="search" placeholder="Search dictations…">
+    </div>
+    <div id="list"></div>
+    <button id="more">Show more</button>
   </div>
 
   <footer class="reveal" style="animation-delay:.4s">
@@ -464,11 +452,8 @@ function renderStats(s) {
     : "";
 }
 
-/* ---------- activity chart (2 weeks / month / year) ---------- */
+/* ---------- activity heatmap (GitHub-style, last 12 months) ---------- */
 let dayWords = {};   // "YYYY-MM-DD" (local) -> words, built from allEntries
-let period = new URLSearchParams(location.search).get("view") ||
-             localStorage.getItem("sotto-period") || "weeks";
-if (!["weeks", "month", "year"].includes(period)) period = "weeks";
 
 function localKey(d) { return d.toLocaleDateString("en-CA"); }  // YYYY-MM-DD
 function buildDayWords() {
@@ -478,97 +463,17 @@ function buildDayWords() {
     if (k) dayWords[k] = (dayWords[k] || 0) + (e.words || 0);
   }
 }
-function lastDays(n) {
-  const out = [];
-  for (let i = n - 1; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const key = localKey(d);
-    out.push({ date: key, words: dayWords[key] || 0 });
-  }
-  return out;
-}
 function svgEl(tag, attrs) {
   const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
   for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
   return el;
 }
-function cellTitle(el, d) {
-  const t = svgEl("title", {});
-  t.textContent = `${d.date}: ${d.words.toLocaleString()} words`;
-  el.appendChild(t);
-}
-
-function renderBars(days) {
-  const svg = document.getElementById("chart");
-  const W = 700, H = 120, pad = 2, labelH = 14;
-  svg.setAttribute("class", "bars");
-  svg.setAttribute("preserveAspectRatio", "none");
-  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-  svg.replaceChildren();
-  const max = Math.max(1, ...days.map(d => d.words));
-  const bw = W / days.length;
-  days.forEach((d, i) => {
-    const h = Math.max(2, (d.words / max) * (H - labelH - 4));
-    const r = svgEl("rect", { x: i * bw + pad, y: H - labelH - h,
-                              width: bw - pad * 2, height: h, rx: 3 });
-    r.style.animationDelay = (0.1 + i * 0.03) + "s";
-    if (i === days.length - 1) r.setAttribute("class", "today");
-    else if (!d.words) r.setAttribute("class", "zero");
-    cellTitle(r, d);
-    svg.appendChild(r);
-    const t = svgEl("text", { x: i * bw + bw / 2, y: H - 3, "text-anchor": "middle" });
-    t.textContent = d.date.slice(8);           // day-of-month
-    svg.appendChild(t);
-  });
-}
-
-function renderLine(days) {
-  const svg = document.getElementById("chart");
-  const W = 700, H = 120, padX = 6, labelH = 14, top = 8;
-  svg.setAttribute("class", "line");
-  svg.setAttribute("preserveAspectRatio", "none");
-  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-  svg.replaceChildren();
-  const max = Math.max(1, ...days.map(d => d.words));
-  const x = i => padX + i * (W - 2 * padX) / (days.length - 1);
-  const y = w => H - labelH - (w / max) * (H - labelH - top);
-  svg.appendChild(svgEl("line", { x1: 0, y1: H - labelH, x2: W, y2: H - labelH,
-                                  class: "grid" }));
-  // smooth trend: quadratic segments through the midpoints
-  const pts = days.map((d, i) => [x(i), y(d.words)]);
-  let path = `M ${pts[0][0]} ${pts[0][1]}`;
-  for (let i = 1; i < pts.length; i++) {
-    const mx = (pts[i - 1][0] + pts[i][0]) / 2, my = (pts[i - 1][1] + pts[i][1]) / 2;
-    path += ` Q ${pts[i - 1][0]} ${pts[i - 1][1]} ${mx} ${my}`;
-  }
-  path += ` L ${pts[pts.length - 1][0]} ${pts[pts.length - 1][1]}`;
-  svg.appendChild(svgEl("path", {
-    d: path + ` L ${pts[pts.length - 1][0]} ${H - labelH}` +
-       ` L ${pts[0][0]} ${H - labelH} Z`, class: "area" }));
-  svg.appendChild(svgEl("path", { d: path, class: "trend" }));
-  days.forEach((d, i) => {
-    const c = svgEl("circle", { cx: pts[i][0], cy: pts[i][1],
-                                r: d.words ? 2.5 : 0 });
-    cellTitle(c, d);
-    svg.appendChild(c);
-    if ((days.length - 1 - i) % 7 === 0) {   // a label once a week
-      const t = svgEl("text", { x: pts[i][0], y: H - 3,
-        "text-anchor": i === days.length - 1 ? "end" : "middle" });
-      const dt = new Date(d.date + "T00:00:00");
-      t.textContent = dt.toLocaleDateString([], { day: "numeric", month: "short" });
-      svg.appendChild(t);
-    }
-  });
-}
 
 function renderHeat() {
   const svg = document.getElementById("chart");
-  const cell = 11, gap = 2, step = cell + gap, labelH = 13;
-  svg.setAttribute("class", "heat");
-  svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+  const cell = 11, step = 13, top = 14, gut = 30;  // gut = weekday-label gutter
   svg.replaceChildren();
-  // 52 weeks of columns, GitHub-style: rows Sun..Sat, ending today
+  // rows Sun..Sat, one column per week, ending today
   const end = new Date();
   const start = new Date();
   start.setDate(start.getDate() - 363 - start.getDay());
@@ -578,12 +483,17 @@ function renderHeat() {
     days.push({ date: key, words: dayWords[key] || 0, dow: d.getDay() });
   }
   const cols = Math.ceil(days.length / 7);
-  svg.setAttribute("viewBox", `0 0 ${cols * step} ${labelH + 7 * step}`);
+  svg.setAttribute("viewBox", `0 0 ${gut + cols * step} ${top + 7 * step}`);
+  for (const [label, dow] of [["Mon", 1], ["Wed", 3], ["Fri", 5]]) {
+    const t = svgEl("text", { x: 0, y: top + dow * step + 9 });
+    t.textContent = label;
+    svg.appendChild(t);
+  }
   const max = Math.max(1, ...days.map(d => d.words));
   let lastMonth = -1;
   days.forEach((d, i) => {
     const col = Math.floor(i / 7);
-    const r = svgEl("rect", { x: col * step, y: labelH + d.dow * step,
+    const r = svgEl("rect", { x: gut + col * step, y: top + d.dow * step,
                               width: cell, height: cell });
     if (d.words) {
       r.style.fill = "var(--accent)";
@@ -592,33 +502,22 @@ function renderHeat() {
       r.style.fill = "var(--line)";
       r.style.fillOpacity = 0.55;
     }
-    cellTitle(r, d);
+    const title = svgEl("title", {});
+    const nice = new Date(d.date + "T00:00:00")
+      .toLocaleDateString([], { day: "numeric", month: "long" });
+    title.textContent = `${d.words.toLocaleString()} words on ${nice}`;
+    r.appendChild(title);
     svg.appendChild(r);
     const month = new Date(d.date + "T00:00:00").getMonth();
     if (d.dow === 0 && month !== lastMonth) {   // month label over its first week
       lastMonth = month;
-      const t = svgEl("text", { x: col * step, y: 9 });
+      const t = svgEl("text", { x: gut + col * step, y: 9 });
       t.textContent = new Date(d.date + "T00:00:00")
         .toLocaleDateString([], { month: "short" });
       svg.appendChild(t);
     }
   });
 }
-
-function renderInsight() {
-  if (period === "month") renderLine(lastDays(30));
-  else if (period === "year") renderHeat();
-  else renderBars(lastDays(14));
-  for (const b of document.querySelectorAll("#period-tabs button"))
-    b.classList.toggle("active", b.dataset.period === period);
-}
-document.getElementById("period-tabs").addEventListener("click", ev => {
-  const p = ev.target.dataset && ev.target.dataset.period;
-  if (!p) return;
-  period = p;
-  localStorage.setItem("sotto-period", p);
-  renderInsight();
-});
 
 /* ---------- sidebar: streak + apps ---------- */
 function renderStreak(s) {
@@ -810,7 +709,7 @@ function loadAll(first) {
       buildDayWords();
       renderHero(data.meta || {}, data.stats);
       renderStats(data.stats);
-      renderInsight();
+      renderHeat();
       renderStreak(data.stats);
       renderApps(data.stats.top_apps || []);
       const keep = shown;  // don't collapse "Show more" progress on refresh
