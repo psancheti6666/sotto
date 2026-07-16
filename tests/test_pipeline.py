@@ -59,6 +59,27 @@ def test_dictionary():
           repr(d.apply("we use cooper netties.")))
     os.unlink(path)
 
+    # phonetic path: mishearings of short names score below the ratio
+    # threshold ("pratique"→"Pratik" = 71) but share the Soundex skeleton
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+        f.write("Pratik\nsotto\n")
+        path = f.name
+    d = Dictionary(path)
+    for wrong, sent in [("pratique", "my name is pratique"),
+                        ("pratiqe", "pratiqe made this"),
+                        ("prateek", "I am prateek"),
+                        ("soto", "the app is called soto"),
+                        ("sotta", "sotta is a dictation app")]:
+        got = d.apply(sent)
+        check(f"phonetic mishearing fixed: {wrong}", wrong not in got
+              and ("Pratik" in got or "sotto" in got), repr(got))
+    for sent in ["so to speak that is fine", "this is very practical",
+                 "stow the luggage", "the product is ready",
+                 "in particular this part"]:
+        check(f"no false positive: {sent[:24]!r}", d.apply(sent) == sent,
+              repr(d.apply(sent)))
+    os.unlink(path)
+
 
 # (input, tone, required substrings, forbidden substrings)
 LLM_CASES = [

@@ -10,6 +10,26 @@ import re
 
 from rapidfuzz import fuzz
 
+_SOUNDEX = {c: code for chars, code in
+            (("bfpv", "1"), ("cgjkqsxz", "2"), ("dt", "3"),
+             ("l", "4"), ("mn", "5"), ("r", "6")) for c in chars}
+
+
+def soundex(s: str) -> str:
+    """Classic Soundex: first letter + consonant-class skeleton, 4 chars."""
+    letters = [c for c in s.lower() if c.isalpha()]
+    if not letters:
+        return ""
+    out = letters[0].upper()
+    prev = _SOUNDEX.get(letters[0], "")
+    for ch in letters[1:]:
+        code = _SOUNDEX.get(ch, "")
+        if code and code != prev:
+            out += code
+        if ch not in "hw":  # h/w don't break a run of the same code
+            prev = code
+    return (out + "000")[:4]
+
 
 def read_terms(path: str) -> list:
     if not os.path.exists(path):
@@ -69,6 +89,7 @@ class Dictionary:
         for term in self.terms:
             n = len(term.split())
             term_low = term.lower()
+            term_sdx = soundex(term_low)
             sizes = sorted({max(1, n - 1), n, n + 1}, reverse=True)
             i = 0
             while i < len(tokens):
@@ -82,7 +103,15 @@ class Dictionary:
                         i += size - 1
                         break
                     score = fuzz.ratio(window_clean, term_low)
-                    if score >= self.threshold and score > best_score:
+                    # ASR mishearings of names are often phonetically right but
+                    # orthographically far ("pratique"→"Pratik" scores only 71),
+                    # so a matching Soundex skeleton lowers the bar — but only
+                    # for same-token-count windows: common bigrams like "so to"
+                    # would otherwise false-positive against "sotto".
+                    phonetic = (size == n and term_sdx
+                                and soundex(window_clean) == term_sdx)
+                    ok = score >= self.threshold or (phonetic and score >= 70)
+                    if ok and score > best_score:
                         best_size, best_score = size, score
                 if best_size:
                     window = " ".join(tokens[i:i + best_size])
