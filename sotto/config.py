@@ -14,6 +14,7 @@ from .platform import IS_LINUX
 CONFIG_DIR = os.path.expanduser("~/.sotto")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.toml")
 DICTIONARY_PATH = os.path.join(CONFIG_DIR, "dictionary.txt")
+HISTORY_PATH = os.path.join(CONFIG_DIR, "history.jsonl")
 
 DEFAULT_TONE_MAP = {
     # app id -> tone hint fed to the cleaning prompt. macOS keys are bundle ids
@@ -107,6 +108,13 @@ class Config:
     handsfree_sound: str = "Frog"     # entered hands-free mode
     cancel_sound: str = "Bottle"      # dictation cancelled (Escape / ✕)
     warn_sound: str = "Tink"          # one minute left before the limit
+
+    # Dashboard: history browser + usage insights, served by the Sotto process
+    # itself on 127.0.0.1 (never exposed beyond this machine). History lives in
+    # ~/.sotto/history.jsonl.
+    dashboard: bool = True
+    dashboard_port: int = 8377
+    open_dashboard_on_start: bool = True   # open the browser once on launch
 
     # Injection. "auto" = type the text like real keystrokes, but fall back to
     # clipboard-paste when the text has newlines (typed Enter would e.g. send a

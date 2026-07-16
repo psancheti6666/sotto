@@ -6,7 +6,9 @@ import queue
 import subprocess
 import threading
 import time
+from datetime import datetime
 
+from . import dashboard, history
 from .asr import make_asr
 from .audio import Recorder
 from .clean import Cleaner
@@ -195,6 +197,17 @@ class Sotto:
         t3 = time.perf_counter()
         log.info("asr=%.2fs clean=%.2fs inject=%.2fs total=%.2fs | %r -> %r",
                  t1 - t0, t2 - t1, t3 - t2, t3 - t0, raw, cleaned)
+        history.append_entry({
+            "ts": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "text": cleaned,
+            "raw": raw,
+            "words": len(cleaned.split()),
+            "duration_s": round(len(audio) / self.cfg.sample_rate, 2),
+            "app": bundle_id,
+            "asr_s": round(t1 - t0, 2),
+            "clean_s": round(t2 - t1, 2),
+            "inject_s": round(t3 - t2, 2),
+        })
 
     def _make_listener(self):
         """Pick the hotkey backend for this platform (imports are lazy — pynput
@@ -238,6 +251,12 @@ class Sotto:
         listener = self._make_listener()
         self.listener = listener
         threading.Thread(target=self._watchdog, daemon=True).start()
+        if self.cfg.dashboard:
+            # Serves from its own daemon thread — the AppKit/tk run loop below
+            # and the ASR worker are untouched.
+            server = dashboard.start(self.cfg.dashboard_port)
+            if server and self.cfg.open_dashboard_on_start:
+                dashboard.open_in_browser(self.cfg.dashboard_port)
         overlay_mod = self._overlay_module() if self.cfg.indicator else None
         if overlay_mod:
             # The UI run loop (AppKit or tk) owns the main thread; the hotkey

@@ -359,6 +359,88 @@ def test_linux_injector_selection():
         il.shutil.which, il._probe, il.session_type = orig_which, orig_probe, orig_session
 
 
+def test_history():
+    print("history persistence (JSONL round-trip):")
+    from sotto import history
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, "history.jsonl")
+        a = {"ts": "2026-07-16T10:00:00+05:30", "text": "hello world", "words": 2,
+             "duration_s": 1.5, "app": "com.apple.Notes"}
+        b = {"ts": "2026-07-16T10:01:00+05:30", "text": "second one — with unicode ✓",
+             "words": 3, "duration_s": 2.0, "app": "slack"}
+        history.append_entry(a, path)
+        history.append_entry(b, path)
+        got = history.read_entries(path)
+        check("round-trip, oldest first", got == [a, b], str(got))
+        with open(path, "a") as f:
+            f.write("{corrupt json\n\n")
+        history.append_entry(a, path)
+        got = history.read_entries(path)
+        check("corrupt/blank lines skipped", got == [a, b, a], f"{len(got)} entries")
+    check("missing file → []", history.read_entries("/nonexistent/h.jsonl") == [])
+    history.append_entry(a, "/nonexistent/dir/h.jsonl")  # must warn, never raise
+    check("unwritable path only warns", True)
+
+
+def test_stats():
+    print("history stats (WPM, totals, per-day buckets):")
+    from datetime import date
+    from sotto.history import compute_stats
+    today = date(2026, 7, 16)
+    entries = [
+        {"ts": "2026-07-16T10:00:00+05:30", "words": 100, "duration_s": 60.0},
+        {"ts": "2026-07-15T09:00:00+05:30", "words": 20, "duration_s": 30.0},
+        # outside the 14-day chart window: counts toward totals only
+        {"ts": "2026-06-01T09:00:00+05:30", "words": 50, "duration_s": 60.0},
+    ]
+    s = compute_stats(entries, today=today)
+    check("total words", s["total_words"] == 170, str(s["total_words"]))
+    check("total dictations", s["total_dictations"] == 3)
+    check("avg wpm = words / audio minutes", s["avg_wpm"] == 68.0, str(s["avg_wpm"]))
+    check("time saved vs 40wpm typing", s["time_saved_min"] == 1.8, str(s["time_saved_min"]))
+    days = s["words_per_day"]
+    check("14 zero-filled day buckets", len(days) == 14 and days[0]["words"] == 0, str(len(days)))
+    check("today bucketed", days[-1] == {"date": "2026-07-16", "words": 100}, str(days[-1]))
+    check("yesterday bucketed", days[-2] == {"date": "2026-07-15", "words": 20}, str(days[-2]))
+    empty = compute_stats([], today=today)
+    check("empty history → zeros, no div-by-zero",
+          empty["avg_wpm"] == 0.0 and empty["total_words"] == 0)
+
+
+def test_dashboard():
+    print("dashboard server (127.0.0.1, page + history API):")
+    import json as jsonmod
+    import urllib.error
+    import urllib.request
+    from sotto import dashboard, history
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, "history.jsonl")
+        history.append_entry({"ts": "2026-07-16T10:00:00+05:30", "text": "first",
+                              "words": 1, "duration_s": 1.0, "app": "x"}, path)
+        history.append_entry({"ts": "2026-07-16T10:05:00+05:30", "text": "second",
+                              "words": 1, "duration_s": 1.0, "app": "x"}, path)
+        server = dashboard.start(0, history_path=path)  # port 0 = ephemeral
+        check("server started", server is not None)
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        try:
+            page = urllib.request.urlopen(base + "/", timeout=5).read().decode()
+            check("page served", "sotto" in page and "/api/history" in page)
+            data = jsonmod.loads(urllib.request.urlopen(base + "/api/history",
+                                                        timeout=5).read())
+            texts = [e["text"] for e in data["entries"]]
+            check("entries newest first", texts == ["second", "first"], str(texts))
+            check("stats included", data["stats"]["total_words"] == 2,
+                  str(data["stats"]))
+            try:
+                urllib.request.urlopen(base + "/nope", timeout=5)
+                check("unknown path → 404", False, "no error raised")
+            except urllib.error.HTTPError as e:
+                check("unknown path → 404", e.code == 404, str(e.code))
+        finally:
+            server.shutdown()
+            server.server_close()
+
+
 def test_asr_long():
     print("ASR long-form chunking (tiled speech, forced multi-chunk):")
     from sotto.asr_mlx import ParakeetASR
@@ -389,6 +471,9 @@ if __name__ == "__main__":
     test_evdev_gestures()
     test_platform_detection()
     test_linux_injector_selection()
+    test_history()
+    test_stats()
+    test_dashboard()
     test_llm_fallback()
     if run_all or "--llm" in args:
         test_llm()

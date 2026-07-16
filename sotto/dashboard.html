@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sotto</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cg fill='%23e8836f'%3E%3Crect x='3' y='13' width='3' height='6' rx='1.5'/%3E%3Crect x='8' y='9' width='3' height='14' rx='1.5'/%3E%3Crect x='13' y='4' width='3' height='24' rx='1.5'/%3E%3Crect x='18' y='9' width='3' height='14' rx='1.5' opacity='.75'/%3E%3Crect x='23' y='13' width='3' height='6' rx='1.5' opacity='.5'/%3E%3Ccircle cx='29' cy='16' r='1.5' opacity='.3'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #faf7f2;         /* warm off-white, from the logo */
+    --card: #ffffff;
+    --ink: #232939;        /* deep ink navy, from the logo */
+    --muted: #8a8f9c;
+    --line: #e8e3da;
+    --accent: #232939;
+    --bar: #232939;
+    --hover: #f3efe8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181f;
+      --card: #1e212b;
+      --ink: #f0ede7;
+      --muted: #8a8f9c;
+      --line: #2c303c;
+      --accent: #f0ede7;
+      --bar: #b8bdca;
+      --hover: #262a36;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 40px 24px 80px; }
+
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 36px; }
+  header svg { display: block; }
+  header .mark { fill: var(--ink); }
+  header h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.5px; }
+  header .sub { margin-left: auto; color: var(--muted); font-size: 13px; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+           gap: 14px; margin-bottom: 14px; }
+  .stat {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 20px;
+  }
+  .stat .num { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+  .stat .label { color: var(--muted); font-size: 12px; text-transform: uppercase;
+                 letter-spacing: 0.6px; margin-top: 2px; }
+
+  .chart-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 20px 12px; margin-bottom: 36px;
+  }
+  .chart-card .label { color: var(--muted); font-size: 12px; text-transform: uppercase;
+                       letter-spacing: 0.6px; margin-bottom: 10px; }
+  #chart { width: 100%; height: 110px; display: block; }
+  #chart rect { fill: var(--bar); opacity: 0.85; }
+  #chart rect.empty { opacity: 0.12; }
+  #chart text { fill: var(--muted); font-size: 9px; }
+
+  .listhead { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; }
+  .listhead h2 { font-size: 17px; font-weight: 650; }
+  #search {
+    margin-left: auto; width: 240px; padding: 8px 12px; font: inherit;
+    font-size: 14px; color: var(--ink); background: var(--card);
+    border: 1px solid var(--line); border-radius: 10px; outline: none;
+  }
+  #search:focus { border-color: var(--muted); }
+
+  .day { color: var(--muted); font-size: 12px; text-transform: uppercase;
+         letter-spacing: 0.8px; margin: 26px 0 10px 4px; }
+  .entry {
+    display: flex; gap: 18px; background: var(--card);
+    border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px 18px; margin-bottom: 10px; cursor: pointer;
+    transition: background 0.12s;
+    position: relative;
+  }
+  .entry:hover { background: var(--hover); }
+  .entry .time { color: var(--muted); font-size: 13px; white-space: nowrap;
+                 min-width: 64px; padding-top: 1px; }
+  .entry .text { flex: 1; white-space: pre-wrap; word-break: break-word; }
+  .entry .meta { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .entry .copied {
+    position: absolute; top: 12px; right: 14px; font-size: 12px;
+    color: var(--bg); background: var(--accent); border-radius: 8px;
+    padding: 3px 9px; opacity: 0; transition: opacity 0.15s; pointer-events: none;
+  }
+  .entry .copied.show { opacity: 1; }
+
+  #more {
+    display: none; margin: 18px auto 0; padding: 9px 22px; font: inherit;
+    font-size: 14px; color: var(--ink); background: var(--card);
+    border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+  }
+  #more:hover { background: var(--hover); }
+  .empty-state { color: var(--muted); text-align: center; padding: 48px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <svg class="mark" width="34" height="34" viewBox="0 0 32 32" aria-hidden="true">
+      <rect x="3" y="13" width="3" height="6" rx="1.5"/>
+      <rect x="8" y="9" width="3" height="14" rx="1.5"/>
+      <rect x="13" y="4" width="3" height="24" rx="1.5"/>
+      <rect x="18" y="9" width="3" height="14" rx="1.5" opacity=".75"/>
+      <rect x="23" y="13" width="3" height="6" rx="1.5" opacity=".5"/>
+      <circle cx="29" cy="16" r="1.5" opacity=".3"/>
+    </svg>
+    <h1>sotto</h1>
+    <span class="sub">everything on this page stays on your machine</span>
+  </header>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="chart-card">
+    <div class="label">Words per day — last 14 days</div>
+    <svg id="chart" preserveAspectRatio="none"></svg>
+  </div>
+
+  <div class="listhead">
+    <h2>History</h2>
+    <input id="search" type="search" placeholder="Search dictations…">
+  </div>
+  <div id="list"></div>
+  <button id="more">Show more</button>
+</div>
+
+<script>
+"use strict";
+const PAGE = 200;
+let allEntries = [], shown = 0, query = "";
+
+function fmtDuration(s) {
+  const t = Math.round(s);
+  if (t < 60) return t + "s";
+  return Math.floor(t / 60) + "m " + (t % 60) + "s";
+}
+function fmtSaved(min) {
+  if (min < 1) return "<1 min";
+  const t = Math.round(min);
+  if (t < 60) return t + " min";
+  return Math.floor(t / 60) + " h " + (t % 60) + " m";
+}
+function fmtClock(d) {
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).toLowerCase();
+}
+function relTime(d) {
+  const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return mins + "m ago";
+  if (mins < 24 * 60) return Math.floor(mins / 60) + "h ago";
+  return fmtClock(d);
+}
+function dayLabel(d) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const day = new Date(d); day.setHours(0, 0, 0, 0);
+  const diff = Math.round((today - day) / 86400000);
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  return d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
+}
+function appName(id) {
+  if (!id) return "";
+  const last = id.split(".").pop();          // bundle id → last segment
+  return last.charAt(0).toUpperCase() + last.slice(1);
+}
+
+function statCard(num, label) {
+  const div = document.createElement("div");
+  div.className = "stat";
+  const n = document.createElement("div"); n.className = "num"; n.textContent = num;
+  const l = document.createElement("div"); l.className = "label"; l.textContent = label;
+  div.append(n, l);
+  return div;
+}
+
+function renderStats(s) {
+  const box = document.getElementById("stats");
+  box.replaceChildren(
+    statCard(s.total_words.toLocaleString(), "total words"),
+    statCard(s.total_dictations.toLocaleString(), "dictations"),
+    statCard(s.avg_wpm ? Math.round(s.avg_wpm) : "—", "words / minute"),
+    statCard(fmtSaved(s.time_saved_min), "saved vs typing"));
+}
+
+function renderChart(days) {
+  const svg = document.getElementById("chart");
+  const W = 700, H = 110, pad = 2, labelH = 14;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.replaceChildren();
+  const max = Math.max(1, ...days.map(d => d.words));
+  const bw = W / days.length;
+  days.forEach((d, i) => {
+    const h = Math.max(2, (d.words / max) * (H - labelH - 4));
+    const r = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    r.setAttribute("x", i * bw + pad);
+    r.setAttribute("y", H - labelH - h);
+    r.setAttribute("width", bw - pad * 2);
+    r.setAttribute("height", h);
+    r.setAttribute("rx", 3);
+    if (!d.words) r.setAttribute("class", "empty");
+    const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+    title.textContent = `${d.date}: ${d.words.toLocaleString()} words`;
+    r.appendChild(title);
+    svg.appendChild(r);
+    const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    t.setAttribute("x", i * bw + bw / 2);
+    t.setAttribute("y", H - 3);
+    t.setAttribute("text-anchor", "middle");
+    t.textContent = d.date.slice(8);           // day-of-month
+    svg.appendChild(t);
+  });
+}
+
+function entryCard(e) {
+  const d = new Date(e.ts);
+  const card = document.createElement("div");
+  card.className = "entry";
+  card.title = "Click to copy";
+  const time = document.createElement("div");
+  time.className = "time";
+  time.textContent = isNaN(d) ? "" : relTime(d);
+  const body = document.createElement("div");
+  body.className = "text";
+  body.textContent = e.text || "";
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  const parts = [(e.words || 0) + " words"];
+  if (e.duration_s) parts.push(fmtDuration(e.duration_s));
+  if (e.app) parts.push(appName(e.app));
+  meta.textContent = parts.join("  ·  ");
+  body.appendChild(meta);
+  const badge = document.createElement("span");
+  badge.className = "copied";
+  badge.textContent = "Copied ✓";
+  card.append(time, body, badge);
+  card.addEventListener("click", () => {
+    navigator.clipboard.writeText(e.text || "").then(() => {
+      badge.classList.add("show");
+      setTimeout(() => badge.classList.remove("show"), 1200);
+    });
+  });
+  return card;
+}
+
+function filtered() {
+  if (!query) return allEntries;
+  const q = query.toLowerCase();
+  return allEntries.filter(e => (e.text || "").toLowerCase().includes(q));
+}
+
+function renderList(reset) {
+  const list = document.getElementById("list");
+  const more = document.getElementById("more");
+  const entries = filtered();
+  if (reset) { list.replaceChildren(); shown = 0; }
+  if (!entries.length) {
+    const p = document.createElement("p");
+    p.className = "empty-state";
+    p.textContent = query ? "No dictations match your search."
+                          : "No dictations yet — hold the hotkey and speak.";
+    list.replaceChildren(p);
+    more.style.display = "none";
+    return;
+  }
+  const batch = entries.slice(shown, shown + PAGE);
+  let lastDay = shown > 0 ? new Date(entries[shown - 1].ts).toDateString() : null;
+  for (const e of batch) {
+    const d = new Date(e.ts);
+    const key = isNaN(d) ? "unknown" : d.toDateString();
+    if (key !== lastDay) {
+      const h = document.createElement("div");
+      h.className = "day";
+      h.textContent = isNaN(d) ? "Unknown date" : dayLabel(d);
+      list.appendChild(h);
+      lastDay = key;
+    }
+    list.appendChild(entryCard(e));
+  }
+  shown += batch.length;
+  more.style.display = shown < entries.length ? "block" : "none";
+}
+
+document.getElementById("more").addEventListener("click", () => renderList(false));
+document.getElementById("search").addEventListener("input", ev => {
+  query = ev.target.value.trim();
+  renderList(true);
+});
+
+fetch("/api/history")
+  .then(r => r.json())
+  .then(data => {
+    allEntries = data.entries || [];
+    renderStats(data.stats);
+    renderChart(data.stats.words_per_day || []);
+    renderList(true);
+  })
+  .catch(() => {
+    document.getElementById("list").textContent = "Could not load history.";
+  });
+</script>
+</body>
+</html>

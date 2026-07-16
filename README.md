@@ -126,6 +126,27 @@ macOS note: dictation is intentionally inactive in password fields (secure
 input). **Linux has no such mechanism — Sotto will type into password fields
 too**, so mind where your cursor is.
 
+## Dashboard
+
+Sotto keeps a local history of your dictations and serves a small dashboard at
+**http://127.0.0.1:8377** (it opens in your browser when Sotto starts). There
+you can:
+
+- **Browse every past dictation**, newest first, with time, word count,
+  duration, and the app it was typed into. **Click any entry to copy it** to
+  the clipboard — handy when an app swallowed the text or you want it again.
+- **Search** your history as you type.
+- **See insights**: total words dictated, number of dictations, your speaking
+  rate (words per minute), estimated time saved vs typing, and a words-per-day
+  chart for the last two weeks.
+
+Like everything in Sotto, this is 100% local: the page is served by the Sotto
+process itself, binds only to 127.0.0.1, loads nothing from the internet, and
+the history lives in a single human-readable file, `~/.sotto/history.jsonl`
+(one JSON object per line — delete the file to wipe your history). Config
+switches: `dashboard` (serve it at all), `open_dashboard_on_start` (auto-open
+the browser), `dashboard_port`.
+
 ## Configuration
 
 Optional — create `~/.sotto/config.toml`:
@@ -138,6 +159,9 @@ ollama_model = "qwen3:4b-instruct"  # "llama3.2:3b" is faster on CPU / 8 GB mach
 asr_backend = "auto"       # "mlx" (Apple Silicon) | "onnx" (everything else)
 onnx_quantization = ""     # set "int8" for slow CPUs (smaller + faster, tiny accuracy cost)
 indicator = true           # on-screen capsule
+dashboard = true           # local history dashboard at 127.0.0.1:8377
+dashboard_port = 8377
+open_dashboard_on_start = true  # open the browser when Sotto starts
 sounds = true              # start/finish sounds
 haptics = true             # trackpad tap on start (macOS only)
 indicator_offset_y = 6.0   # capsule distance from screen bottom (px)
@@ -194,6 +218,10 @@ cleanup model.
 
 - Audio, transcripts, and cleaned text never leave your machine. Works fully
   offline after setup.
+- Dictation history is stored **only** in `~/.sotto/history.jsonl` on your
+  machine, for the local dashboard. It is never uploaded anywhere — there is
+  no server to upload it to. Delete the file (or set `dashboard = false`) any
+  time.
 - No telemetry, no account, no API keys.
 - Recurring cost: electricity for a few seconds of compute per dictation.
 
