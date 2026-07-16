@@ -177,6 +177,67 @@ def test_llm_server():
             os.environ["RESOURCEPATH"] = had
 
 
+def test_firstrun():
+    print("first-run checks (offline model detection, store consolidation):")
+    from sotto import firstrun
+    from sotto.config import Config
+
+    cfg = Config()
+    saved = {k: os.environ.get(k) for k in ("HF_HOME", "SOTTO_FIRSTRUN")}
+    old_hf_default, old_sotto_hf = firstrun.HF_DEFAULT_CACHE, firstrun.SOTTO_HF_HOME
+    old_stores = firstrun.OLLAMA_DEFAULT_STORE, firstrun.SOTTO_OLLAMA_STORE
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ.pop("HF_HOME", None)
+            firstrun.HF_DEFAULT_CACHE = os.path.join(tmp, "hf-default")
+            firstrun.SOTTO_HF_HOME = os.path.join(tmp, "sotto-hf")
+            firstrun.OLLAMA_DEFAULT_STORE = os.path.join(tmp, "ollama")
+            firstrun.SOTTO_OLLAMA_STORE = os.path.join(tmp, "sotto-ollama")
+
+            check("ASR model absent detected",
+                  not firstrun.asr_model_ok(cfg.asr_model))
+            check("LLM model absent detected",
+                  not firstrun.llm_model_ok(cfg.ollama_model))
+
+            snap = os.path.join(firstrun._hf_model_dir(
+                cfg.asr_model, firstrun.HF_DEFAULT_CACHE), "snapshots", "abc")
+            os.makedirs(snap)
+            open(os.path.join(snap, "config.json"), "w").close()
+            check("ASR model found in default cache",
+                  firstrun.asr_model_ok(cfg.asr_model))
+
+            manifest = firstrun._manifest_path(
+                firstrun.SOTTO_OLLAMA_STORE, cfg.ollama_model)
+            os.makedirs(os.path.dirname(manifest))
+            open(manifest, "w").close()
+            check("LLM model found in sotto store",
+                  firstrun.llm_model_ok(cfg.ollama_model))
+            check("manifest path uses name/tag split",
+                  manifest.endswith("library/qwen3/4b-instruct"), manifest)
+
+            firstrun.consolidate_model_stores(cfg)
+            check("HF_HOME untouched when model already cached",
+                  "HF_HOME" not in os.environ)
+
+            import shutil
+            shutil.rmtree(os.path.join(firstrun.HF_DEFAULT_CACHE))
+            firstrun.consolidate_model_stores(cfg)
+            check("HF_HOME pointed at ~/.sotto when model missing",
+                  os.environ.get("HF_HOME") == firstrun.SOTTO_HF_HOME)
+
+            os.environ["SOTTO_FIRSTRUN"] = "0"
+            check("SOTTO_FIRSTRUN=0 skips the window", not firstrun.needed(cfg))
+            os.environ["SOTTO_FIRSTRUN"] = "1"
+            check("SOTTO_FIRSTRUN=1 forces the window", firstrun.needed(cfg))
+    finally:
+        firstrun.HF_DEFAULT_CACHE, firstrun.SOTTO_HF_HOME = old_hf_default, old_sotto_hf
+        firstrun.OLLAMA_DEFAULT_STORE, firstrun.SOTTO_OLLAMA_STORE = old_stores
+        for k, v in saved.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+
+
 def test_listener_retry():
     print("hotkey-permission retry (failure alerts once, retries until up):")
     from sotto import app as app_mod
@@ -613,6 +674,7 @@ if __name__ == "__main__":
     test_dashboard()
     test_llm_fallback()
     test_llm_server()
+    test_firstrun()
     test_listener_retry()
     if run_all or "--llm" in args:
         test_llm()

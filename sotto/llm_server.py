@@ -53,19 +53,21 @@ def _host_port(url: str) -> str:
     return f"{parts.hostname or '127.0.0.1'}:{parts.port or 11434}"
 
 
-def ensure(cfg) -> None:
+def ensure(cfg, on_pull_progress=None) -> None:
     """Make cfg.ollama_url answer if possible. Never raises; the cleaner's
-    regex fallback already covers a server that stays unreachable."""
+    regex fallback already covers a server that stays unreachable.
+    on_pull_progress (optional) receives an int percentage while a missing
+    model downloads — the first-run window feeds its bar with it."""
     url = cfg.ollama_url.rstrip("/")
     if _reachable(url):
-        _ensure_model(url, cfg.ollama_model)
+        _ensure_model(url, cfg.ollama_model, on_pull_progress)
         return
     binary = bundled_binary()
     if binary is None:
         return  # checkout / no bundle: today's behavior, regex fallback
     _spawn(binary, url)
     if _wait_ready(url):
-        _ensure_model(url, cfg.ollama_model)
+        _ensure_model(url, cfg.ollama_model, on_pull_progress)
     else:
         log.warning("bundled ollama did not become ready on %s — "
                     "cleanup falls back to regex", url)
@@ -75,6 +77,12 @@ def _spawn(binary: str, url: str):
     global _child
     logfile = open(os.path.join(CONFIG_DIR, "ollama-server.log"), "ab")
     env = dict(os.environ, OLLAMA_HOST=_host_port(url))
+    # Fresh machines keep all Sotto data under ~/.sotto; machines that
+    # already have an ~/.ollama store reuse it (no duplicate 2.5 GB pull).
+    default_store = os.path.expanduser("~/.ollama/models")
+    if "OLLAMA_MODELS" not in env and not os.path.isdir(
+            os.path.join(default_store, "manifests")):
+        env["OLLAMA_MODELS"] = os.path.expanduser("~/.sotto/ollama")
     # New session: a Ctrl+C aimed at Sotto shouldn't SIGINT the child
     # mid-request; shutdown() below is the one way it exits. If Sotto is
     # kill -9'd the orphan keeps serving and the next launch simply finds
@@ -102,7 +110,7 @@ def _wait_ready(url: str) -> bool:
     return False
 
 
-def _ensure_model(url: str, model: str):
+def _ensure_model(url: str, model: str, on_progress=None):
     try:
         tags = requests.get(f"{url}/api/tags", timeout=5).json()
         have = {m.get("name", "") for m in tags.get("models", [])}
@@ -125,9 +133,13 @@ def _ensure_model(url: str, model: str):
                     log.warning("model pull failed: %s", status["error"])
                     return
                 total, done = status.get("total"), status.get("completed")
-                if total and done and time.monotonic() - last > 15:
-                    last = time.monotonic()
-                    log.info("pulling %s: %d%%", model, 100 * done // total)
+                if total and done:
+                    if on_progress is not None:
+                        on_progress(100 * done // total)
+                    if time.monotonic() - last > 15:
+                        last = time.monotonic()
+                        log.info("pulling %s: %d%%", model,
+                                 100 * done // total)
         log.info("model %s ready", model)
     except (requests.RequestException, ValueError) as e:
         log.warning("model pull failed: %s", e)

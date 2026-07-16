@@ -1,0 +1,445 @@
+# Created by Pratik Sancheti / https://github.com/psancheti6666
+"""First-run experience for the Sotto.app bundle — replaces setup.sh there.
+
+On .app launch, fast offline checks decide whether setup is complete: mic /
+Accessibility / Input Monitoring authorization, the Globe-key setting, and
+both models present. If anything is missing, launch() shows a welcome window
+(one row per item, live status, an action button each, progress bars for the
+model downloads) and owns the process; when everything is green, it relaunches
+the app once — Input Monitoring grants only take effect in a fresh process.
+
+The git-checkout path never sees any of this (app.py gates on the bundle),
+and every check degrades to "ok" off-macOS so the module imports anywhere.
+
+Model stores: fresh machines download into ~/.sotto (hf/ for ASR via HF_HOME,
+ollama/ for the LLM via OLLAMA_MODELS); machines that already hold the models
+in the default stores (~/.cache/huggingface, ~/.ollama) keep using those — no
+duplicate multi-GB downloads. SOTTO_FIRSTRUN=1 forces the window (preview),
+=0 skips it.
+"""
+import logging
+import os
+import subprocess
+import sys
+import threading
+
+log = logging.getLogger("sotto")
+
+HF_DEFAULT_CACHE = os.path.expanduser("~/.cache/huggingface")
+SOTTO_HF_HOME = os.path.expanduser("~/.sotto/hf")
+OLLAMA_DEFAULT_STORE = os.path.expanduser("~/.ollama/models")
+SOTTO_OLLAMA_STORE = os.path.expanduser("~/.sotto/ollama")
+# Written when the welcome window shows; the next normal startup announces
+# "setup complete" and removes it. Needed because macOS itself may quit &
+# reopen Sotto when Input Monitoring is granted — the user then lands in a
+# running app without ever clicking "Start Sotto".
+PENDING_MARKER = os.path.expanduser("~/.sotto/.firstrun-pending")
+
+_GREEN, _GRAY = "✓", "○"
+
+
+# ---------------------------------------------------------------- checks --
+
+def _hf_model_dir(model_id: str, cache_root: str) -> str:
+    return os.path.join(cache_root, "hub",
+                        "models--" + model_id.replace("/", "--"))
+
+
+def asr_model_ok(model_id: str) -> bool:
+    """True when the ASR model is present in any store we'd actually use:
+    an explicit HF_HOME, the default HF cache, or Sotto's own store."""
+    roots = [os.environ.get("HF_HOME") or "", HF_DEFAULT_CACHE, SOTTO_HF_HOME]
+    for root in filter(None, roots):
+        snap = os.path.join(_hf_model_dir(model_id, root), "snapshots")
+        if os.path.isdir(snap) and os.listdir(snap):
+            return True
+    return False
+
+
+def _manifest_path(store: str, model: str) -> str:
+    name, _, tag = model.partition(":")
+    return os.path.join(store, "manifests", "registry.ollama.ai", "library",
+                        name, tag or "latest")
+
+
+def llm_model_ok(model: str) -> bool:
+    return any(os.path.isfile(_manifest_path(s, model))
+               for s in (OLLAMA_DEFAULT_STORE, SOTTO_OLLAMA_STORE))
+
+
+def mic_ok() -> bool:
+    if sys.platform != "darwin":
+        return True
+    try:
+        from AVFoundation import AVCaptureDevice, AVMediaTypeAudio
+        return AVCaptureDevice.authorizationStatusForMediaType_(
+            AVMediaTypeAudio) == 3  # AVAuthorizationStatusAuthorized
+    except Exception:
+        return True  # can't tell — the OS prompt still fires on first use
+
+
+def accessibility_ok() -> bool:
+    if sys.platform != "darwin":
+        return True
+    try:
+        from ApplicationServices import AXIsProcessTrusted
+        return bool(AXIsProcessTrusted())
+    except Exception:
+        return True
+
+
+def input_monitoring_ok() -> bool:
+    if sys.platform != "darwin":
+        return True
+    try:
+        import Quartz
+        return bool(Quartz.CGPreflightListenEventAccess())
+    except Exception:
+        return True
+
+
+def globe_key_ok() -> bool:
+    """AppleFnUsageType must be 0 ("Do Nothing") or macOS opens the emoji
+    picker on every fn press."""
+    if sys.platform != "darwin":
+        return True
+    try:
+        out = subprocess.run(
+            ["defaults", "read", "com.apple.HIToolbox", "AppleFnUsageType"],
+            capture_output=True, text=True, timeout=5)
+        return out.stdout.strip() == "0"
+    except Exception:
+        return True
+
+
+def statuses(cfg) -> dict:
+    s = {
+        "mic": mic_ok(),
+        "accessibility": accessibility_ok(),
+        "input_monitoring": input_monitoring_ok(),
+        "asr_model": asr_model_ok(cfg.asr_model),
+        "llm_model": llm_model_ok(cfg.ollama_model),
+    }
+    if cfg.hotkey == "fn":
+        s["globe_key"] = globe_key_ok()
+    return s
+
+
+def needed(cfg) -> bool:
+    force = os.environ.get("SOTTO_FIRSTRUN")
+    if force == "1":
+        return True
+    if force == "0":
+        return False
+    return not all(statuses(cfg).values())
+
+
+def announce_if_setup_just_finished():
+    """One-time 'Sotto is ready' note on the first normal start after the
+    welcome window — the restart that gets the user here may have been
+    macOS's own quit-&-reopen for Input Monitoring, not their click."""
+    if not os.path.exists(PENDING_MARKER):
+        return
+    try:
+        os.remove(PENDING_MARKER)
+    except OSError:
+        return
+    from .platform import alert
+    alert("Sotto is ready",
+          "Setup is complete and Sotto is now running in the menu bar.\n\n"
+          "Hold the fn key anywhere, speak, release — the cleaned-up text "
+          "lands at your cursor.")
+
+
+def consolidate_model_stores(cfg):
+    """Point downloads at ~/.sotto unless the default stores already hold the
+    models. Must run before huggingface_hub is first imported (it snapshots
+    HF_HOME at import); the ollama side lives in llm_server._spawn."""
+    if not asr_model_ok(cfg.asr_model) and "HF_HOME" not in os.environ:
+        os.environ["HF_HOME"] = SOTTO_HF_HOME
+
+
+# --------------------------------------------------------------- actions --
+
+def request_mic():
+    try:
+        from AVFoundation import AVCaptureDevice, AVMediaTypeAudio
+        AVCaptureDevice.requestAccessForMediaType_completionHandler_(
+            AVMediaTypeAudio, lambda ok: None)
+    except Exception:
+        pass
+
+
+def request_accessibility():
+    try:
+        from ApplicationServices import (AXIsProcessTrustedWithOptions,
+                                         kAXTrustedCheckOptionPrompt)
+        AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: True})
+    except Exception:
+        pass
+    _open_settings_pane("Privacy_Accessibility")
+
+
+def request_input_monitoring():
+    try:
+        import Quartz
+        Quartz.CGRequestListenEventAccess()
+    except Exception:
+        pass
+    _open_settings_pane("Privacy_ListenEvent")
+
+
+def _open_settings_pane(anchor: str):
+    subprocess.run(["open",
+                    f"x-apple.systempreferences:com.apple.preference.security?{anchor}"],
+                   check=False)
+
+
+def fix_globe_key():
+    subprocess.run(["defaults", "write", "com.apple.HIToolbox",
+                    "AppleFnUsageType", "-int", "0"], check=False)
+
+
+def relaunch():
+    """Replace this process with a fresh one (Input Monitoring grants only
+    apply to processes started after the grant)."""
+    from Foundation import NSBundle
+    bundle = NSBundle.mainBundle().bundlePath()
+    env = {k: v for k, v in os.environ.items() if k != "SOTTO_FIRSTRUN"}
+    # open passes its environment through — SOTTO_FIRSTRUN=1 (the forced
+    # preview) must not leak or the fresh instance shows the window again.
+    subprocess.Popen(["/bin/sh", "-c", f"sleep 1; open '{bundle}'"],
+                     start_new_session=True, env=env)
+    from AppKit import NSApp
+    NSApp.terminate_(None)
+
+
+# ------------------------------------------------------------- downloads --
+
+def download_models(cfg, on_progress, on_done):
+    """Fetch whatever is missing, reporting (label, fraction|None) to
+    on_progress from a worker thread. UI code marshals to the main thread."""
+    def work():
+        try:
+            if not asr_model_ok(cfg.asr_model):
+                _download_asr(cfg, on_progress)
+            if not llm_model_ok(cfg.ollama_model):
+                _download_llm(cfg, on_progress)
+        except Exception as e:
+            log.warning("model download failed: %s", e)
+            on_progress(f"download failed: {e}", None)
+        on_done()
+    threading.Thread(target=work, daemon=True).start()
+
+
+def _download_asr(cfg, on_progress):
+    on_progress("downloading speech model…", None)
+    from huggingface_hub import snapshot_download
+    from tqdm.auto import tqdm
+
+    class _Progress(tqdm):
+        def update(self, n=1):
+            super().update(n)
+            # only the weights file is big enough to be worth a bar
+            if self.total and self.total > 50 * 1024 * 1024:
+                on_progress(f"speech model: {100 * self.n // self.total}%",
+                            self.n / self.total)
+
+    snapshot_download(cfg.asr_model, tqdm_class=_Progress)
+    on_progress("speech model ready", 1.0)
+
+
+def _download_llm(cfg, on_progress):
+    from . import llm_server
+    on_progress("starting cleanup engine…", None)
+    llm_server.ensure(cfg, on_pull_progress=lambda pct: on_progress(
+        f"cleanup model: {pct}%", pct / 100))
+    on_progress("cleanup model ready", 1.0)
+
+
+# -------------------------------------------------------------------- UI --
+
+ROWS = [
+    ("mic", "Microphone",
+     "Sotto records only while you hold the hotkey.", "Allow", request_mic),
+    ("accessibility", "Accessibility",
+     "Lets Sotto type the cleaned text at your cursor.", "Open Settings",
+     request_accessibility),
+    ("input_monitoring", "Input Monitoring",
+     "Sees the hotkey. macOS may ask to quit & reopen Sotto — allow it.",
+     "Open Settings", request_input_monitoring),
+    ("globe_key", "Globe key",
+     "macOS must not open the emoji picker on fn.", "Fix", fix_globe_key),
+    ("models", "Models (~3 GB, one time)",
+     "Speech recognition + cleanup, stored locally.", "Download", None),
+]
+
+
+def launch(cfg):
+    """Show the welcome window and own the process. Never returns: either the
+    user quits, or setup completes and the app relaunches itself."""
+    import signal
+
+    import objc
+    from AppKit import (
+        NSApplication, NSBackingStoreBuffered, NSButton, NSColor, NSFont,
+        NSMakeRect, NSObject, NSProgressIndicator, NSScreen, NSTextField,
+        NSTimer, NSWindow, NSWindowStyleMaskClosable, NSWindowStyleMaskTitled)
+    from PyObjCTools import MachSignals
+
+    from . import menubar
+
+    app = NSApplication.sharedApplication()
+    app.setActivationPolicy_(1)  # accessory: no Dock icon, same as overlay
+    menubar.install()
+
+    W, H, PAD, ROW_H = 560, 470, 24, 58
+
+    win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+        NSMakeRect(0, 0, W, H),
+        NSWindowStyleMaskTitled | NSWindowStyleMaskClosable,
+        NSBackingStoreBuffered, False)
+    win.setTitle_("Welcome to Sotto")
+    win.setReleasedWhenClosed_(False)
+    content = win.contentView()
+
+    def label(text, size, bold, x, y, w, h, dim=False):
+        t = NSTextField.labelWithString_(text)
+        t.setFont_(NSFont.boldSystemFontOfSize_(size) if bold
+                   else NSFont.systemFontOfSize_(size))
+        if dim:
+            t.setTextColor_(NSColor.secondaryLabelColor())
+        t.setFrame_(NSMakeRect(x, y, w, h))
+        content.addSubview_(t)
+        return t
+
+    label("Welcome to Sotto", 22, True, PAD, H - 56, W - 2 * PAD, 30)
+    label("Private, on-device dictation. A few things need setting up first.",
+          12, False, PAD, H - 78, W - 2 * PAD, 16, dim=True)
+
+    rows = {}       # key -> (dot, button)
+    y = H - 110
+    for key, title, detail, btn_title, _action in ROWS:
+        if key == "globe_key" and cfg.hotkey != "fn":
+            continue
+        dot = label(_GRAY, 16, True, PAD, y - 34, 22, 22)
+        label(title, 13, True, PAD + 30, y - 22, 330, 18)
+        label(detail, 11, False, PAD + 30, y - 40, 330, 16, dim=True)
+        btn = NSButton.buttonWithTitle_target_action_(btn_title, None, None)
+        btn.setFrame_(NSMakeRect(W - PAD - 130, y - 34, 130, 28))
+        content.addSubview_(btn)
+        rows[key] = (dot, btn)
+        y -= ROW_H
+
+    bar = NSProgressIndicator.alloc().initWithFrame_(
+        NSMakeRect(PAD, 58, W - 2 * PAD, 8))
+    bar.setStyle_(0)  # bar
+    bar.setIndeterminate_(False)
+    bar.setMinValue_(0.0)
+    bar.setMaxValue_(1.0)
+    bar.setHidden_(True)
+    content.addSubview_(bar)
+    progress_label = label("", 11, False, PAD, 70, W - 2 * PAD, 16, dim=True)
+
+    start = NSButton.buttonWithTitle_target_action_("Start Sotto", None, None)
+    start.setFrame_(NSMakeRect(W - PAD - 150, 14, 150, 34))
+    start.setKeyEquivalent_("\r")
+    start.setEnabled_(False)
+    content.addSubview_(start)
+    quit_btn = NSButton.buttonWithTitle_target_action_("Quit", None, None)
+    quit_btn.setFrame_(NSMakeRect(W - PAD - 240, 14, 84, 34))
+    content.addSubview_(quit_btn)
+    label("Sotto restarts once when everything is ready.", 10, False,
+          PAD, 24, 260, 14, dim=True)
+
+    actions = {r[0]: r[4] for r in ROWS}
+
+    class Controller(NSObject):
+        def act_(self, sender):
+            for key, (_dot, btn) in rows.items():
+                if btn is sender:
+                    if key == "models":
+                        self.download()
+                    else:
+                        actions[key]()
+                    return
+
+        @objc.python_method
+        def download(self):
+            rows["models"][1].setEnabled_(False)
+            bar.setHidden_(False)
+            download_models(cfg, self.progress, self.done_downloading)
+
+        @objc.python_method
+        def progress(self, text, fraction):
+            def ui():
+                progress_label.setStringValue_(text)
+                if fraction is not None:
+                    bar.setDoubleValue_(fraction)
+            _on_main(ui)
+
+        @objc.python_method
+        def done_downloading(self):
+            _on_main(lambda: rows["models"][1].setEnabled_(True))
+
+        def tick_(self, _timer):
+            st = statuses(cfg)
+            st["models"] = st.pop("asr_model") and st.pop("llm_model")
+            for key, (dot, btn) in rows.items():
+                ok = st.get(key, True)
+                dot.setStringValue_(_GREEN if ok else _GRAY)
+                dot.setTextColor_(NSColor.systemGreenColor() if ok
+                                  else NSColor.secondaryLabelColor())
+                btn.setHidden_(ok)
+            start.setEnabled_(all(st.values()))
+
+        def start_(self, sender):
+            relaunch()
+
+        def quit_(self, sender):
+            from AppKit import NSApp
+            NSApp.terminate_(None)
+
+        def windowWillClose_(self, _note):
+            # the red close button means "not now" — quit instead of leaving
+            # a windowless menu-bar process the user never asked to keep
+            from AppKit import NSApp
+            NSApp.terminate_(None)
+
+    def _on_main(fn):
+        from Foundation import NSOperationQueue
+        NSOperationQueue.mainQueue().addOperationWithBlock_(fn)
+
+    ctl = Controller.alloc().init()
+    for key, (_dot, btn) in rows.items():
+        btn.setTarget_(ctl)
+        btn.setAction_("act:")
+    start.setTarget_(ctl)
+    start.setAction_("start:")
+    quit_btn.setTarget_(ctl)
+    quit_btn.setAction_("quit:")
+    win.setDelegate_(ctl)
+
+    ctl.tick_(None)  # paint real states before the first timer fire
+    timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+        1.0, ctl, "tick:", None, True)
+
+    try:  # marker: the next normal startup announces that setup finished
+        os.makedirs(os.path.dirname(PENDING_MARKER), exist_ok=True)
+        open(PENDING_MARKER, "w").close()
+    except OSError:
+        pass
+
+    frame = NSScreen.mainScreen().visibleFrame()
+    win.setFrameOrigin_(((frame.size.width - W) / 2 + frame.origin.x,
+                         (frame.size.height - H) / 2 + frame.origin.y))
+    win.makeKeyAndOrderFront_(None)
+    app.activateIgnoringOtherApps_(True)
+
+    MachSignals.signal(signal.SIGINT, lambda *_: app.terminate_(None))
+    # keep strong refs for the run loop's lifetime
+    _refs.extend([win, ctl, timer])
+    app.run()
+
+
+_refs: list = []
