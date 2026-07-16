@@ -1,3 +1,4 @@
+# Created by Pratik Sancheti / https://github.com/psancheti6666
 """Text injection at the cursor.
 
 Default ("auto"): type the text as real keystrokes — it appears character by

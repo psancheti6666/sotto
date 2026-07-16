@@ -1,3 +1,4 @@
+# Created by Pratik Sancheti / https://github.com/psancheti6666
 """Wires the pipeline: hotkey → record → ASR → dictionary → clean → inject."""
 
 import logging

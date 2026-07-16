@@ -1,3 +1,4 @@
+# Created by Pratik Sancheti / https://github.com/psancheti6666
 """On-screen feedback for Linux: a tkinter port of overlay.py's capsule.
 
 Same public surface and modes as the AppKit overlay (listening / handsfree /

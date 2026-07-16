@@ -1,3 +1,4 @@
+# Created by Pratik Sancheti / https://github.com/psancheti6666
 """Microphone capture: always-open 16 kHz mono stream, frames kept only while recording."""
 
 import threading

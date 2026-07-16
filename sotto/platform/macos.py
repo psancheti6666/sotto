@@ -1,3 +1,4 @@
+# Created by Pratik Sancheti / https://github.com/psancheti6666
 """macOS implementations: NSSound system sounds, trackpad haptics, frontmost app."""
 
 

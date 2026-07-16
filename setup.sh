@@ -1,4 +1,5 @@
 #!/bin/bash
+# Created by Pratik Sancheti / https://github.com/psancheti6666
 # Sotto one-command setup: installs everything needed and downloads both AI models.
 # Supports macOS (Apple Silicon + Intel) and Linux (X11 + Wayland; apt or dnf).
 # Usage: ./setup.sh

@@ -1,3 +1,4 @@
+# Created by Pratik Sancheti / https://github.com/psancheti6666
 """Pipeline verification, runnable headless (no mic/hotkey/permissions needed).
 
 Usage:

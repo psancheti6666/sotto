@@ -1,3 +1,4 @@
+# Created by Pratik Sancheti / https://github.com/psancheti6666
 """ASR: the same Parakeet-TDT-0.6B-v3 model exported to ONNX, for Intel Macs
 and Linux (onnx-asr / onnxruntime, CPU by default).
 

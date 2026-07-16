@@ -1,3 +1,4 @@
+# Created by Pratik Sancheti / https://github.com/psancheti6666
 """ASR: NVIDIA Parakeet-TDT-0.6B-v3 via parakeet-mlx (Apple Silicon, ~0.5 s/utterance).
 
 Feeds the in-memory capture buffer straight into the model's log-mel frontend

@@ -1,3 +1,4 @@
+# Created by Pratik Sancheti / https://github.com/psancheti6666
 """Linux text injection: probe the available tools once, then use the best.
 
 X11:      xdotool type (keyboard-layout aware); paste = clipboard + Ctrl+V.

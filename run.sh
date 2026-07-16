@@ -1,4 +1,5 @@
 #!/bin/bash
+# Created by Pratik Sancheti / https://github.com/psancheti6666
 # Start Sotto. Run ./setup.sh once first.
 cd "$(dirname "$0")"
 [[ -x .venv/bin/python ]] || { echo "Not set up yet — run ./setup.sh first."; exit 1; }

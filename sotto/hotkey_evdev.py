@@ -1,3 +1,4 @@
+# Created by Pratik Sancheti / https://github.com/psancheti6666
 """Linux global hotkey via evdev (/dev/input) — works on X11 and Wayland alike.
 
 Reuses HotkeyListener's gesture state machine; only the event source differs.

@@ -1,3 +1,4 @@
+# Created by Pratik Sancheti / https://github.com/psancheti6666
 """Configuration: ~/.sotto/config.toml overrides the defaults below.
 
 The dataclass defaults are macOS values; on Linux, load_config() swaps in

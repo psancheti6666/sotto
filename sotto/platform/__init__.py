@@ -1,3 +1,4 @@
+# Created by Pratik Sancheti / https://github.com/psancheti6666
 """Platform detection and dispatch for the small OS-specific helpers.
 
 The big platform components (overlay, hotkey listener, ASR backend) are whole

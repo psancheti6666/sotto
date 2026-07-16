@@ -1,3 +1,4 @@
+# Created by Pratik Sancheti / https://github.com/psancheti6666
 """Local dashboard: stdlib HTTP server on 127.0.0.1 serving dashboard.html.
 
 Strictly local — binds to the loopback interface only, serves one

@@ -1,3 +1,4 @@
+# Created by Pratik Sancheti / https://github.com/psancheti6666
 """Personal dictionary: user-listed terms (one per line in ~/.sotto/dictionary.txt).
 
 Applied twice: fuzzy replacement over the raw transcript fixes ASR misspellings,

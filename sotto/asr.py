@@ -1,3 +1,4 @@
+# Created by Pratik Sancheti / https://github.com/psancheti6666
 """ASR backend selection.
 
 Apple Silicon runs Parakeet-TDT-0.6B-v3 via MLX (asr_mlx); Intel Macs and

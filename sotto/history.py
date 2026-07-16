@@ -1,3 +1,4 @@
+# Created by Pratik Sancheti / https://github.com/psancheti6666
 """Dictation history: append-only JSONL at ~/.sotto/history.jsonl + stats.
 
 One JSON object per line, written after each successful dictation. The file is
