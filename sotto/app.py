@@ -270,6 +270,10 @@ class Sotto:
                     # and relaunches into a normal start when finished.
                     firstrun.download_screen(self.cfg)
                     return
+                # From here the app runs for real — watch for permissions
+                # being revoked mid-session, which is otherwise silent.
+                threading.Thread(target=self._permission_watchdog,
+                                 daemon=True).start()
         # Bundled ollama (if any) spawns while the ASR model loads; from a
         # checkout this is one fast probe and a return.
         threading.Thread(target=llm_server.ensure, args=(self.cfg,),
@@ -337,6 +341,38 @@ class Sotto:
                 self.recorder.close()
 
     LISTENER_RETRY_S = 3.0
+    PERMISSION_POLL_S = 15.0
+
+    @staticmethod
+    def _permission_poll_once(watched, good):
+        """One watchdog pass: alert exactly once per granted→revoked flip.
+        `good` carries state between calls; a re-grant re-arms the alert."""
+        for name, check in watched.items():
+            ok = bool(check())
+            if good[name] and not ok:
+                log.warning("%s permission was revoked", name)
+                extra = (" Then quit and reopen Sotto."
+                         if name == "Input Monitoring" else "")
+                alert(f"Sotto lost the {name} permission",
+                      f"It was just turned off in System Settings → Privacy "
+                      f"& Security. Dictation can't work without it — please "
+                      f"turn it back on.{extra}")
+            good[name] = ok
+
+    def _permission_watchdog(self):
+        """Post-setup revocations are otherwise silent — typing just stops
+        landing or the hotkey dies with no explanation. Poll the same real
+        checks the walkthrough uses and say so the moment one flips."""
+        from . import firstrun
+        watched = {
+            "Microphone": firstrun.mic_ok,
+            "Accessibility": firstrun.accessibility_ok,
+            "Input Monitoring": firstrun.input_monitoring_ok,
+        }
+        good = dict.fromkeys(watched, True)  # verified by the startup gate
+        while True:
+            time.sleep(self.PERMISSION_POLL_S)
+            self._permission_poll_once(watched, good)
 
     def _run_listener(self, listener):
         """Daemon-thread wrapper around listener.run(). A missing keyboard

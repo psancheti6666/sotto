@@ -475,6 +475,15 @@ def launch(cfg):
             start.setEnabled_(ready)
 
         def start_(self, sender):
+            # The click is the moment of truth: re-run every check NOW
+            # rather than trust the last tick — the user may have just
+            # revoked something in the Settings window sitting next to us.
+            st = statuses(cfg)
+            st.pop("asr_model")
+            st.pop("llm_model")
+            if not all(st.values()):
+                self.tick_(None)   # repaint: the regressed row un-greens
+                return
             relaunch()
 
         def quit_(self, sender):

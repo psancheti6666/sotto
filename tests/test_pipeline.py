@@ -278,6 +278,34 @@ def test_listener_retry():
     check("alerts exactly once", len(alerts) == 1, str(alerts))
 
 
+def test_permission_watchdog():
+    print("permission watchdog (alerts once per revocation, re-arms on re-grant):")
+    from sotto import app as app_mod
+    from sotto.app import Sotto
+
+    alerts = []
+    state = {"ok": True}
+    old_alert = app_mod.alert
+    app_mod.alert = lambda title, text: alerts.append(title)
+    try:
+        watched = {"Accessibility": lambda: state["ok"]}
+        good = {"Accessibility": True}
+        Sotto._permission_poll_once(watched, good)
+        check("no alert while granted", alerts == [])
+        state["ok"] = False
+        Sotto._permission_poll_once(watched, good)
+        check("alert on revocation", len(alerts) == 1, str(alerts))
+        Sotto._permission_poll_once(watched, good)
+        check("no repeat while still revoked", len(alerts) == 1, str(alerts))
+        state["ok"] = True
+        Sotto._permission_poll_once(watched, good)
+        state["ok"] = False
+        Sotto._permission_poll_once(watched, good)
+        check("re-grant re-arms the alert", len(alerts) == 2, str(alerts))
+    finally:
+        app_mod.alert = old_alert
+
+
 def test_firstrun_gating():
     print("first-run gating (permissions gate the walkthrough, models don't):")
     from sotto import firstrun
@@ -785,6 +813,7 @@ if __name__ == "__main__":
     test_firstrun()
     test_insights_config()
     test_listener_retry()
+    test_permission_watchdog()
     test_firstrun_gating()
     test_firstrun_notifications()
     test_update()
