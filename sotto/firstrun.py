@@ -189,6 +189,40 @@ def request_input_monitoring():
     _open_settings_pane("Privacy_ListenEvent")
 
 
+# Update-notification permission (release bundle only). OPTIONAL: it is
+# deliberately kept out of statuses()/needed() — denying it must neither
+# block Start Sotto nor re-open the walkthrough; update offers then simply
+# arrive as a dialog instead of a banner (update.py falls back on its own).
+# The authorization query is async, so the row reads a cache that each
+# tick refreshes for the next one.
+
+_notif_status = {"value": None}   # UNAuthorizationStatus; None = not fetched
+
+
+def notifications_ok() -> bool:
+    return _notif_status["value"] in (2, 3)   # authorized / provisional
+
+
+def poll_notifications():
+    try:
+        import UserNotifications as UN
+        UN.UNUserNotificationCenter.currentNotificationCenter() \
+            .getNotificationSettingsWithCompletionHandler_(
+                lambda s: _notif_status.update(value=s.authorizationStatus()))
+    except Exception:
+        pass
+
+
+def request_notifications():
+    try:
+        import UserNotifications as UN
+        UN.UNUserNotificationCenter.currentNotificationCenter() \
+            .requestAuthorizationWithOptions_completionHandler_(
+                UN.UNAuthorizationOptionAlert, lambda ok, err: None)
+    except Exception:
+        pass
+
+
 def _open_settings_pane(anchor: str):
     subprocess.run(["open",
                     f"x-apple.systempreferences:com.apple.preference.security?{anchor}"],
@@ -270,6 +304,9 @@ ROWS = [
      "Open Settings", request_input_monitoring),
     ("globe_key", "Globe key",
      "macOS must not open the emoji picker on fn.", "Fix", fix_globe_key),
+    ("notifications", "Notifications (optional)",
+     "A quiet note when a Sotto update is ready.", "Allow",
+     request_notifications),
     ("models", "Models (~3 GB, one time)",
      "Speech recognition + cleanup, stored locally.", "Download", None),
 ]
@@ -293,7 +330,13 @@ def launch(cfg):
     app.setActivationPolicy_(0)  # regular: Dock icon, same as the main app
     menubar.install()
 
+    from . import update
+
     W, H, PAD, ROW_H = 560, 470, 24, 58
+    # the optional notifications row only exists where updates do
+    show_notifications = update.enabled()
+    if show_notifications:
+        H += ROW_H
 
     win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
         NSMakeRect(0, 0, W, H),
@@ -321,6 +364,8 @@ def launch(cfg):
     y = H - 110
     for key, title, detail, btn_title, _action in ROWS:
         if key == "globe_key" and cfg.hotkey != "fn":
+            continue
+        if key == "notifications" and not show_notifications:
             continue
         dot = label(_GRAY, 16, True, PAD, y - 34, 22, 22)
         label(title, 13, True, PAD + 30, y - 22, 330, 18)
@@ -385,13 +430,17 @@ def launch(cfg):
         def tick_(self, _timer):
             st = statuses(cfg)
             st["models"] = st.pop("asr_model") and st.pop("llm_model")
+            ready = all(st.values())   # gate BEFORE the optional row joins
+            if "notifications" in rows:
+                st["notifications"] = notifications_ok()
+                poll_notifications()   # refresh the cache for the next tick
             for key, (dot, btn) in rows.items():
                 ok = st.get(key, True)
                 dot.setStringValue_(_GREEN if ok else _GRAY)
                 dot.setTextColor_(NSColor.systemGreenColor() if ok
                                   else NSColor.secondaryLabelColor())
                 btn.setHidden_(ok)
-            start.setEnabled_(all(st.values()))
+            start.setEnabled_(ready)
 
         def start_(self, sender):
             relaunch()

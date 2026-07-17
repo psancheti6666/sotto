@@ -278,6 +278,27 @@ def test_listener_retry():
     check("alerts exactly once", len(alerts) == 1, str(alerts))
 
 
+def test_firstrun_notifications():
+    print("first-run notifications row (optional — must never gate setup):")
+    from sotto import firstrun
+    from sotto.config import Config
+
+    check("notifications NOT in gating statuses",
+          "notifications" not in firstrun.statuses(Config()))
+    check("row exists in ROWS", any(r[0] == "notifications"
+                                    for r in firstrun.ROWS))
+    old = dict(firstrun._notif_status)
+    try:
+        firstrun._notif_status["value"] = None
+        check("unknown status reads not-ok", not firstrun.notifications_ok())
+        firstrun._notif_status["value"] = 1  # denied
+        check("denied reads not-ok", not firstrun.notifications_ok())
+        firstrun._notif_status["value"] = 2  # authorized
+        check("authorized reads ok", firstrun.notifications_ok())
+    finally:
+        firstrun._notif_status.update(old)
+
+
 def test_update():
     print("update check (pure logic, no network):")
     from sotto import update
@@ -732,6 +753,7 @@ if __name__ == "__main__":
     test_firstrun()
     test_insights_config()
     test_listener_retry()
+    test_firstrun_notifications()
     test_update()
     if run_all or "--llm" in args:
         test_llm()
