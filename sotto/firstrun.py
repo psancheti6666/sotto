@@ -89,13 +89,27 @@ def accessibility_ok() -> bool:
 
 
 def input_monitoring_ok() -> bool:
+    """IOHIDCheckAccess, NOT CGPreflightListenEventAccess: once
+    CGRequestListenEventAccess() has run in this process (our Open Settings
+    button calls it), preflight answers YES forever after — the row went
+    green the moment the button was clicked, grant or no grant
+    (live-tested on a fresh machine). IOHIDCheckAccess reads the real TCC
+    state: 0 granted, 1 denied, 2 not yet asked."""
     if sys.platform != "darwin":
         return True
     try:
-        import Quartz
-        return bool(Quartz.CGPreflightListenEventAccess())
+        import ctypes
+        iokit = ctypes.CDLL(
+            "/System/Library/Frameworks/IOKit.framework/IOKit")
+        iokit.IOHIDCheckAccess.argtypes = [ctypes.c_uint32]
+        iokit.IOHIDCheckAccess.restype = ctypes.c_uint32
+        return iokit.IOHIDCheckAccess(1) == 0  # kIOHIDRequestTypeListenEvent
     except Exception:
-        return True
+        try:
+            import Quartz
+            return bool(Quartz.CGPreflightListenEventAccess())
+        except Exception:
+            return True
 
 
 def globe_key_ok() -> bool:
