@@ -32,6 +32,14 @@ first-launch notes:
    If Sotto isn't listed under a permission pane, add it with the **+**
    button (macOS sometimes doesn't list apps there automatically).
 
+After that, Sotto keeps itself current: once a day it asks GitHub whether a
+newer release exists (one API call — the app's only network request that
+isn't to your own machine) and offers **Update Now / Later**. Updating
+installs and relaunches by itself; settings, history, and permissions all
+carry over. There's also a **Check for Updates…** item in the menu-bar menu,
+and `update_check_days = 0` in `~/.sotto/config.toml` turns the scheduled
+check off entirely.
+
 Everything below this point is for running Sotto **from source** — Linux
 users, tinkerers, and contributors.
 

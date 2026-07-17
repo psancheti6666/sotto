@@ -263,6 +263,10 @@ class Sotto:
         # checkout this is one fast probe and a return.
         threading.Thread(target=llm_server.ensure, args=(self.cfg,),
                          daemon=True).start()
+        if IS_MACOS:
+            # scheduled update check — no-op outside the released bundle
+            from . import update
+            update.start_scheduled(self.cfg)
         threading.Thread(target=self._worker, daemon=True).start()
         self._asr_ready.wait()
         self.recorder.open()
