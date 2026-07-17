@@ -11,12 +11,18 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+  # PRs touching the Linux build run ONLY the linux job (the dmg jobs skip
+  # below) — with no Linux dev hardware, the real build must run pre-merge,
+  # not at tag time.
+  pull_request:
+    paths: ["linuxapp/**", "requirements.txt"]
 
 permissions:
   contents: read
 
 jobs:
   dmg:
+    if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
@@ -98,6 +104,56 @@ jobs:
         with:
           name: dmg-${{ matrix.arch }}
           path: dist/Sotto-*.dmg
+          if-no-files-found: error
+
+  # Linux onedir build + smoke (docs/linux-app.md, L3). Artifact-only for
+  # now — Linux release assets (.deb/AppImage) join the draft release at L6.
+  linux:
+    # ubuntu-22.04 = glibc 2.35 baseline: the bundle runs on Ubuntu 22.04+,
+    # Debian 12+, Fedora 36+. If GitHub retires this label, a plain
+    # `container: ubuntu:22.04` is NOT a drop-in replacement — it lacks sudo,
+    # add-apt-repository (software-properties-common), and the gcc/binutils
+    # toolchain the evdev compile and PyInstaller's binary analysis need;
+    # budget a real migration, don't just swap the label.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30 # a hang must fail visibly, not sit for the 6h default
+    steps:
+      - uses: actions/checkout@v4
+      # deadsnakes matches the project's 3.11 pin AND guarantees a tkinter
+      # built against the distro Tcl/Tk (setup-python builds may lack it).
+      # python3.11-dev: evdev is sdist-only and compiles a C extension —
+      # deadsnakes splits the headers out. libportaudio2 is what sotto.spec
+      # copies into the bundle; xvfb runs the smoke checks headless.
+      - name: Install Python 3.11 and build deps
+        run: |
+          sudo add-apt-repository -y ppa:deadsnakes/ppa
+          sudo apt-get update
+          sudo apt-get install -y python3.11 python3.11-venv python3.11-dev \
+            python3.11-tk libportaudio2 xvfb
+      - name: Build onedir and run smoke check
+        run: ./linuxapp/build_app.sh
+        env:
+          PYTHON: python3.11
+      - name: Pack onedir
+        run: tar -C dist -czf dist/sotto-linux-x86_64-onedir.tar.gz sotto
+      # The runner has libportaudio2 installed, so the build-time smoke can't
+      # prove the BUNDLED copy is reachable (rthook_portaudio.py). Re-smoke
+      # the tarball in a bare container with no libportaudio2: xvfb pulls in
+      # the X client libs Tk needs; PortAudio must come from the bundle.
+      - name: Smoke the tarball in a bare container (no system PortAudio)
+        timeout-minutes: 10
+        run: |
+          docker run --rm -v "$PWD/dist:/dist:ro" ubuntu:22.04 bash -exc '
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y \
+              xvfb xauth libxft2 libxext6 libasound2
+            tar -C /tmp -xzf /dist/sotto-linux-x86_64-onedir.tar.gz
+            timeout -k 10 180 xvfb-run -a /tmp/sotto/sotto --smoke'
+      - name: Upload onedir artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-onedir
+          path: dist/sotto-linux-x86_64-onedir.tar.gz
           if-no-files-found: error
 
   # Tag builds gather both DMGs into one draft release. A single job (rather

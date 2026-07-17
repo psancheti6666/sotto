@@ -49,16 +49,15 @@ questions don't get reopened. Windows scouting notes live at the bottom.
 Friend-test baseline: Ubuntu 24.04, X11 + Wayland sessions where noted;
 every test round attaches `~/.sotto/sotto.log`.
 
-1. **L1 — this document + README stub** (issue #38). Decision log + milestone
-   order recorded; README gains a "Linux app: in progress" note.
-2. **L2 — Linux `alert()`.** `platform/linux.py` zenity→kdialog→notify-send→log
+1. **L1 — this document + README stub** — ✅ done (PR #39, issue #38).
+2. **L2 — Linux `alert()`.** ✅ done (PR #41, issue #40). `platform/linux.py` zenity→kdialog→notify-send→log
    chain (pure `_alert_argv()` builder, fire-and-forget Popen). Unit:
    `test_linux_alert`. Friend: one-line alert call → zenity screenshot.
    Fixes today's silent-no-op alert gap; every later milestone's errors
    become visible through it.
 3. **L2b — evdev permission misdiagnosis fix + dashboard BrokenPipeError**
-   (diagnosed 2026-07-17 from the friend's Ubuntu test; prerequisite for
-   L3's pass criterion). python-evdev's `list_devices()` silently filters
+   ✅ done (PR #43, issue #42; diagnosed 2026-07-17 from the friend's Ubuntu
+   test; prerequisite for L3's pass criterion). python-evdev's `list_devices()` silently filters
    devices failing `os.access(R_OK|W_OK)`, so a user without input access
    gets an EMPTY list — `_open_keyboards`' `denied` flag never trips and
    `run()` loops the misleading "no keyboard with a 'ctrl_r' key found"

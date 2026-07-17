@@ -784,6 +784,33 @@ def test_linux_injector_selection():
         il.shutil.which, il._probe, il.session_type = orig_which, orig_probe, orig_session
 
 
+def test_smoke_imports():
+    print("Linux build smoke list stays in sync with the runtime selectors:")
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "linuxapp", "sotto_linux.py")
+    spec = importlib.util.spec_from_file_location("sotto_linux_entry", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # imports sys only — safe on any OS
+
+    # everything app.py's selectors (_make_listener, _overlay_module,
+    # make_asr, inject router) or firstrun/llm/update reach lazily on Linux
+    required = {
+        "tkinter", "evdev", "sounddevice", "onnx_asr", "onnxruntime",
+        "huggingface_hub",
+        "sotto.app", "sotto.asr", "sotto.asr_onnx", "sotto.audio",
+        "sotto.hotkey_evdev", "sotto.inject", "sotto.inject_linux",
+        "sotto.overlay_tk", "sotto.platform.linux",
+        "sotto.firstrun", "sotto.llm_server", "sotto.update",
+        "sotto.dashboard",
+    }
+    missing = required - set(mod.SMOKE_IMPORTS)
+    check("smoke list covers every runtime-selected module", not missing,
+          f"missing: {sorted(missing)}")
+    check("smoke() reports a recognizable OK line",
+          "smoke OK" in open(path).read(), "")
+
+
 def test_linux_alert():
     print("Linux alert dispatch (zenity → kdialog → notify-send → log):")
     from sotto.platform import linux as pl
@@ -988,6 +1015,7 @@ if __name__ == "__main__":
     test_platform_detection()
     test_linux_injector_selection()
     test_linux_alert()
+    test_smoke_imports()
     test_history()
     test_stats()
     test_dashboard()
