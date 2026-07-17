@@ -32,6 +32,8 @@ SMOKE_IMPORTS = [
     "sotto.dashboard",
     "sotto.dictionary",
     "sotto.firstrun",
+    "sotto.firstrun_linux",
+    "sotto.firstrun_tk",
     "sotto.history",
     "sotto.hotkey_evdev",
     "sotto.inject",

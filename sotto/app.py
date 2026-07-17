@@ -277,6 +277,20 @@ class Sotto:
                 # being revoked mid-session, which is otherwise silent.
                 threading.Thread(target=self._permission_watchdog,
                                  daemon=True).start()
+        elif IS_LINUX:
+            from . import firstrun_linux
+            # packaged builds get the guided setup; checkouts keep today's
+            # behavior unless SOTTO_FIRSTRUN=1 previews the windows
+            if (firstrun_linux.bundle_type()
+                    or os.environ.get("SOTTO_FIRSTRUN") == "1"):
+                from . import firstrun, firstrun_tk
+                if firstrun_linux.needed(self.cfg):
+                    firstrun_tk.launch(self.cfg)  # owns the process;
+                    return                        # completing it relaunches
+                firstrun.consolidate_model_stores(self.cfg)
+                if firstrun_linux.setup_missing(self.cfg):
+                    firstrun_tk.download_screen(self.cfg)
+                    return
         # Bundled ollama (if any) spawns while the ASR model loads; from a
         # checkout this is one fast probe and a return.
         threading.Thread(target=llm_server.ensure, args=(self.cfg,),
@@ -295,6 +309,10 @@ class Sotto:
                 # macOS may have quit-&-reopened us to apply Input Monitoring
                 # — tell the user setup finished if the welcome window ran.
                 firstrun.announce_if_setup_just_finished()
+        elif IS_LINUX:
+            from . import firstrun
+            # the execv relaunch after the download screen lands here
+            firstrun.announce_if_setup_just_finished(hotkey=self.cfg.hotkey)
         listener = self._make_listener()
         self.listener = listener
         threading.Thread(target=self._watchdog, daemon=True).start()

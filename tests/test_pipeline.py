@@ -823,6 +823,193 @@ def test_evdev_permission_detection():
         check("ConnectionResetError swallowed", False, "raised")
 
 
+def test_firstrun_linux():
+    print("Linux first-run: checks, gating, fix argv, relaunch:")
+    from types import SimpleNamespace
+    import sotto.hotkey_evdev as he
+    from sotto import firstrun, firstrun_linux as fl
+    from sotto.config import Config
+
+    RC, A = he.KEY_CODES["ctrl_r"], 30
+
+    class FakeDev:
+        def __init__(self, keys): self._keys = keys
+        def capabilities(self): return {1: self._keys}
+        def close(self): pass
+
+    def fake_evdev(caps):
+        return SimpleNamespace(
+            ecodes=SimpleNamespace(EV_KEY=1),
+            InputDevice=lambda path: FakeDev(caps[path])
+            if path in caps else (_ for _ in ()).throw(PermissionError(path)))
+
+    orig_raw = he._list_raw
+    try:
+        he._list_raw = lambda: ["/dev/input/event0", "/dev/input/event1"]
+        check("keyboard readable → input_ok",
+              fl.input_ok("ctrl_r", fake_evdev(
+                  {"/dev/input/event1": [RC, A]})))
+        check("nothing readable → not input_ok",
+              not fl.input_ok("ctrl_r", fake_evdev({})))
+        check("mouse only → not input_ok",
+              not fl.input_ok("ctrl_r", fake_evdev(
+                  {"/dev/input/event0": [272]})))
+    finally:
+        he._list_raw = orig_raw
+
+    def failing_open(path, flags):
+        raise OSError("denied")
+    check("uinput denied → False", not fl.uinput_ok(opener=failing_open))
+
+    from sotto import inject_linux as il
+
+    class FakeChain:
+        def __init__(self, name): self._injectors = [type(name, (), {})()]
+    orig_build = il.build_injector
+    try:
+        il.build_injector = lambda: FakeChain("_XdotoolInjector")
+        check("typing injector → injection_ok", fl.injection_ok())
+        il.build_injector = lambda: FakeChain("_ClipboardNotifyInjector")
+        check("clipboard fallback → not injection_ok", not fl.injection_ok())
+    finally:
+        il.build_injector = orig_build
+
+    # gating: models/engine never gate; SOTTO_FIRSTRUN forces both ways
+    cfg = Config()
+    orig_in, orig_inj = fl.input_ok, fl.injection_ok
+    had = os.environ.pop("SOTTO_FIRSTRUN", None)
+    try:
+        fl.input_ok = lambda *a, **k: True
+        fl.injection_ok = lambda: True
+        check("both green → not needed", not fl.needed(cfg))
+        fl.injection_ok = lambda: False
+        check("injection missing → needed", fl.needed(cfg))
+        os.environ["SOTTO_FIRSTRUN"] = "0"
+        check("SOTTO_FIRSTRUN=0 suppresses", not fl.needed(cfg))
+        os.environ["SOTTO_FIRSTRUN"] = "1"
+        fl.injection_ok = lambda: True
+        check("SOTTO_FIRSTRUN=1 forces", fl.needed(cfg))
+    finally:
+        fl.input_ok, fl.injection_ok = orig_in, orig_inj
+        os.environ.pop("SOTTO_FIRSTRUN", None)
+        if had is not None:
+            os.environ["SOTTO_FIRSTRUN"] = had
+
+    # setup_missing: engine adoptable / resolvable / absent
+    from sotto import llm_server, ollama_runtime
+    orig_mm = firstrun.models_missing
+    orig_reach, orig_res = llm_server._reachable, ollama_runtime.resolve
+    try:
+        firstrun.models_missing = lambda c: False
+        llm_server._reachable = lambda url: True
+        check("reachable server → nothing missing", not fl.setup_missing(cfg))
+        llm_server._reachable = lambda url: False
+        ollama_runtime.resolve = lambda: "/usr/bin/ollama"
+        check("resolvable binary → nothing missing", not fl.setup_missing(cfg))
+        ollama_runtime.resolve = lambda: None
+        check("no engine anywhere → missing", fl.setup_missing(cfg))
+        firstrun.models_missing = lambda c: True
+        check("models missing → missing", fl.setup_missing(cfg))
+    finally:
+        firstrun.models_missing = orig_mm
+        llm_server._reachable, ollama_runtime.resolve = orig_reach, orig_res
+
+    # fix argv + relaunch argv under bundle-env permutations
+    saved = {k: os.environ.pop(k, None)
+             for k in ("APPIMAGE", "APPDIR", "SOTTO_BUNDLE")}
+    orig_frozen = getattr(sys, "frozen", None)
+    try:
+        sys.frozen = True
+        os.environ["SOTTO_BUNDLE"] = "deb"
+        check("deb → pkexec apply",
+              fl.fix_input_argv()[:3] == ["pkexec", fl.HELPER, "apply"])
+        check("deb bundle_type", fl.bundle_type() == "deb")
+        del os.environ["SOTTO_BUNDLE"]
+        os.environ["APPIMAGE"] = "/home/u/Sotto.AppImage"
+        os.environ["APPDIR"] = "/tmp/.mount_sotto"
+        argv = fl.fix_input_argv()
+        check("appimage → bootstrap from payload",
+              argv[0] == "pkexec" and argv[2] == "bootstrap"
+              and argv[1].startswith("/tmp/.mount_sotto/share/sotto-setup"),
+              str(argv))
+        check("appimage bundle_type", fl.bundle_type() == "appimage")
+        check("appimage relaunch = $APPIMAGE",
+              fl.relaunch_argv() == ["/home/u/Sotto.AppImage"])
+        del os.environ["APPIMAGE"], os.environ["APPDIR"]
+        check("frozen relaunch = executable",
+              fl.relaunch_argv() == [sys.executable])
+        del sys.frozen
+        check("checkout bundle_type None", fl.bundle_type() is None)
+        check("checkout relaunch = -m sotto",
+              fl.relaunch_argv() == [sys.executable, "-m", "sotto"])
+    finally:
+        if orig_frozen is not None:
+            sys.frozen = orig_frozen
+        elif hasattr(sys, "frozen"):
+            del sys.frozen
+        for k, v in saved.items():
+            if v is not None:
+                os.environ[k] = v
+
+    # autostart writer
+    orig_auto = fl.AUTOSTART_PATH
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            fl.AUTOSTART_PATH = os.path.join(td, "autostart", "sotto.desktop")
+            check("no autostart file → False", not fl.autostart_ok())
+            fl.fix_autostart()
+            check("fix_autostart writes a desktop entry",
+                  fl.autostart_ok()
+                  and "Exec=" in open(fl.AUTOSTART_PATH).read())
+    finally:
+        fl.AUTOSTART_PATH = orig_auto
+
+
+def test_tk_firstrun_windows():
+    print("Linux first-run Tk windows (headless instantiate):")
+    import tkinter as tk
+    from sotto import firstrun_linux as fl, firstrun_tk as ft
+    from sotto.config import Config
+    try:
+        probe = tk.Tk()
+    except tk.TclError:
+        print("  (no display — Tk window test runs where one exists)")
+        return
+    probe.destroy()
+
+    cfg = Config()
+    orig = (fl.input_ok, fl.injection_ok, fl.setup_missing, fl.autostart_ok)
+    fl.input_ok = lambda *a, **k: True
+    fl.injection_ok = lambda: False
+    fl.setup_missing = lambda c: True
+    fl.autostart_ok = lambda: False
+    try:
+        w = ft._Walkthrough(cfg)
+        st = w.tick(loop=False)
+        check("tick reports the stubbed states",
+              st["input"] and not st["injection"], str(st))
+        check("Start disabled while a gating row is red",
+              str(w.start_btn["state"]) == "disabled")
+        fl.injection_ok = lambda: True
+        w.tick(loop=False)
+        check("Start enables when gating rows green",
+              str(w.start_btn["state"]) == "normal")
+        w.close()
+
+        s = ft._DownloadScreen(cfg)
+        s.q.put(("cleanup engine: 40%", 0.4))
+        s.poll(loop=False)
+        check("progress line lands in the bar",
+              abs(float(s.bar["value"]) - 0.4) < 1e-6, str(s.bar["value"]))
+        s.q.put(("__done__", None))
+        s.poll(loop=False)  # setup still "missing" → must show Retry, not relaunch
+        check("failed/incomplete download shows Retry",
+              s.retry.winfo_manager() != "")
+        s.root.destroy()
+    finally:
+        (fl.input_ok, fl.injection_ok, fl.setup_missing, fl.autostart_ok) = orig
+
+
 def test_platform_detection():
     print("platform detection and Linux config defaults:")
     import sotto.platform as sp
@@ -927,7 +1114,8 @@ def test_smoke_imports():
         "sotto.app", "sotto.asr", "sotto.asr_onnx", "sotto.audio",
         "sotto.hotkey_evdev", "sotto.inject", "sotto.inject_linux",
         "sotto.overlay_tk", "sotto.platform.linux",
-        "sotto.firstrun", "sotto.llm_server", "sotto.ollama_runtime",
+        "sotto.firstrun", "sotto.firstrun_linux", "sotto.firstrun_tk",
+        "sotto.llm_server", "sotto.ollama_runtime",
         "sotto.update", "sotto.dashboard", "zstandard",
     }
     missing = required - set(mod.SMOKE_IMPORTS)
@@ -1138,6 +1326,8 @@ if __name__ == "__main__":
     test_force_stop()
     test_evdev_gestures()
     test_evdev_permission_detection()
+    test_firstrun_linux()
+    test_tk_firstrun_windows()
     test_platform_detection()
     test_linux_injector_selection()
     test_linux_alert()

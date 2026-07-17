@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<!-- Created by Pratik Sancheti / https://github.com/psancheti6666 -->
+<policyconfig>
+  <vendor>Sotto</vendor>
+  <vendor_url>https://github.com/psancheti6666/sotto</vendor_url>
+
+  <!-- One action covering the sotto-perms helper: permission setup (apply/
+       verify/bootstrap) and, later, self-update installs (install-update).
+       The exec.path annotation pins pkexec to the installed helper — nothing
+       else gains this authorization. auth_admin_keep: the password sticks
+       for a few minutes, so Fix + a retry don't prompt twice. -->
+  <action id="io.github.psancheti6666.sotto.perms">
+    <description>Sotto setup helper</description>
+    <message>Sotto needs your password to set up dictation permissions (or install an update)</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/sotto/sotto-perms</annotate>
+  </action>
+</policyconfig>

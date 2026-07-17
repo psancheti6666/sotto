@@ -159,7 +159,7 @@ def models_missing(cfg) -> bool:
     return not (asr_model_ok(cfg.asr_model) and llm_model_ok(cfg.ollama_model))
 
 
-def announce_if_setup_just_finished():
+def announce_if_setup_just_finished(hotkey: str = "fn"):
     """One-time 'Sotto is ready' note on the first normal start after the
     welcome window — the restart that gets the user here may have been
     macOS's own quit-&-reopen for Input Monitoring, not their click."""
@@ -169,12 +169,14 @@ def announce_if_setup_just_finished():
         os.remove(PENDING_MARKER)
     except OSError:
         return
-    from .platform import alert
+    from .platform import IS_MACOS, alert
     name = _app_name()
+    where = "in the menu bar" if IS_MACOS else "in the background"
+    key = "fn" if IS_MACOS else hotkey.replace("ctrl_r", "Right Ctrl")
     alert(f"{name} is ready",
-          f"Setup is complete and {name} is now running in the menu bar.\n\n"
-          "Hold the fn key anywhere, speak, release — the cleaned-up text "
-          "lands at your cursor.")
+          f"Setup is complete and {name} is now running {where}.\n\n"
+          f"Hold the {key} key anywhere, speak, release — the cleaned-up "
+          "text lands at your cursor.")
 
 
 def consolidate_model_stores(cfg):

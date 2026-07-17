@@ -15,6 +15,7 @@ Requires read access to /dev/input:  sudo usermod -aG input $USER  (re-login).
 
 import glob
 import logging
+import os
 import selectors
 import time
 
@@ -38,9 +39,13 @@ _KEY_A = 30  # capability probe: a device that can emit KEY_A is a keyboard
 
 _DOWN, _UP, _REPEAT = 1, 0, 2
 
+# Packaged builds have a GUI fix path; only checkouts get the terminal recipe.
+_PACKAGED = bool(os.environ.get("APPIMAGE") or os.environ.get("SOTTO_BUNDLE"))
 PERMISSION_HELP = (
     "Cannot read /dev/input — Sotto needs to see the hotkey at the kernel level.\n"
-    "Fix:  sudo usermod -aG input $USER   then log out and back in."
+    + ("Open Sotto again and click Fix on the “Keyboard access” row."
+       if _PACKAGED else
+       "Fix:  sudo usermod -aG input $USER   then log out and back in.")
 )
 
 
