@@ -15,8 +15,14 @@ import os
 import pathlib
 import platform
 import re
+import sys
 
 from setuptools import setup
+
+# modulegraph walks module ASTs recursively and blows Python's default 1000
+# frame limit on the ONNX stack's generated files (Intel build died with
+# RecursionError on the macos-15-intel runner; the MLX stack stays shallower)
+sys.setrecursionlimit(10000)
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 VERSION = re.search(r'__version__\s*=\s*"([^"]+)"',
