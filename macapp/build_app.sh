@@ -104,6 +104,21 @@ SIGN_ID="${SOTTO_SIGN_IDENTITY:-Sotto Dev}"
 if security find-identity -p codesigning -v 2>/dev/null | grep -q "\"$SIGN_ID\""; then
   echo "signing with local identity: $SIGN_ID (permission grants survive rebuilds)"
   codesign --force --deep --sign "$SIGN_ID" "dist/$APP.app"
+  # Belt and braces: assert the seal really carries the cert. The v0.3.0
+  # release shipped ad-hoc because a silent fallback hid a detection failure
+  # (issue #23) — never let a signing surprise pass quietly again.
+  codesign -dvvv "dist/$APP.app" 2>&1 | grep -q "Authority=$SIGN_ID" || {
+    echo "ERROR: dist/$APP.app is not sealed by '$SIGN_ID' after signing" >&2
+    exit 1
+  }
+elif [[ "${SOTTO_RELEASE:-0}" == "1" ]]; then
+  # Releases MUST carry the stable cert: an ad-hoc release has a per-build
+  # designated requirement, so every update wipes users' Accessibility and
+  # Input Monitoring grants (shipped that way once in v0.3.0 — issue #23).
+  echo "ERROR: release build but no valid '$SIGN_ID' identity — refusing to" >&2
+  echo "ad-hoc sign a release. Import + trust the cert (see release.yml) or" >&2
+  echo "set SOTTO_SIGN_IDENTITY." >&2
+  exit 1
 else
   echo "no '$SIGN_ID' certificate — ad-hoc signing (permission grants will reset on every rebuild)"
   codesign --force --deep --sign - "dist/$APP.app"

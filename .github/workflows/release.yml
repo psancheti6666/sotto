@@ -42,8 +42,10 @@ jobs:
       # "Open Anyway", per the bundled README.txt) — it gives every release
       # the SAME designated requirement (bundle id + cert leaf), so macOS
       # keeps users' Accessibility/Input Monitoring grants across updates.
-      # Without the secrets (e.g. forks) build_app.sh falls back to ad-hoc,
-      # where every build's new signature hash silently drops those grants.
+      # Without the secrets (e.g. forks) the release build FAILS — an ad-hoc
+      # release has a per-build signature, so every update would silently
+      # wipe users' grants (v0.3.0 shipped that way — issue #23). Forks that
+      # want release builds must add their own cert secrets.
       - name: Import signing certificate
         env:
           SOTTO_SIGN_P12: ${{ secrets.SOTTO_SIGN_P12 }}
@@ -68,6 +70,20 @@ jobs:
           # build_app.sh's `security find-identity` sees the identity
           security list-keychains -d user -s "$KC" \
             $(security list-keychains -d user | tr -d '"')
+          # Trust the self-signed cert. Without this, `find-identity -p
+          # codesigning -v` filters the identity out as invalid (a
+          # self-signed cert is only "valid" where it's trusted) and the
+          # v0.3.0 release shipped AD-HOC signed — wiping users' permission
+          # grants on every update (issue #23).
+          security find-certificate -c "Sotto Dev" -p "$KC" \
+            > "$RUNNER_TEMP/sotto-dev.pem"
+          sudo security add-trusted-cert -d -r trustRoot \
+            -k /Library/Keychains/System.keychain "$RUNNER_TEMP/sotto-dev.pem"
+          # diagnostic: both lists must show the identity from here on
+          echo "--- all codesigning identities:"
+          security find-identity -p codesigning
+          echo "--- valid codesigning identities:"
+          security find-identity -p codesigning -v
       # SOTTO_RELEASE=1 builds the real "Sotto" (bundle id without the .dev
       # suffix, clean icon). Local default builds are "Sotto Dev" — a separate
       # app that coexists with an installed release copy.
