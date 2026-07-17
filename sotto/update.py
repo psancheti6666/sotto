@@ -128,7 +128,12 @@ def _scheduled_loop(cfg):
                 log.warning("update check failed: %s", e)
             mark_checked(STATE_PATH)
             if info:
-                _offer(info)
+                # Scheduled checks stay gentle: a notification banner with
+                # Update Now / Later buttons. The modal dialog is reserved
+                # for the user-initiated menu check (and the fallback when
+                # notifications aren't permitted).
+                if not _post_banner(info):
+                    _offer(info)
         time.sleep(POLL_S)
 
 
@@ -151,15 +156,24 @@ def _manual_check():
 
 
 def _offer(info):
+    if _update_lock.locked():
+        _progress_front()
+        return
+    if not _ask(f"Sotto {info['version']} is available",
+                f"You're using {__version__}. Sotto will download and "
+                "install the update, then relaunch itself. Your "
+                "settings, history, and permissions are untouched."):
+        return
+    _run_update(info)
+
+
+def _run_update(info):
+    """Download + install under the single-flight lock. The user has already
+    consented (dialog button or notification action)."""
     if not _update_lock.acquire(blocking=False):
         _progress_front()
         return
     try:
-        if not _ask(f"Sotto {info['version']} is available",
-                    f"You're using {__version__}. Sotto will download and "
-                    "install the update, then relaunch itself. Your "
-                    "settings, history, and permissions are untouched."):
-            return
         _progress_show(f"Downloading Sotto {info['version']}…")
         try:
             download_and_install(info)
@@ -172,6 +186,94 @@ def _offer(info):
                   "to Applications.")
     finally:
         _update_lock.release()
+
+
+# ------------------------------------------------------ notification banner
+# The scheduled check surfaces as a macOS notification banner (Sotto icon,
+# Update Now / Later buttons on hover) instead of a modal dialog. Permission
+# is requested lazily — the first time an update is actually found — so
+# first-run stays three prompts, not four. Denied → dialog fallback.
+
+_pending_banner = None   # info dict the posted banner refers to
+_nc_delegate = None      # retained; center.delegate is weak
+
+
+def _post_banner(info) -> bool:
+    """Post the update notification. False → caller shows the dialog."""
+    global _pending_banner, _nc_delegate
+    try:
+        import UserNotifications as UN
+
+        center = UN.UNUserNotificationCenter.currentNotificationCenter()
+
+        granted = {"ok": False}
+        done = threading.Event()
+
+        def auth_cb(ok, _error):
+            granted["ok"] = bool(ok)
+            done.set()
+
+        center.requestAuthorizationWithOptions_completionHandler_(
+            UN.UNAuthorizationOptionAlert, auth_cb)
+        # First ever call shows the system permission prompt — give the user
+        # time; later calls resolve instantly from the stored decision.
+        done.wait(timeout=120)
+        if not granted["ok"]:
+            return False
+
+        if _nc_delegate is None:
+            from Foundation import NSObject
+
+            class _NCDelegate(NSObject):
+                def userNotificationCenter_willPresentNotification_withCompletionHandler_(
+                        self, _center, _notification, handler):
+                    # Sotto is technically frontmost-running; without this,
+                    # macOS suppresses banners from the posting app.
+                    handler(UN.UNNotificationPresentationOptionBanner)
+
+                def userNotificationCenter_didReceiveNotificationResponse_withCompletionHandler_(
+                        self, _center, response, handler):
+                    action = response.actionIdentifier()
+                    handler()
+                    info = _pending_banner
+                    if action == "SOTTO_UPDATE_LATER":
+                        return
+                    if info is None:
+                        # stale banner from a previous run — re-check instead
+                        check_from_menu()
+                    elif action == "SOTTO_UPDATE_NOW":
+                        threading.Thread(target=_run_update, args=(info,),
+                                         daemon=True).start()
+                    else:  # clicked the banner body → the full dialog
+                        threading.Thread(target=_offer, args=(info,),
+                                         daemon=True).start()
+
+            _nc_delegate = _NCDelegate.alloc().init()
+            center.setDelegate_(_nc_delegate)
+
+        act_now = UN.UNNotificationAction.actionWithIdentifier_title_options_(
+            "SOTTO_UPDATE_NOW", "Update Now",
+            UN.UNNotificationActionOptionForeground)
+        act_later = UN.UNNotificationAction.actionWithIdentifier_title_options_(
+            "SOTTO_UPDATE_LATER", "Later", 0)
+        category = (UN.UNNotificationCategory
+                    .categoryWithIdentifier_actions_intentIdentifiers_options_(
+                        "SOTTO_UPDATE", [act_now, act_later], [], 0))
+        center.setNotificationCategories_({category})
+
+        content = UN.UNMutableNotificationContent.alloc().init()
+        content.setTitle_(f"Sotto {info['version']} is available")
+        content.setBody_("Your settings, history, and permissions carry "
+                         "over. Sotto relaunches itself after updating.")
+        content.setCategoryIdentifier_("SOTTO_UPDATE")
+        request = UN.UNNotificationRequest.requestWithIdentifier_content_trigger_(
+            "sotto-update", content, None)
+        center.addNotificationRequest_withCompletionHandler_(request, None)
+        _pending_banner = info
+        return True
+    except Exception as e:  # notification stack unavailable → dialog
+        log.warning("update banner failed (%s) — falling back to dialog", e)
+        return False
 
 
 # --------------------------------------------------------- progress window

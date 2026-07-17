@@ -34,7 +34,8 @@ first-launch notes:
 
 After that, Sotto keeps itself current: once a day it asks GitHub whether a
 newer release exists (one API call — the app's only network request that
-isn't to your own machine) and offers **Update Now / Later**. Updating
+isn't to your own machine) and offers **Update Now / Later** — as a quiet
+notification banner if you allow Sotto notifications, or a dialog. Updating
 installs and relaunches by itself; settings, history, and permissions all
 carry over. There's also a **Check for Updates…** item in the menu-bar menu,
 and `update_check_days = 0` in `~/.sotto/config.toml` turns the scheduled
