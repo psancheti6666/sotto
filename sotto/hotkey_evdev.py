@@ -117,6 +117,9 @@ class EvdevHotkeyListener(HotkeyListener):
             # permission" from "no keyboard" — a friend's Ubuntu hit exactly
             # this and got the misleading retry loop (issue #42).
             unreadable = set(_list_raw()) - set(evdev.list_devices())
+            # re-glob before deciding: a node that vanished between the two
+            # listings was an unplug, not a permission wall
+            unreadable &= set(_list_raw())
             if denied or unreadable:
                 raise RuntimeError(PERMISSION_HELP)
         return devices
