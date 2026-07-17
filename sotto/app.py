@@ -259,6 +259,12 @@ class Sotto:
                 # Fresh machines download models into ~/.sotto; must run
                 # before anything imports huggingface_hub.
                 firstrun.consolidate_model_stores(self.cfg)
+                if firstrun.models_missing(self.cfg):
+                    # Permissions done, models not yet here: the download
+                    # screen owns the process (progress bar, no user work)
+                    # and relaunches into a normal start when finished.
+                    firstrun.download_screen(self.cfg)
+                    return
         # Bundled ollama (if any) spawns while the ASR model loads; from a
         # checkout this is one fast probe and a return.
         threading.Thread(target=llm_server.ensure, args=(self.cfg,),
