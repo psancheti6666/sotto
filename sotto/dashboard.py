@@ -107,11 +107,14 @@ class _Handler(BaseHTTPRequestHandler):
                       "application/json; charset=utf-8")
 
     def _respond(self, body: bytes, content_type: str):
-        self.send_response(200)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # browser closed mid-response — not worth a traceback
 
     def log_message(self, fmt, *args):  # keep request lines out of the terminal
         log.debug("dashboard: " + fmt, *args)

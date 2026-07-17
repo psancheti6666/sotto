@@ -13,6 +13,7 @@ adjust vs macOS:
 Requires read access to /dev/input:  sudo usermod -aG input $USER  (re-login).
 """
 
+import glob
 import logging
 import selectors
 import time
@@ -41,6 +42,12 @@ PERMISSION_HELP = (
     "Cannot read /dev/input — Sotto needs to see the hotkey at the kernel level.\n"
     "Fix:  sudo usermod -aG input $USER   then log out and back in."
 )
+
+
+def _list_raw():
+    """Every /dev/input event node, readable by us or not. Module-level and
+    patchable so the permission detection is unit-testable without /dev."""
+    return glob.glob("/dev/input/event*")
 
 
 class EvdevHotkeyListener(HotkeyListener):
@@ -102,8 +109,16 @@ class EvdevHotkeyListener(HotkeyListener):
                 devices.append(dev)
             else:
                 dev.close()
-        if not devices and denied:
-            raise RuntimeError(PERMISSION_HELP)
+        if not devices:
+            # evdev.list_devices() silently drops nodes we cannot open
+            # (os.access R|W pre-filter in python-evdev's util.py), so a
+            # permission problem looks like "no devices at all" and `denied`
+            # never trips. Compare against the raw listing to tell "no
+            # permission" from "no keyboard" — a friend's Ubuntu hit exactly
+            # this and got the misleading retry loop (issue #42).
+            unreadable = set(_list_raw()) - set(evdev.list_devices())
+            if denied or unreadable:
+                raise RuntimeError(PERMISSION_HELP)
         return devices
 
     def run(self):

@@ -616,6 +616,87 @@ def test_evdev_gestures():
     check("hold+Space = combo on Linux (no key swallowing)", ev == ["start", "discard"], str(ev))
 
 
+def test_evdev_permission_detection():
+    print("evdev permission misdiagnosis (list_devices hides unreadable nodes):")
+    from types import SimpleNamespace
+    import sotto.hotkey_evdev as he
+    from sotto.hotkey_evdev import EvdevHotkeyListener, PERMISSION_HELP, KEY_CODES
+
+    RC, A, BTN_MOUSE = KEY_CODES["ctrl_r"], 30, 272
+
+    class FakeDev:
+        name = "fake"
+        def __init__(self, keys): self._keys = keys
+        def capabilities(self): return {1: self._keys}
+        def close(self): pass
+
+    def fake_evdev(accessible, caps, opener=None):
+        return SimpleNamespace(
+            ecodes=SimpleNamespace(EV_KEY=1),
+            list_devices=lambda: list(accessible),
+            InputDevice=opener or (lambda path: FakeDev(caps.get(path, []))))
+
+    def expect_raise(name, evdev_obj):
+        try:
+            hl._open_keyboards(evdev_obj)
+            check(name, False, "did not raise")
+        except RuntimeError as e:
+            check(name, str(e) == PERMISSION_HELP, str(e))
+
+    hl = EvdevHotkeyListener("ctrl_r", on_start=lambda: None,
+                             on_stop=lambda discard=False: None)
+    orig = he._list_raw
+    try:
+        he._list_raw = lambda: ["/dev/input/event0", "/dev/input/event1"]
+        # not in the input group: raw nodes exist, accessible list is EMPTY —
+        # the case the old code misdiagnosed as "no keyboard plugged in"
+        expect_raise("empty accessible + raw nodes → PERMISSION_HELP",
+                     fake_evdev([], {}))
+        # only a mouse is readable; the keyboard node is silently filtered
+        expect_raise("mouse-only accessible → PERMISSION_HELP",
+                     fake_evdev(["/dev/input/event0"],
+                                {"/dev/input/event0": [BTN_MOUSE]}))
+        # legacy path: InputDevice itself raises PermissionError
+        def denied_open(path):
+            raise PermissionError(path)
+        he._list_raw = lambda: ["/dev/input/event0"]
+        expect_raise("PermissionError from open → PERMISSION_HELP",
+                     fake_evdev(["/dev/input/event0"], {}, opener=denied_open))
+        # genuinely no keyboard: everything readable, none keyboard-capable
+        devs = hl._open_keyboards(
+            fake_evdev(["/dev/input/event0"], {"/dev/input/event0": [BTN_MOUSE]}))
+        check("all readable, none a keyboard → no raise, empty list",
+              devs == [], str(devs))
+        # happy path: a readable keyboard with the hotkey + KEY_A
+        he._list_raw = lambda: ["/dev/input/event0", "/dev/input/event1"]
+        devs = hl._open_keyboards(
+            fake_evdev(["/dev/input/event0", "/dev/input/event1"],
+                       {"/dev/input/event0": [BTN_MOUSE],
+                        "/dev/input/event1": [RC, A]}))
+        check("readable keyboard found → returned", len(devs) == 1, str(devs))
+    finally:
+        he._list_raw = orig
+
+    print("dashboard _respond swallows disconnects:")
+    from sotto.dashboard import _Handler
+
+    class Gone:
+        def send_response(self, code): raise BrokenPipeError
+    try:
+        _Handler._respond(Gone(), b"x", "text/plain")
+        check("BrokenPipeError swallowed", True, "")
+    except BrokenPipeError:
+        check("BrokenPipeError swallowed", False, "raised")
+
+    class Reset:
+        def send_response(self, code): raise ConnectionResetError
+    try:
+        _Handler._respond(Reset(), b"x", "text/plain")
+        check("ConnectionResetError swallowed", True, "")
+    except ConnectionResetError:
+        check("ConnectionResetError swallowed", False, "raised")
+
+
 def test_platform_detection():
     print("platform detection and Linux config defaults:")
     import sotto.platform as sp
@@ -859,6 +940,7 @@ if __name__ == "__main__":
     test_recorder_truncation()
     test_force_stop()
     test_evdev_gestures()
+    test_evdev_permission_detection()
     test_platform_detection()
     test_linux_injector_selection()
     test_history()
