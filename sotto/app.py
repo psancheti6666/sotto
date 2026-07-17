@@ -196,8 +196,11 @@ class Sotto:
         if self.cfg.sounds:
             play_sound(self.cfg.done_sound)
         t3 = time.perf_counter()
-        log.info("asr=%.2fs clean=%.2fs inject=%.2fs total=%.2fs | %r -> %r",
-                 t1 - t0, t2 - t1, t3 - t2, t3 - t0, raw, cleaned)
+        # lengths only — the log persists to ~/.sotto/sotto.log, and
+        # transcripts belong in history.jsonl, not in a debug file
+        log.info("asr=%.2fs clean=%.2fs inject=%.2fs total=%.2fs | "
+                 "%d chars -> %d chars",
+                 t1 - t0, t2 - t1, t3 - t2, t3 - t0, len(raw), len(cleaned))
         history.append_entry({
             "ts": datetime.now().astimezone().isoformat(timespec="seconds"),
             "text": cleaned,
@@ -406,6 +409,65 @@ class Sotto:
         return overlay_tk
 
 
+LOG_PATH = os.path.join(CONFIG_DIR, "sotto.log")
+
+
+def setup_logging(path: str = None):
+    """Console + rotating file at ~/.sotto/sotto.log, on every platform.
+    The file is the only place a Finder-launched bundle's logs survive
+    (no stderr — the 2026-07-17 banner hiccup was undiagnosable), and it
+    captures unhandled exceptions from every thread (the pynput/TSM crash
+    was only readable from a .ips crash report). SOTTO_DEBUG=1 → DEBUG."""
+    import logging.handlers
+    import sys
+
+    root = logging.getLogger()
+    if any(isinstance(h, logging.handlers.RotatingFileHandler)
+           for h in root.handlers):
+        return  # already configured (relaunch paths call main() once, but be safe)
+    path = path or LOG_PATH
+    level = logging.DEBUG if os.environ.get("SOTTO_DEBUG") else logging.INFO
+    fmt = logging.Formatter("%(asctime)s %(levelname)s [%(threadName)s] "
+                            "%(module)s:%(lineno)d %(message)s")
+    root.setLevel(level)
+    stream = logging.StreamHandler()
+    stream.setFormatter(fmt)
+    root.addHandler(stream)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fh = logging.handlers.RotatingFileHandler(
+            path, maxBytes=2_000_000, backupCount=3, encoding="utf-8")
+        fh.setFormatter(fmt)
+        root.addHandler(fh)
+    except OSError as e:
+        log.warning("cannot open log file %s (%s) — console only", path, e)
+    logging.captureWarnings(True)
+
+    def hook(exc_type, exc, tb):
+        log.critical("unhandled exception", exc_info=(exc_type, exc, tb))
+
+    sys.excepthook = hook
+    threading.excepthook = lambda a: log.critical(
+        "unhandled exception in thread %r",
+        a.thread.name if a.thread else "?",
+        exc_info=(a.exc_type, a.exc_value, a.exc_traceback))
+
+
 def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    Sotto(load_config()).run()
+    import platform as plat
+    import sys
+
+    setup_logging()
+    from . import __version__
+    frozen = getattr(sys, "frozen", None) == "macosx_app"
+    log.info("sotto %s starting — %s %s, python %s, %s",
+             __version__, plat.platform(), plat.machine(),
+             plat.python_version(),
+             "app bundle" if frozen else "source checkout")
+    cfg = load_config()
+    log.info("config: hotkey=%s asr=%s llm=%s dashboard=%s indicator=%s "
+             "inject=%s", cfg.hotkey, cfg.asr_backend, cfg.ollama_model,
+             cfg.dashboard_port if cfg.dashboard else "off",
+             cfg.indicator_backend if cfg.indicator else "off",
+             cfg.inject_mode)
+    Sotto(cfg).run()

@@ -170,8 +170,9 @@ def announce_if_setup_just_finished():
     except OSError:
         return
     from .platform import alert
-    alert("Sotto is ready",
-          "Setup is complete and Sotto is now running in the menu bar.\n\n"
+    name = _app_name()
+    alert(f"{name} is ready",
+          f"Setup is complete and {name} is now running in the menu bar.\n\n"
           "Hold the fn key anywhere, speak, release — the cleaned-up text "
           "lands at your cursor.")
 
@@ -349,6 +350,19 @@ def _download_llm(cfg, on_progress):
 
 # -------------------------------------------------------------------- UI --
 
+def _app_name() -> str:
+    """The bundle's real name — 'Sotto Dev' in dev builds, so the welcome
+    window stops claiming to be the release app."""
+    try:
+        from Foundation import NSBundle
+        name = NSBundle.mainBundle().objectForInfoDictionaryKey_("CFBundleName")
+        if name and str(name).startswith("Sotto"):
+            return str(name)
+    except Exception:
+        pass
+    return "Sotto"
+
+
 ROWS = [
     ("mic", "Microphone",
      "Sotto records only while you hold the hotkey.", "Allow", request_mic),
@@ -356,7 +370,8 @@ ROWS = [
      "Lets Sotto type the cleaned text at your cursor.", "Open Settings",
      request_accessibility),
     ("input_monitoring", "Input Monitoring",
-     "Sees the hotkey. macOS may ask to quit & reopen Sotto — allow it.",
+     "Sees the hotkey. If Sotto isn't listed in the pane, add it with the "
+     "＋ button. macOS may ask to quit & reopen Sotto — allow it.",
      "Open Settings", request_input_monitoring),
     ("globe_key", "Globe key",
      "Set “Press 🌐 key to” → “Do Nothing”, else fn opens emoji.",
@@ -399,7 +414,8 @@ def launch(cfg):
         NSMakeRect(0, 0, W, H),
         NSWindowStyleMaskTitled | NSWindowStyleMaskClosable,
         NSBackingStoreBuffered, False)
-    win.setTitle_("Welcome to Sotto")
+    app_name = _app_name()
+    win.setTitle_(f"Welcome to {app_name}")
     win.setReleasedWhenClosed_(False)
     content = win.contentView()
 
@@ -413,7 +429,7 @@ def launch(cfg):
         content.addSubview_(t)
         return t
 
-    label("Welcome to Sotto", 22, True, PAD, H - 56, W - 2 * PAD, 30)
+    label(f"Welcome to {app_name}", 22, True, PAD, H - 56, W - 2 * PAD, 30)
     label("Private, on-device dictation. A few things need setting up first.",
           12, False, PAD, H - 78, W - 2 * PAD, 16, dim=True)
 
@@ -426,7 +442,11 @@ def launch(cfg):
             continue
         dot = label(_GRAY, 16, True, PAD, y - 34, 22, 22)
         label(title, 13, True, PAD + 30, y - 22, 330, 18)
-        label(detail, 11, False, PAD + 30, y - 40, 330, 16, dim=True)
+        # details may run to two lines (the Input Monitoring "+" hint does)
+        d = label(detail, 11, False, PAD + 30, y - 54, 330, 30, dim=True)
+        d.setUsesSingleLineMode_(False)
+        d.setLineBreakMode_(0)  # NSLineBreakByWordWrapping
+        d.setMaximumNumberOfLines_(2)
         btn = None
         if btn_title:   # informational rows (models) have no action button
             btn = NSButton.buttonWithTitle_target_action_(btn_title, None, None)
@@ -562,7 +582,8 @@ def download_screen(cfg):
         NSMakeRect(0, 0, W, H),
         NSWindowStyleMaskTitled | NSWindowStyleMaskClosable,
         NSBackingStoreBuffered, False)
-    win.setTitle_("Setting up Sotto")
+    app_name = _app_name()
+    win.setTitle_(f"Setting up {app_name}")
     win.setReleasedWhenClosed_(False)
     content = win.contentView()
 
@@ -576,10 +597,10 @@ def download_screen(cfg):
         content.addSubview_(t)
         return t
 
-    label("Downloading Sotto's models", 16, True, PAD, H - 46,
+    label(f"Downloading {app_name}'s models", 16, True, PAD, H - 46,
           W - 2 * PAD, 22)
-    label("Speech recognition + cleanup (~3 GB, one time). Sotto starts by "
-          "itself when this is done.", 11, False, PAD, H - 66,
+    label(f"Speech recognition + cleanup (~3 GB, one time). {app_name} "
+          "starts by itself when this is done.", 11, False, PAD, H - 66,
           W - 2 * PAD, 16, dim=True)
     bar = NSProgressIndicator.alloc().initWithFrame_(
         NSMakeRect(PAD, 56, W - 2 * PAD, 8))
