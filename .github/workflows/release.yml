@@ -100,6 +100,38 @@ jobs:
           path: dist/Sotto-*.dmg
           if-no-files-found: error
 
+  # Linux onedir build + smoke (docs/linux-app.md, L3). Artifact-only for
+  # now — Linux release assets (.deb/AppImage) join the draft release at L6.
+  linux:
+    # ubuntu-22.04 = glibc 2.35 baseline: the bundle runs on Ubuntu 22.04+,
+    # Debian 12+, Fedora 36+. When GitHub retires this label, switch to
+    # `runs-on: ubuntu-latest` with `container: ubuntu:22.04`.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      # deadsnakes matches the project's 3.11 pin AND guarantees a tkinter
+      # built against the distro Tcl/Tk (setup-python builds may lack it);
+      # libportaudio2 is bundled into the onedir by sotto.spec; xvfb runs
+      # the smoke check headless.
+      - name: Install Python 3.11 and build deps
+        run: |
+          sudo add-apt-repository -y ppa:deadsnakes/ppa
+          sudo apt-get update
+          sudo apt-get install -y python3.11 python3.11-venv python3.11-tk \
+            libportaudio2 xvfb
+      - name: Build onedir and run smoke check
+        run: ./linuxapp/build_app.sh
+        env:
+          PYTHON: python3.11
+      - name: Pack onedir
+        run: tar -C dist -czf dist/sotto-linux-x86_64-onedir.tar.gz sotto
+      - name: Upload onedir artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-onedir
+          path: dist/sotto-linux-x86_64-onedir.tar.gz
+          if-no-files-found: error
+
   # Tag builds gather both DMGs into one draft release. A single job (rather
   # than each matrix job uploading) avoids the draft-release race: drafts
   # don't enforce tag-name uniqueness, so two concurrent `gh release create`
