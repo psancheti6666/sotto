@@ -32,12 +32,16 @@ def _alert_argv(title: str, text: str, which):
     Dialogs (zenity/kdialog) beat a notification: alerts carry instructions
     the user must read, and notifications can be missed or disabled."""
     if which("zenity"):
-        return ["zenity", "--warning", "--title", title, "--text", text,
-                "--no-wrap"]
+        # --no-markup: zenity parses text as Pango markup by default, which
+        # would garble alerts containing & or < (e.g. "Privacy & Security");
+        # --flag=value / trailing -- forms keep a -leading string from being
+        # read as an option.
+        return ["zenity", "--warning", f"--title={title}", f"--text={text}",
+                "--no-wrap", "--no-markup"]
     if which("kdialog"):
         return ["kdialog", "--title", title, "--sorry", text]
     if which("notify-send"):
-        return ["notify-send", "-a", "Sotto", "-u", "critical", title, text]
+        return ["notify-send", "-a", "Sotto", "-u", "critical", "--", title, text]
     return None
 
 

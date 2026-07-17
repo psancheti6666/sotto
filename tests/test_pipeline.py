@@ -711,13 +711,17 @@ def test_linux_alert():
         return lambda cmd: f"/usr/bin/{cmd}" if cmd in names else None
 
     argv = pl._alert_argv("T", "hello", which_of("zenity", "kdialog", "notify-send"))
-    check("zenity preferred when present", argv[0] == "zenity" and "hello" in argv,
-          str(argv))
+    check("zenity preferred, title/text/no-markup pinned",
+          argv[0] == "zenity" and "--title=T" in argv and "--text=hello" in argv
+          and "--no-markup" in argv, str(argv))
     argv = pl._alert_argv("T", "hello", which_of("kdialog", "notify-send"))
-    check("kdialog next", argv[0] == "kdialog" and "hello" in argv, str(argv))
+    check("kdialog next, --sorry carries the text",
+          argv[0] == "kdialog" and argv[argv.index("--sorry") + 1] == "hello",
+          str(argv))
     argv = pl._alert_argv("T", "hello", which_of("notify-send"))
-    check("notify-send last resort, critical urgency",
-          argv[0] == "notify-send" and "critical" in argv, str(argv))
+    check("notify-send last resort: critical urgency, -- before positionals",
+          argv[0] == "notify-send" and "critical" in argv
+          and argv[argv.index("--") + 1:] == ["T", "hello"], str(argv))
     check("None when no tool exists", pl._alert_argv("T", "x", which_of()) is None, "")
 
     spawned = []
