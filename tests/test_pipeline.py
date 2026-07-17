@@ -278,6 +278,87 @@ def test_listener_retry():
     check("alerts exactly once", len(alerts) == 1, str(alerts))
 
 
+def test_permission_watchdog():
+    print("permission watchdog (alerts once per revocation, re-arms on re-grant):")
+    from sotto import app as app_mod
+    from sotto.app import Sotto
+
+    alerts = []
+    state = {"ok": True}
+    old_alert = app_mod.alert
+    app_mod.alert = lambda title, text: alerts.append(title)
+    try:
+        watched = {"Accessibility": lambda: state["ok"]}
+        good = {"Accessibility": True}
+        Sotto._permission_poll_once(watched, good)
+        check("no alert while granted", alerts == [])
+        state["ok"] = False
+        Sotto._permission_poll_once(watched, good)
+        check("alert on revocation", len(alerts) == 1, str(alerts))
+        Sotto._permission_poll_once(watched, good)
+        check("no repeat while still revoked", len(alerts) == 1, str(alerts))
+        state["ok"] = True
+        Sotto._permission_poll_once(watched, good)
+        state["ok"] = False
+        Sotto._permission_poll_once(watched, good)
+        check("re-grant re-arms the alert", len(alerts) == 2, str(alerts))
+    finally:
+        app_mod.alert = old_alert
+
+
+def test_firstrun_gating():
+    print("first-run gating (permissions gate the walkthrough, models don't):")
+    from sotto import firstrun
+    from sotto.config import Config
+
+    cfg = Config()
+    perms = ["mic_ok", "accessibility_ok", "input_monitoring_ok",
+             "globe_key_ok"]
+    saved = {name: getattr(firstrun, name) for name in perms}
+    saved_models = (firstrun.asr_model_ok, firstrun.llm_model_ok)
+    try:
+        for name in perms:
+            setattr(firstrun, name, lambda: True)
+        firstrun.asr_model_ok = lambda _m: False
+        firstrun.llm_model_ok = lambda _m: False
+        check("missing models alone do NOT reopen the walkthrough",
+              not firstrun.needed(cfg))
+        check("models_missing sees them", firstrun.models_missing(cfg))
+        firstrun.mic_ok = lambda: False
+        check("a missing permission DOES open the walkthrough",
+              firstrun.needed(cfg))
+        firstrun.mic_ok = lambda: True
+        firstrun.asr_model_ok = lambda _m: True
+        firstrun.llm_model_ok = lambda _m: True
+        check("all present → nothing needed",
+              not firstrun.needed(cfg) and not firstrun.models_missing(cfg))
+    finally:
+        for name, fn in saved.items():
+            setattr(firstrun, name, fn)
+        firstrun.asr_model_ok, firstrun.llm_model_ok = saved_models
+
+
+def test_firstrun_notifications():
+    print("first-run notifications row (optional — must never gate setup):")
+    from sotto import firstrun
+    from sotto.config import Config
+
+    check("notifications NOT in gating statuses",
+          "notifications" not in firstrun.statuses(Config()))
+    check("row exists in ROWS", any(r[0] == "notifications"
+                                    for r in firstrun.ROWS))
+    old = dict(firstrun._notif_status)
+    try:
+        firstrun._notif_status["value"] = None
+        check("unknown status reads not-ok", not firstrun.notifications_ok())
+        firstrun._notif_status["value"] = 1  # denied
+        check("denied reads not-ok", not firstrun.notifications_ok())
+        firstrun._notif_status["value"] = 2  # authorized
+        check("authorized reads ok", firstrun.notifications_ok())
+    finally:
+        firstrun._notif_status.update(old)
+
+
 def test_update():
     print("update check (pure logic, no network):")
     from sotto import update
@@ -732,6 +813,9 @@ if __name__ == "__main__":
     test_firstrun()
     test_insights_config()
     test_listener_retry()
+    test_permission_watchdog()
+    test_firstrun_gating()
+    test_firstrun_notifications()
     test_update()
     if run_all or "--llm" in args:
         test_llm()

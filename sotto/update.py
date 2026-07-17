@@ -159,10 +159,10 @@ def _offer(info):
     if _update_lock.locked():
         _progress_front()
         return
+    # Deliberately terse: updates keeping your data/permissions is table
+    # stakes — spelling it out ("…are untouched") only plants the doubt.
     if not _ask(f"Sotto {info['version']} is available",
-                f"You're using {__version__}. Sotto will download and "
-                "install the update, then relaunch itself. Your "
-                "settings, history, and permissions are untouched."):
+                f"You're using {__version__}. Update and relaunch now?"):
         return
     _run_update(info)
 
@@ -263,8 +263,7 @@ def _post_banner(info) -> bool:
 
         content = UN.UNMutableNotificationContent.alloc().init()
         content.setTitle_(f"Sotto {info['version']} is available")
-        content.setBody_("Your settings, history, and permissions carry "
-                         "over. Sotto relaunches itself after updating.")
+        content.setBody_("Sotto will install it and relaunch itself.")
         content.setCategoryIdentifier_("SOTTO_UPDATE")
         request = UN.UNNotificationRequest.requestWithIdentifier_content_trigger_(
             "sotto-update", content, None)
