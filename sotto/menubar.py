@@ -32,7 +32,7 @@ def install():
         NSVariableStatusItemLength,
     )
 
-    from . import insights
+    from . import insights, update
 
     item = NSStatusBar.systemStatusBar().statusItemWithLength_(
         NSVariableStatusItemLength)
@@ -47,6 +47,9 @@ def install():
         def insights_(self, _sender):
             insights.show()
 
+        def checkUpdates_(self, _sender):
+            update.check_from_menu()
+
         def applicationShouldHandleReopen_hasVisibleWindows_(self, _app, _flag):
             # Dock icon clicked → bring up Insights, like Wispr Flow
             if insights.available():
@@ -58,6 +61,12 @@ def install():
     if insights.available():
         mi = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             "Insights", "insights:", "i")
+        mi.setTarget_(_controller)
+        menu.addItem_(mi)
+        menu.addItem_(NSMenuItem.separatorItem())
+    if update.enabled():  # released app only — Dev/checkouts update via git
+        mi = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Check for Updates…", "checkUpdates:", "")
         mi.setTarget_(_controller)
         menu.addItem_(mi)
         menu.addItem_(NSMenuItem.separatorItem())

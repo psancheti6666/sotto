@@ -117,6 +117,13 @@ class Config:
     dashboard_port: int = 8377
     open_dashboard_on_start: bool = True   # open the browser once on launch
 
+    # Updates (released Sotto.app only — Sotto Dev and source checkouts skip
+    # this; run.sh already self-updates via git pull). Every N days the app
+    # asks api.github.com for the latest release — its ONLY network request
+    # beyond localhost — and offers to install. 0 disables the scheduled
+    # check; the "Check for Updates…" menu item always works.
+    update_check_days: float = 1.0
+
     # Injection. "auto" = type the text like real keystrokes, but fall back to
     # clipboard-paste when the text has newlines (typed Enter would e.g. send a
     # chat message per line) or is very long (typing 12k chars takes minutes).

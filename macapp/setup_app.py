@@ -62,6 +62,7 @@ PACKAGES = [
     "ApplicationServices", "CoreText",
     "AVFoundation", "CoreMedia", "CoreAudio",  # first-run mic authorization
     "WebKit",  # native Insights window
+    "UserNotifications",  # update-available banner
 ]
 
 if ARM64:

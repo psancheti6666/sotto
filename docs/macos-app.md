@@ -69,7 +69,16 @@ the app so settled questions don't get reopened.
    tag push into a **draft** GitHub Release (published manually) or as
    workflow artifacts on manual dispatch. Intel build is CI-built and
    community-tested (no Intel hardware available).
-6. **"Check for updates"** menu item (manual, on-click only).
+6. **Check for updates** — ✅ done (PR for issue #21). `sotto/update.py`:
+   one GET to the GitHub releases API (the app's only non-localhost network
+   call — documented in README; `update_check_days` config, default 1, 0
+   disables), both a scheduled daily check and a "Check for Updates…"
+   menu-bar item; a newer release shows **Update Now / Later**, and Update
+   Now downloads the arch-matching DMG, swaps the bundle in place, and
+   relaunches. Permissions survive (stable release signing identity) and no
+   Gatekeeper re-approval is needed (self-downloaded files carry no
+   quarantine flag). Release bundle only — Sotto Dev and checkouts skip it
+   (run.sh already git-pulls).
 
 ## Constraints that apply to every milestone
 

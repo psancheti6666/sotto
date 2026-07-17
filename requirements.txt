@@ -3,6 +3,7 @@ onnx-asr[cpu,hub] ; sys_platform != "darwin" or platform_machine != "arm64"
 pynput ; sys_platform == "darwin"
 pyobjc-framework-AVFoundation ; sys_platform == "darwin"
 pyobjc-framework-WebKit ; sys_platform == "darwin"
+pyobjc-framework-UserNotifications ; sys_platform == "darwin"
 evdev ; sys_platform == "linux"
 sounddevice
 requests

@@ -278,6 +278,46 @@ def test_listener_retry():
     check("alerts exactly once", len(alerts) == 1, str(alerts))
 
 
+def test_update():
+    print("update check (pure logic, no network):")
+    from sotto import update
+
+    def release(tag, assets=("apple-silicon", "intel"), **kw):
+        return {"tag_name": tag,
+                "assets": [{"name": f"Sotto-{tag.lstrip('v')}-{a}.dmg",
+                            "browser_download_url": f"https://x/{a}.dmg"}
+                           for a in assets], **kw}
+
+    info = update.evaluate(release("v0.4.0"), "0.3.0", "arm64")
+    check("newer release found", bool(info) and info["version"] == "0.4.0",
+          repr(info))
+    check("apple-silicon asset picked",
+          bool(info) and info["url"].endswith("apple-silicon.dmg"))
+    info = update.evaluate(release("v0.4.0"), "0.3.0", "x86_64")
+    check("intel asset picked", bool(info) and info["url"].endswith("intel.dmg"))
+    check("same version → no update",
+          update.evaluate(release("v0.3.0"), "0.3.0", "arm64") is None)
+    check("older version → no update",
+          update.evaluate(release("v0.2.9"), "0.3.0", "arm64") is None)
+    check("0.10 beats 0.9 (numeric, not lexical)",
+          update.evaluate(release("v0.10.0"), "0.9.0", "arm64") is not None)
+    check("draft ignored",
+          update.evaluate(release("v9.9.9", draft=True), "0.3.0", "arm64") is None)
+    check("prerelease ignored",
+          update.evaluate(release("v9.9.9", prerelease=True), "0.3.0", "arm64") is None)
+    check("missing arch asset → no update",
+          update.evaluate(release("v0.4.0", assets=("intel",)), "0.3.0", "arm64") is None)
+
+    with tempfile.TemporaryDirectory() as td:
+        state = os.path.join(td, "update-state.json")
+        check("due when never checked", update.due(state, 1))
+        update.mark_checked(state, now=1000.0)
+        check("not due right after a check",
+              not update.due(state, 1, now=1000.0 + 3600))
+        check("due once the interval passes",
+              update.due(state, 1, now=1000.0 + 86401))
+
+
 ASR_CASES = [
     "Let's meet on Friday at three PM to review the quarterly report.",
     "The quick brown fox jumps over the lazy dog.",
@@ -692,6 +732,7 @@ if __name__ == "__main__":
     test_firstrun()
     test_insights_config()
     test_listener_retry()
+    test_update()
     if run_all or "--llm" in args:
         test_llm()
     if run_all or "--asr" in args:
