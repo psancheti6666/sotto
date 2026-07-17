@@ -57,11 +57,15 @@ def active_app_id() -> str:
 
 
 def alert(title: str, text: str):
-    """Show a user-visible alert dialog (macOS; logged-only elsewhere).
-    Safe to call from any thread — the dialog is dispatched to the UI thread."""
+    """Show a user-visible alert dialog (macOS: NSAlert on the UI thread;
+    Linux: zenity/kdialog/notify-send child process; logged-only elsewhere).
+    Safe to call from any thread."""
     if IS_MACOS:
         from . import macos
         macos.alert(title, text)
+    elif IS_LINUX:
+        from . import linux
+        linux.alert(title, text)
 
 
 def prevent_app_nap():
