@@ -177,6 +177,125 @@ def test_llm_server():
             os.environ["RESOURCEPATH"] = had
 
 
+def test_ollama_runtime():
+    print("Linux ollama runtime resolution + download logic:")
+    import hashlib
+    from sotto import ollama_runtime as orr
+
+    orig_which, orig_dir = orr.shutil.which, orr.RUNTIME_DIR
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            orr.RUNTIME_DIR = td
+
+            orr.shutil.which = lambda cmd: "/usr/bin/ollama" if cmd == "ollama" else None
+            check("system ollama wins", orr.resolve() == "/usr/bin/ollama")
+
+            orr.shutil.which = lambda cmd: None
+            check("nothing installed → None", orr.resolve() is None)
+
+            binpath = os.path.join(td, "bin", "ollama")
+            os.makedirs(os.path.dirname(binpath))
+            with open(binpath, "w") as f:
+                f.write("#!/bin/sh\n")
+            check("non-executable download ignored", orr.installed() is None)
+            os.chmod(binpath, 0o755)
+            check("downloaded runtime found", orr.resolve() == binpath)
+    finally:
+        orr.shutil.which, orr.RUNTIME_DIR = orig_which, orig_dir
+
+    # _fetch: streaming hash + progress + checksum abort, no real network
+    payload = b"x" * (2 * 1024 * 1024) + b"tail"
+    good_sha = hashlib.sha256(payload).hexdigest()
+
+    class FakeResponse:
+        headers = {"content-length": str(len(payload))}
+        def raise_for_status(self): pass
+        def iter_content(self, chunk_size):
+            for i in range(0, len(payload), chunk_size):
+                yield payload[i:i + chunk_size]
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    orig_get = orr.requests.get
+    orr.requests.get = lambda url, stream, timeout: FakeResponse()
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            dest = os.path.join(td, "archive")
+            fractions = []
+            orr._fetch("http://x", dest, good_sha, fractions.append)
+            check("fetch writes the full payload",
+                  open(dest, "rb").read() == payload)
+            check("progress reaches 1.0 monotonically",
+                  fractions and abs(fractions[-1] - 1.0) < 1e-9
+                  and fractions == sorted(fractions), str(fractions[-3:]))
+            try:
+                orr._fetch("http://x", dest, "0" * 64, None)
+                check("checksum mismatch raises", False, "no raise")
+            except RuntimeError as e:
+                check("checksum mismatch raises", "checksum" in str(e), str(e))
+            check("mismatched file removed", not os.path.exists(dest))
+    finally:
+        orr.requests.get = orig_get
+
+    # download(): orchestration with fetch/extract stubbed
+    orig_fetch, orig_extract = orr._fetch, orr._extract
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            orr.RUNTIME_DIR = td
+
+            def fake_fetch(url, dest, sha, cb):
+                open(dest, "wb").write(b"z")
+            orr._fetch = fake_fetch
+            orr._extract = lambda a, d: None  # extracts nothing → no binary
+            try:
+                orr.download()
+                check("missing bin/ollama after extract raises", False, "no raise")
+            except RuntimeError as e:
+                check("missing bin/ollama after extract raises",
+                      "bin/ollama" in str(e), str(e))
+            check("partial archive cleaned up",
+                  not os.path.exists(os.path.join(td, ".ollama-download.partial")))
+
+            def good_extract(a, d):
+                os.makedirs(os.path.join(d, "bin"), exist_ok=True)
+                p = os.path.join(d, "bin", "ollama")
+                open(p, "w").write("#!/bin/sh\n")
+                os.chmod(p, 0o755)
+            orr._extract = good_extract
+            got = orr.download()
+            check("download returns the binary path",
+                  got == os.path.join(td, "bin", "ollama"), str(got))
+    finally:
+        orr._fetch, orr._extract, orr.RUNTIME_DIR = orig_fetch, orig_extract, orig_dir
+
+    # real .tar.zst extraction — runs where zstandard is installed (Linux CI;
+    # skipped on macOS, where the requirement doesn't apply)
+    try:
+        import zstandard
+    except ImportError:
+        print("  (zstandard not installed here — extract test runs on Linux CI)")
+        return
+    import io
+    import tarfile
+    with tempfile.TemporaryDirectory() as td:
+        raw = io.BytesIO()
+        with tarfile.open(fileobj=raw, mode="w") as tar:
+            data = b"#!/bin/sh\necho ollama\n"
+            info = tarfile.TarInfo("bin/ollama")
+            info.size = len(data)
+            info.mode = 0o755
+            tar.addfile(info, io.BytesIO(data))
+        archive = os.path.join(td, "a.tar.zst")
+        with open(archive, "wb") as f:
+            f.write(zstandard.ZstdCompressor().compress(raw.getvalue()))
+        dest = os.path.join(td, "rt")
+        os.makedirs(dest)
+        orr._extract(archive, dest)
+        out = os.path.join(dest, "bin", "ollama")
+        check("tar.zst extracts bin/ollama", os.path.exists(out))
+        check("payload intact", open(out, "rb").read().endswith(b"ollama\n"))
+
+
 def test_firstrun():
     print("first-run checks (offline model detection, store consolidation):")
     from sotto import firstrun
@@ -801,8 +920,8 @@ def test_smoke_imports():
         "sotto.app", "sotto.asr", "sotto.asr_onnx", "sotto.audio",
         "sotto.hotkey_evdev", "sotto.inject", "sotto.inject_linux",
         "sotto.overlay_tk", "sotto.platform.linux",
-        "sotto.firstrun", "sotto.llm_server", "sotto.update",
-        "sotto.dashboard",
+        "sotto.firstrun", "sotto.llm_server", "sotto.ollama_runtime",
+        "sotto.update", "sotto.dashboard", "zstandard",
     }
     missing = required - set(mod.SMOKE_IMPORTS)
     check("smoke list covers every runtime-selected module", not missing,
@@ -1021,6 +1140,7 @@ if __name__ == "__main__":
     test_dashboard()
     test_llm_fallback()
     test_llm_server()
+    test_ollama_runtime()
     test_firstrun()
     test_insights_config()
     test_listener_retry()
