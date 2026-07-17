@@ -13,6 +13,28 @@ uploaded anywhere, **$0 to run**.
 
 ![Sotto's dashboard — usage insights, a year of dictation activity, and your personal dictionary](media/demo_ss_1.png)
 
+## Download (macOS)
+
+**[⬇ Get the latest release](https://github.com/psancheti6666/sotto/releases/latest)** —
+pick the DMG for your Mac ( → About This Mac shows which):
+
+- `Sotto-…-apple-silicon.dmg` — M1/M2/M3/M4 Macs
+- `Sotto-…-intel.dmg` — Intel Macs (community-tested)
+
+Open the DMG, drag **Sotto** into **Applications**, and launch it. Two
+first-launch notes:
+
+1. Sotto isn't notarized with Apple ($99/yr — it's a free app), so macOS
+   will say it can't verify the app: go to **System Settings → Privacy &
+   Security**, scroll down, and click **Open Anyway**. One time only.
+2. Sotto then walks you through setup itself — microphone, Accessibility,
+   and Input Monitoring permissions, plus a one-time ~3 GB model download.
+   If Sotto isn't listed under a permission pane, add it with the **+**
+   button (macOS sometimes doesn't list apps there automatically).
+
+Everything below this point is for running Sotto **from source** — Linux
+users, tinkerers, and contributors.
+
 ## What it does
 
 - **Hold the hotkey, speak, release** → your words appear at the cursor, in
