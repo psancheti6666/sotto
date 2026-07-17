@@ -33,13 +33,22 @@ first-launch notes:
    button (macOS sometimes doesn't list apps there automatically).
 
 After that, Sotto keeps itself current: once a day it asks GitHub whether a
-newer release exists (one API call — the app's only network request that
-isn't to your own machine) and offers **Update Now / Later** — as a quiet
+newer release exists (one API call — beyond the one-time model downloads at
+first setup, the app's only network request that isn't to your own machine)
+and offers **Update Now / Later** — as a quiet
 notification banner if you allow Sotto notifications, or a dialog. Updating
 installs and relaunches by itself; settings, history, and permissions all
 carry over. There's also a **Check for Updates…** item in the menu-bar menu,
 and `update_check_days = 0` in `~/.sotto/config.toml` turns the scheduled
 check off entirely.
+
+## Download (Linux) — in progress
+
+A native Linux app is being built: a `.deb` for Ubuntu (double-click install,
+no terminal ever) and an AppImage for other distros, with the same guided
+setup, overlay, and self-update as the Mac app. Plan and progress:
+[docs/linux-app.md](docs/linux-app.md). Until it ships, Linux runs from
+source — see below.
 
 Everything below this point is for running Sotto **from source** — Linux
 users, tinkerers, and contributors.
