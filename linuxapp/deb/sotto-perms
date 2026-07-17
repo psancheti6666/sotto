@@ -35,7 +35,8 @@ apply_perms() {
         user="$(getent passwd "$uid" | cut -d: -f1)"
         if [ -n "$user" ]; then
             for dev in /dev/input/event* /dev/uinput; do
-                [ -e "$dev" ] && setfacl -m "u:$user:rw" "$dev" 2>/dev/null || true
+                [ -e "$dev" ] || continue
+                setfacl -m "u:$user:rw" "$dev" 2>/dev/null || true
             done
         fi
     fi
