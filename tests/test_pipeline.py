@@ -278,6 +278,62 @@ def test_listener_retry():
     check("alerts exactly once", len(alerts) == 1, str(alerts))
 
 
+def test_logging_setup():
+    print("log file (rotating, thread-exception capture, no transcripts):")
+    import logging
+    import logging.handlers
+    import threading as _threading
+    from sotto import app as app_mod
+
+    root = logging.getLogger()
+    before = list(root.handlers)
+    old_hooks = (sys.excepthook, _threading.excepthook)
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, "sotto.log")
+        try:
+            app_mod.setup_logging(path)
+            app_mod.log.info("hello from the log test")
+
+            def boom():
+                raise RuntimeError("thread exploded (expected)")
+            t = _threading.Thread(target=boom, name="test-boom")
+            t.start()
+            t.join()
+            for h in root.handlers:
+                h.flush()
+            content = open(path).read()
+            check("log file created and written",
+                  "hello from the log test" in content)
+            check("format carries level+module",
+                  "INFO" in content and "test_pipeline" in content)
+            check("thread exception captured with traceback",
+                  "thread exploded" in content and "Traceback" in content)
+            check("second setup call is a no-op",
+                  (app_mod.setup_logging(path) or
+                   sum(isinstance(h, logging.handlers.RotatingFileHandler)
+                       for h in root.handlers) == 1))
+        finally:
+            for h in list(root.handlers):
+                if h not in before:
+                    root.removeHandler(h)
+                    h.close()
+            sys.excepthook, _threading.excepthook = old_hooks
+
+    import inspect
+    src = inspect.getsource(app_mod.Sotto._process_audio)
+    check("dictation log line has no transcript text (lengths only)",
+          "len(raw)" in src and "%r -> %r" not in src)
+
+
+def test_firstrun_cosmetics():
+    print("first-run cosmetics:")
+    from sotto import firstrun
+    check("app name falls back to Sotto outside a bundle",
+          firstrun._app_name() == "Sotto")
+    im = next(r for r in firstrun.ROWS if r[0] == "input_monitoring")
+    check("Input Monitoring detail carries the ＋ hint", "＋" in im[2])
+
+
 def test_permission_watchdog():
     print("permission watchdog (alerts once per revocation, re-arms on re-grant):")
     from sotto import app as app_mod
@@ -813,6 +869,8 @@ if __name__ == "__main__":
     test_firstrun()
     test_insights_config()
     test_listener_retry()
+    test_logging_setup()
+    test_firstrun_cosmetics()
     test_permission_watchdog()
     test_firstrun_gating()
     test_firstrun_notifications()

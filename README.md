@@ -77,7 +77,9 @@ users, tinkerers, and contributors.
 "Community-tested" means: the code paths exist, are unit-tested, and the
 speech/cleanup pipeline is verified — but the maintainer develops on an
 Apple-Silicon Mac. If you run Sotto on one of these platforms, please open an
-issue (working or not!) so this table can be updated.
+issue (working or not!) so this table can be updated. When reporting a
+problem, attach `~/.sotto/sotto.log` — it records what Sotto was doing
+(never your dictated text, which stays in your private history).
 
 ## Requirements
 
