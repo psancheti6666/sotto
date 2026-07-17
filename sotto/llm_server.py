@@ -24,6 +24,7 @@ import urllib.parse
 import requests
 
 from .config import CONFIG_DIR
+from .platform import IS_LINUX
 
 log = logging.getLogger("sotto")
 
@@ -33,12 +34,17 @@ _observer = None  # retains the NSApplicationWillTerminateNotification listener
 
 
 def bundled_binary() -> str | None:
-    """Path to the ollama binary inside the .app, or None from a checkout."""
+    """The ollama binary we may spawn: inside the .app on macOS, or (Linux)
+    a system install / the first-run-downloaded runtime. None from a mac
+    checkout — and on Linux until the runtime is downloaded."""
     res = os.environ.get("RESOURCEPATH")  # set by the py2app bootstrap
-    if not res:
-        return None
-    path = os.path.join(res, "ollama", "ollama")
-    return path if os.access(path, os.X_OK) else None
+    if res:
+        path = os.path.join(res, "ollama", "ollama")
+        return path if os.access(path, os.X_OK) else None
+    if IS_LINUX:
+        from . import ollama_runtime
+        return ollama_runtime.resolve()
+    return None
 
 
 def _reachable(url: str) -> bool:

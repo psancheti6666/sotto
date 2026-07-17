@@ -22,6 +22,7 @@ SMOKE_IMPORTS = [
     "pyperclip",
     "rapidfuzz",
     "huggingface_hub",
+    "zstandard",
     # every sotto module that is imported lazily or platform-selected
     "sotto.app",
     "sotto.asr",
@@ -36,6 +37,7 @@ SMOKE_IMPORTS = [
     "sotto.inject",
     "sotto.inject_linux",
     "sotto.llm_server",
+    "sotto.ollama_runtime",
     "sotto.overlay_tk",
     "sotto.platform.linux",
     "sotto.update",

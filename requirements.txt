@@ -5,6 +5,7 @@ pyobjc-framework-AVFoundation ; sys_platform == "darwin"
 pyobjc-framework-WebKit ; sys_platform == "darwin"
 pyobjc-framework-UserNotifications ; sys_platform == "darwin"
 evdev ; sys_platform == "linux"
+zstandard ; sys_platform == "linux"
 sounddevice
 requests
 pyperclip
