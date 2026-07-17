@@ -703,6 +703,50 @@ def test_linux_injector_selection():
         il.shutil.which, il._probe, il.session_type = orig_which, orig_probe, orig_session
 
 
+def test_linux_alert():
+    print("Linux alert dispatch (zenity → kdialog → notify-send → log):")
+    from sotto.platform import linux as pl
+
+    def which_of(*names):
+        return lambda cmd: f"/usr/bin/{cmd}" if cmd in names else None
+
+    argv = pl._alert_argv("T", "hello", which_of("zenity", "kdialog", "notify-send"))
+    check("zenity preferred, title/text/no-markup pinned",
+          argv[0] == "zenity" and "--title=T" in argv and "--text=hello" in argv
+          and "--no-markup" in argv, str(argv))
+    argv = pl._alert_argv("T", "hello", which_of("kdialog", "notify-send"))
+    check("kdialog next, --sorry carries the text",
+          argv[0] == "kdialog" and argv[argv.index("--sorry") + 1] == "hello",
+          str(argv))
+    argv = pl._alert_argv("T", "hello", which_of("notify-send"))
+    check("notify-send last resort: critical urgency, -- before positionals",
+          argv[0] == "notify-send" and "critical" in argv
+          and argv[argv.index("--") + 1:] == ["T", "hello"], str(argv))
+    check("None when no tool exists", pl._alert_argv("T", "x", which_of()) is None, "")
+
+    spawned = []
+    orig_which, orig_popen = pl.shutil.which, pl.subprocess.Popen
+    pl.shutil.which = which_of("zenity")
+    pl.subprocess.Popen = lambda argv, **kw: spawned.append(argv)
+    try:
+        pl.alert("Sotto", "boom")
+        check("alert spawns the chosen dialog",
+              len(spawned) == 1 and spawned[0][0] == "zenity", str(spawned))
+        pl.shutil.which = which_of()
+        spawned.clear()
+        pl.alert("Sotto", "boom")  # no tool → log-only, must not raise
+        check("no tools → log-only, nothing spawned", spawned == [], str(spawned))
+        pl.shutil.which = which_of("zenity")
+
+        def exploding(argv, **kw):
+            raise OSError("spawn failed")
+        pl.subprocess.Popen = exploding
+        pl.alert("Sotto", "boom")  # spawn failure → logged, must not raise
+        check("spawn failure is swallowed and logged", True, "")
+    finally:
+        pl.shutil.which, pl.subprocess.Popen = orig_which, orig_popen
+
+
 def test_history():
     print("history persistence (JSONL round-trip):")
     from sotto import history
@@ -861,6 +905,7 @@ if __name__ == "__main__":
     test_evdev_gestures()
     test_platform_detection()
     test_linux_injector_selection()
+    test_linux_alert()
     test_history()
     test_stats()
     test_dashboard()
