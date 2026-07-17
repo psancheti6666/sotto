@@ -139,10 +139,15 @@ def test_llm_fallback():
 
 def test_llm_server():
     print("bundled-ollama manager (no server, no bundle → fast no-op):")
-    from sotto import llm_server
+    from sotto import llm_server, ollama_runtime
     from sotto.config import Config
 
     had = os.environ.pop("RESOURCEPATH", None)
+    # on a Linux box WITH ollama installed, bundled_binary() would resolve the
+    # system binary and ensure() would spawn a real `ollama serve` — stub the
+    # resolver so this test stays a no-op everywhere
+    orig_resolve = ollama_runtime.resolve
+    ollama_runtime.resolve = lambda: None
     try:
         check("no RESOURCEPATH → no bundled binary",
               llm_server.bundled_binary() is None)
@@ -173,6 +178,7 @@ def test_llm_server():
               time.time() - t0 < 5.0)
         check("no child spawned", llm_server._child is None)
     finally:
+        ollama_runtime.resolve = orig_resolve
         if had is not None:
             os.environ["RESOURCEPATH"] = had
 
@@ -294,6 +300,7 @@ def test_ollama_runtime():
         out = os.path.join(dest, "bin", "ollama")
         check("tar.zst extracts bin/ollama", os.path.exists(out))
         check("payload intact", open(out, "rb").read().endswith(b"ollama\n"))
+        check("exec bit survives the data filter", os.access(out, os.X_OK))
 
 
 def test_firstrun():
