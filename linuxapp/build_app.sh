@@ -16,6 +16,13 @@ PY="${PYTHON:-python3}"
 if [[ ! -d .venv ]]; then
   "$PY" -m venv .venv
 fi
+# a stale .venv from another interpreter would build a bundle that silently
+# differs from CI's — refuse instead
+if ! .venv/bin/python -c 'import sys; sys.exit(sys.version_info[:2] != (3, 11))'; then
+  echo "ERROR: .venv is not Python 3.11 ($(.venv/bin/python -V 2>&1))" >&2
+  echo "       delete .venv or rerun with PYTHON=python3.11" >&2
+  exit 1
+fi
 .venv/bin/python -m pip install --quiet --upgrade pip
 .venv/bin/python -m pip install --quiet -r requirements.txt
 # build-only dependency; major pinned so hook behavior doesn't drift

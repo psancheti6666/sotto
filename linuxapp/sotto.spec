@@ -32,6 +32,10 @@ datas.append((os.path.join(REPO, "sotto", "dashboard.html"), "sotto"))
 # only bundle PortAudio for mac/windows) — ctypes loads are invisible to
 # PyInstaller, so bundle the library explicitly. Missing at build time is a
 # hard error: the onedir would crash on any machine without libportaudio2.
+# Discovery at runtime is handled by rthook_portaudio.py (find_library only
+# reads the system ldconfig cache and would never see the bundled copy);
+# CI proves it by smoking the tarball in a bare container with no
+# libportaudio2 installed.
 _pa = sorted(glob.glob("/usr/lib/*/libportaudio.so.*")
              + glob.glob("/usr/lib/libportaudio.so.*"))
 if not _pa:
@@ -53,6 +57,7 @@ a = Analysis(
     datas=datas,
     binaries=binaries,
     hiddenimports=hiddenimports,
+    runtime_hooks=[os.path.join(SPECPATH, "rthook_portaudio.py")],
     excludes=[
         # macOS-only stacks — absent from a Linux venv anyway; listed so a
         # contributor's mixed environment can't drag them in
