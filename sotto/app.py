@@ -250,6 +250,11 @@ class Sotto:
             from . import menubar
             if menubar.running_in_bundle():
                 from . import firstrun
+                # The user passed Gatekeeper to get here — drop the
+                # quarantine flag now so our own quit-&-reopens never
+                # re-trigger the "Open Anyway" dance (macOS 26 makes it
+                # a two-round affair otherwise).
+                firstrun.strip_quarantine()
                 if firstrun.needed(self.cfg):
                     # Welcome window owns the process; when setup completes
                     # it relaunches the app (Input Monitoring grants only

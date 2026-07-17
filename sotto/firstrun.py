@@ -241,8 +241,39 @@ def _open_settings_pane(anchor: str):
 
 
 def fix_globe_key():
-    subprocess.run(["defaults", "write", "com.apple.HIToolbox",
-                    "AppleFnUsageType", "-int", "0"], check=False)
+    """Send the user to the Keyboard pane to set "Press 🌐 key to" →
+    "Do Nothing" themselves. Writing AppleFnUsageType with `defaults`
+    persists the pref (and greens our check) but running apps keep the old
+    cached value until re-login — live-tested: the emoji picker kept
+    opening and hold-to-dictate typed the transcript into its search bar.
+    The Settings UI applies the change immediately, so the green tick then
+    means what it says."""
+    subprocess.run(["open",
+                    "x-apple.systempreferences:com.apple.Keyboard-Settings"
+                    ".extension"], check=False)
+
+
+def strip_quarantine():
+    """Once Sotto is running, the user has by definition passed Gatekeeper —
+    drop the quarantine flag from our own bundle so it is never re-evaluated.
+    macOS 26 seals "Open Anyway" only after one more MANUAL launch, and
+    first-run's automatic quit-&-reopen (Input Monitoring) races that —
+    live-tested: users hit the malware screen twice. With the flag gone,
+    every later launch (including our own relaunches) skips Gatekeeper.
+    No-op when the flag is absent; the xattr walk over a ~700 MB bundle
+    runs on a background thread."""
+    try:
+        from Foundation import NSBundle
+        bundle = NSBundle.mainBundle().bundlePath()
+        if not bundle.endswith(".app"):
+            return
+        threading.Thread(
+            target=lambda: subprocess.run(
+                ["xattr", "-rd", "com.apple.quarantine", bundle],
+                capture_output=True),
+            daemon=True).start()
+    except Exception:
+        pass
 
 
 def relaunch():
@@ -314,7 +345,8 @@ ROWS = [
      "Sees the hotkey. macOS may ask to quit & reopen Sotto — allow it.",
      "Open Settings", request_input_monitoring),
     ("globe_key", "Globe key",
-     "macOS must not open the emoji picker on fn.", "Fix", fix_globe_key),
+     "Set “Press 🌐 key to” → “Do Nothing”, else fn opens emoji.",
+     "Open Settings", fix_globe_key),
     ("notifications", "Notifications (optional)",
      "A quiet note when a Sotto update is ready.", "Allow",
      request_notifications),
