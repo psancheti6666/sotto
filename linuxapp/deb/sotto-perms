@@ -1,24 +1,25 @@
 #!/bin/sh
 # Created by Pratik Sancheti / https://github.com/psancheti6666
-# Sotto's root helper — the ONLY code Sotto ever runs with privileges.
-# Installed at /usr/libexec/sotto/sotto-perms; authorized via the polkit
-# action io.github.psancheti6666.sotto.perms (graphical password prompt).
+# Sotto's root helper — the ONLY code Sotto runs with privileges, authorized
+# via the polkit action io.github.psancheti6666.sotto.perms (graphical prompt).
 #
-#   sotto-perms apply [user]        make /dev/input + /dev/uinput accessible
-#                                   (udev reload+trigger; setfacl for [user]
-#                                   as a same-session belt-and-braces)
-#   sotto-perms verify              print current device ACL state
-#   sotto-perms install-update DEB  install a Sotto update package
-#   sotto-perms bootstrap DIR [user] AppImage first run: copy the rule/policy/
-#                                   helper from DIR into the system, then apply
+#   sotto-perms apply     make /dev/input + /dev/uinput accessible to the
+#                         INVOKING user (udev reload+trigger; setfacl grants
+#                         this session immediately, the rule owns persistence)
+#   sotto-perms verify    print current device ACL state (read-only)
+#
+# SECURITY: polkit's exec.path pins this path but CANNOT constrain argv, so
+# every verb reachable here is callable by any local user after one admin
+# auth. Both verbs are therefore deliberately benign — `apply` can only grant
+# the *calling* user (derived from pkexec's PKEXEC_UID, never from argv) access
+# to their own seat's devices; `verify` only reads. Anything that could run
+# arbitrary code as root (installing files/packages from caller-supplied
+# paths) must NOT live behind this pinned policy: self-update installs land in
+# milestone L8 with signature verification; the AppImage's first-run bootstrap
+# lands in L9 through the generic (unpinned) admin prompt.
 set -eu
 
-RULE_NAME=60-sotto-input.rules
-HELPER_DEST=/usr/libexec/sotto/sotto-perms
-POLICY_NAME=io.github.psancheti6666.sotto.policy
-
 apply_perms() {
-    user="${1:-}"
     modprobe uinput 2>/dev/null || true
     if command -v udevadm >/dev/null 2>&1; then
         udevadm control --reload || true
@@ -27,17 +28,22 @@ apply_perms() {
     fi
     # uaccess ACLs are applied by logind via udev; reports differ on whether
     # that lands without a re-login, so also grant this session directly.
-    # The udev rule owns persistence (replug/reboot).
-    if [ -n "$user" ] && command -v setfacl >/dev/null 2>&1; then
-        for dev in /dev/input/event* /dev/uinput; do
-            [ -e "$dev" ] && setfacl -m "u:$user:rw" "$dev" 2>/dev/null || true
-        done
+    # The target is pkexec's PKEXEC_UID (the user who authenticated) — NEVER a
+    # caller argument, so this can't hand another account keylogging access.
+    uid="${PKEXEC_UID:-}"
+    if [ -n "$uid" ] && command -v setfacl >/dev/null 2>&1; then
+        user="$(getent passwd "$uid" | cut -d: -f1)"
+        if [ -n "$user" ]; then
+            for dev in /dev/input/event* /dev/uinput; do
+                [ -e "$dev" ] && setfacl -m "u:$user:rw" "$dev" 2>/dev/null || true
+            done
+        fi
     fi
 }
 
 case "${1:-}" in
     apply)
-        apply_perms "${2:-}"
+        apply_perms
         ;;
     verify)
         for dev in /dev/input/event0 /dev/uinput; do
@@ -52,28 +58,8 @@ case "${1:-}" in
             fi
         done
         ;;
-    install-update)
-        deb="${2:?usage: sotto-perms install-update <path.deb>}"
-        pkg="$(dpkg-deb -f "$deb" Package)"
-        if [ "$pkg" != "sotto" ]; then
-            echo "refusing: $deb is package '$pkg', not sotto" >&2
-            exit 1
-        fi
-        # apt-get resolves any NEW Depends a future release adds; plain
-        # dpkg -i alone would strand the install half-configured.
-        abs="$(realpath "$deb")"
-        apt-get install -y "$abs" || { dpkg -i "$abs" && apt-get -f install -y; }
-        ;;
-    bootstrap)
-        payload="${2:?usage: sotto-perms bootstrap <payload-dir> [user]}"
-        install -D -m 644 "$payload/$RULE_NAME" "/etc/udev/rules.d/$RULE_NAME"
-        install -D -m 644 "$payload/sotto-uinput.conf" /etc/modules-load.d/sotto-uinput.conf
-        install -D -m 644 "$payload/$POLICY_NAME" "/usr/share/polkit-1/actions/$POLICY_NAME"
-        install -D -m 755 "$payload/sotto-perms" "$HELPER_DEST"
-        apply_perms "${3:-}"
-        ;;
     *)
-        echo "usage: sotto-perms {apply [user]|verify|install-update <deb>|bootstrap <dir> [user]}" >&2
+        echo "usage: sotto-perms {apply|verify}" >&2
         exit 2
         ;;
 esac

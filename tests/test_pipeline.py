@@ -873,6 +873,10 @@ def test_firstrun_linux():
         check("clipboard fallback → not injection_ok", not fl.injection_ok())
     finally:
         il.build_injector = orig_build
+    # pin the real attribute name injection_ok reaches for (_injectors) so a
+    # rename of _Chain's field can't leave injection_ok silently False
+    check("real _Chain exposes _injectors",
+          hasattr(il._Chain([object()]), "_injectors"))
 
     # gating: models/engine never gate; SOTTO_FIRSTRUN forces both ways
     cfg = Config()
@@ -914,28 +918,26 @@ def test_firstrun_linux():
         firstrun.models_missing = orig_mm
         llm_server._reachable, ollama_runtime.resolve = orig_reach, orig_res
 
-    # fix argv + relaunch argv under bundle-env permutations
-    saved = {k: os.environ.pop(k, None)
-             for k in ("APPIMAGE", "APPDIR", "SOTTO_BUNDLE")}
+    # fix argv is always the benign pkexec apply — the helper derives the
+    # target user from PKEXEC_UID, so no username is passed (security review)
+    check("fix input → pkexec apply, no user arg",
+          fl.fix_input_argv() == ["pkexec", fl.HELPER, "apply"])
+
+    # bundle_type + relaunch argv under bundle-env permutations
+    saved = {k: os.environ.get(k) for k in ("APPIMAGE", "APPDIR", "SOTTO_BUNDLE")}
+    for k in saved:
+        os.environ.pop(k, None)
     orig_frozen = getattr(sys, "frozen", None)
     try:
         sys.frozen = True
         os.environ["SOTTO_BUNDLE"] = "deb"
-        check("deb → pkexec apply",
-              fl.fix_input_argv()[:3] == ["pkexec", fl.HELPER, "apply"])
         check("deb bundle_type", fl.bundle_type() == "deb")
         del os.environ["SOTTO_BUNDLE"]
         os.environ["APPIMAGE"] = "/home/u/Sotto.AppImage"
-        os.environ["APPDIR"] = "/tmp/.mount_sotto"
-        argv = fl.fix_input_argv()
-        check("appimage → bootstrap from payload",
-              argv[0] == "pkexec" and argv[2] == "bootstrap"
-              and argv[1].startswith("/tmp/.mount_sotto/share/sotto-setup"),
-              str(argv))
         check("appimage bundle_type", fl.bundle_type() == "appimage")
         check("appimage relaunch = $APPIMAGE",
               fl.relaunch_argv() == ["/home/u/Sotto.AppImage"])
-        del os.environ["APPIMAGE"], os.environ["APPDIR"]
+        del os.environ["APPIMAGE"]
         check("frozen relaunch = executable",
               fl.relaunch_argv() == [sys.executable])
         del sys.frozen
@@ -947,8 +949,11 @@ def test_firstrun_linux():
             sys.frozen = orig_frozen
         elif hasattr(sys, "frozen"):
             del sys.frozen
+        # restore deterministically regardless of where an exception landed
         for k, v in saved.items():
-            if v is not None:
+            if v is None:
+                os.environ.pop(k, None)
+            else:
                 os.environ[k] = v
 
     # autostart writer
@@ -998,14 +1003,25 @@ def test_tk_firstrun_windows():
 
         s = ft._DownloadScreen(cfg)
         s.q.put(("cleanup engine: 40%", 0.4))
-        s.poll(loop=False)
+        cont = s.drain()
         check("progress line lands in the bar",
-              abs(float(s.bar["value"]) - 0.4) < 1e-6, str(s.bar["value"]))
+              abs(float(s.bar["value"]) - 0.4) < 1e-6 and cont, str(s.bar["value"]))
         s.q.put(("__done__", None))
-        s.poll(loop=False)  # setup still "missing" → must show Retry, not relaunch
-        check("failed/incomplete download shows Retry",
-              s.retry.winfo_manager() != "")
-        s.root.destroy()
+        stop = s.drain()  # setup still "missing" → must show Retry, stop polling
+        check("incomplete download shows Retry and stops polling",
+              s.retry.winfo_manager() != "" and stop is False)
+        # Retry must re-arm: a subsequent successful run reaches relaunch
+        # (the dead-poll bug two reviewers caught was invisible without this)
+        fl.setup_missing = lambda c: False
+        relaunched = []
+        orig_re = fl.relaunch
+        fl.relaunch = lambda: relaunched.append(True)
+        try:
+            s.q.put(("__done__", None))
+            s.drain()
+            check("completed download relaunches", relaunched == [True])
+        finally:
+            fl.relaunch = orig_re
     finally:
         (fl.input_ok, fl.injection_ok, fl.setup_missing, fl.autostart_ok) = orig
 

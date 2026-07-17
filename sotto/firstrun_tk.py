@@ -10,6 +10,7 @@ counterparts own the process on macOS.
 
 import logging
 import queue
+import threading
 
 from . import firstrun, firstrun_linux
 
@@ -120,12 +121,18 @@ class _DownloadScreen:
         self.retry = tk.Button(root, text="Retry", command=self.begin)
         self.retry.grid(row=4, column=0, pady=(0, 12))
         self.retry.grid_remove()
+        self._busy = False
         root.protocol("WM_DELETE_WINDOW", self._quit)
 
     def _quit(self):
         self.root.destroy()
 
     def begin(self):
+        # guard against a double-click on Retry queuing two runs before the
+        # button unmaps → two worker threads and two done-sentinels
+        if self._busy:
+            return
+        self._busy = True
         self.retry.grid_remove()
         self.status.config(text="starting…")
 
@@ -148,23 +155,29 @@ class _DownloadScreen:
             firstrun.download_models(self.cfg, progress,
                                      lambda: self.q.put(("__done__", None)))
 
-        import threading
         threading.Thread(target=work, daemon=True).start()
+        self._pump()  # arm the drain loop for this run
 
-    def poll(self, loop=True):
+    def _pump(self):
+        if self.drain():
+            self.root.after(100, self._pump)
+
+    def drain(self) -> bool:
+        """Consume queued progress. Returns True to keep polling, False when
+        the run finished — a later Retry re-arms polling through begin()."""
         try:
             while True:
                 label, frac = self.q.get_nowait()
                 if label == "__done__":
+                    self._busy = False
                     self.finish()
-                    return
+                    return False
                 self.status.config(text=label)
                 if frac is not None:
                     self.bar["value"] = frac
         except queue.Empty:
             pass
-        if loop:
-            self.root.after(100, self.poll)
+        return True
 
     def finish(self):
         # only relaunch when everything is really here — a failed download
@@ -181,5 +194,4 @@ def download_screen(cfg):
     into a normal start when complete."""
     s = _DownloadScreen(cfg)
     s.begin()
-    s.poll()
     s.root.mainloop()

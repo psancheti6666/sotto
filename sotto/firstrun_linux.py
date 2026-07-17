@@ -132,16 +132,11 @@ def engine_missing(cfg) -> bool:
 
 def fix_input_argv() -> list:
     """pkexec invocation for the Keyboard-access Fix button. The .deb install
-    already laid the helper down; an AppImage bootstraps it on first click
-    (generic polkit admin prompt — expected) and uses the installed helper
-    afterwards."""
-    user = os.environ.get("USER", "")
-    if bundle_type() == "appimage" and not os.path.exists(HELPER):
-        payload = os.path.join(os.environ.get("APPDIR", ""),
-                               "share", "sotto-setup")
-        return ["pkexec", os.path.join(payload, "sotto-perms"),
-                "bootstrap", payload, user]
-    return ["pkexec", HELPER, "apply", user]
+    lays the helper + polkit policy down; the helper derives the target user
+    from pkexec's PKEXEC_UID, so no username is passed here. (The AppImage's
+    first-run bootstrap — installing those files with no pre-existing policy —
+    lands with the AppImage itself in L9.)"""
+    return ["pkexec", HELPER, "apply"]
 
 
 def fix_input():
@@ -153,10 +148,19 @@ def fix_input():
         r = subprocess.run(argv, capture_output=True, text=True, timeout=180)
         log.info("sotto-perms exited %d: %s", r.returncode,
                  (r.stdout + r.stderr).strip())
-        v = subprocess.run(["pkexec", HELPER, "verify"] if r.returncode == 0
-                           else ["ls", "-l", "/dev/uinput"],
-                           capture_output=True, text=True, timeout=60)
-        log.info("device state after fix:\n%s", (v.stdout + v.stderr).strip())
+        # read ACL state directly — getfacl needs no privilege, so this avoids
+        # a SECOND password prompt (auth_admin_keep doesn't span the generic
+        # bootstrap action the AppImage's first fix uses)
+        state = []
+        for dev in ("/dev/input/event0", "/dev/uinput"):
+            try:
+                g = subprocess.run(["getfacl", "-p", dev],
+                                   capture_output=True, text=True, timeout=10)
+                state.append((g.stdout or g.stderr).strip())
+            except Exception:
+                pass
+        if state:
+            log.info("device ACL state after fix:\n%s", "\n".join(state))
     except Exception as e:
         log.warning("fix input failed: %s", e)
 
@@ -167,6 +171,14 @@ def fix_injection():
     avoids ydotoold-as-root's 0600 socket that locks clients out."""
     ydotoold = shutil.which("ydotoold")
     if not ydotoold:
+        # a silent dead button is worse than the problem — tell the user how
+        # to get the typing helper (the .deb Depends on it; AppImage bundles
+        # it; a source checkout may not have it yet)
+        from .platform import alert
+        alert("Sotto needs a typing helper",
+              "To type on Wayland, install ydotool:\n\n"
+              "    sudo apt install ydotool\n\n"
+              "then click Fix again.")
         log.warning("fix injection: ydotoold not installed")
         return
     os.makedirs(os.path.dirname(YDOTOOLD_UNIT), exist_ok=True)
@@ -175,9 +187,14 @@ def fix_injection():
                 "[Unit]\nDescription=ydotool daemon for Sotto dictation\n\n"
                 "[Service]\n"
                 f"ExecStart={ydotoold} --socket-path=%t/.ydotool_socket\n"
-                "Restart=on-failure\n\n"
+                "Restart=on-failure\nRestartSec=2\n\n"
                 "[Install]\nWantedBy=default.target\n")
+    # reset-failed first: clicking Typing before Keyboard starts ydotoold
+    # without uinput access, and its fast Restart can trip systemd's
+    # start-limit — which a plain enable --now won't clear.
     for argv in (["systemctl", "--user", "daemon-reload"],
+                 ["systemctl", "--user", "reset-failed",
+                  "sotto-ydotoold.service"],
                  ["systemctl", "--user", "enable", "--now",
                   "sotto-ydotoold.service"]):
         try:
@@ -237,6 +254,14 @@ def relaunch():
     """Replace this process with a fresh Sotto — same flow as macOS (the
     fresh process re-runs every gate; consolidate_model_stores runs before
     huggingface_hub is ever imported there)."""
+    # execv skips atexit, so any ollama the download screen spawned would be
+    # orphaned and merely adopted (not owned) by the new process → it would
+    # outlive Quit. Kill it now; the fresh process re-spawns and owns it.
+    try:
+        from . import llm_server
+        llm_server.shutdown()
+    except Exception:
+        pass
     os.environ.pop("SOTTO_FIRSTRUN", None)  # it leaked once on macOS and
     argv = relaunch_argv()                  # looped the window — never again
     log.info("relaunching: %s", argv)
