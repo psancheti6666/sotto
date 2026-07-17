@@ -107,7 +107,10 @@ if security find-identity -p codesigning -v 2>/dev/null | grep -q "\"$SIGN_ID\""
   # Belt and braces: assert the seal really carries the cert. The v0.3.0
   # release shipped ad-hoc because a silent fallback hid a detection failure
   # (issue #23) — never let a signing surprise pass quietly again.
-  codesign -dvvv "dist/$APP.app" 2>&1 | grep -q "Authority=$SIGN_ID" || {
+  # Plain grep, not -q: -q exits on first match, which can SIGPIPE codesign
+  # mid-output and pipefail then fails the pipeline despite a correct
+  # signature (issue #26 — a race this check lost once locally).
+  codesign -dvvv "dist/$APP.app" 2>&1 | grep "Authority=$SIGN_ID" >/dev/null || {
     echo "ERROR: dist/$APP.app is not sealed by '$SIGN_ID' after signing" >&2
     exit 1
   }
