@@ -116,6 +116,7 @@ jobs:
     # toolchain the evdev compile and PyInstaller's binary analysis need;
     # budget a real migration, don't just swap the label.
     runs-on: ubuntu-22.04
+    timeout-minutes: 30 # a hang must fail visibly, not sit for the 6h default
     steps:
       - uses: actions/checkout@v4
       # deadsnakes matches the project's 3.11 pin AND guarantees a tkinter
@@ -140,13 +141,14 @@ jobs:
       # the tarball in a bare container with no libportaudio2: xvfb pulls in
       # the X client libs Tk needs; PortAudio must come from the bundle.
       - name: Smoke the tarball in a bare container (no system PortAudio)
+        timeout-minutes: 10
         run: |
-          docker run --rm -v "$PWD/dist:/dist:ro" ubuntu:22.04 bash -ec '
-            apt-get update -qq
-            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-              xvfb libxft2 libxext6 >/dev/null
+          docker run --rm -v "$PWD/dist:/dist:ro" ubuntu:22.04 bash -exc '
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y \
+              xvfb xauth libxft2 libxext6 libasound2
             tar -C /tmp -xzf /dist/sotto-linux-x86_64-onedir.tar.gz
-            xvfb-run -a /tmp/sotto/sotto --smoke'
+            timeout -k 10 180 xvfb-run -a /tmp/sotto/sotto --smoke'
       - name: Upload onedir artifact
         uses: actions/upload-artifact@v4
         with:
