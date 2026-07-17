@@ -40,6 +40,11 @@ STATE_PATH = os.path.join(CONFIG_DIR, "update-state.json")
 INITIAL_DELAY_S = 30.0    # let launch (and any first-run alert) settle first
 POLL_S = 3600.0           # how often the scheduled thread re-checks if due
 
+# One update flow at a time: clicking Update Now must not be able to start a
+# second download/swap race (live-tested: the button got clicked twice).
+_update_lock = threading.Lock()
+_progress = None          # cached progress window parts; main-thread only
+
 
 # ---------------------------------------------------- pure logic (unit-tested)
 
@@ -128,6 +133,9 @@ def _scheduled_loop(cfg):
 
 
 def _manual_check():
+    if _update_lock.locked():   # an update is already running — show it
+        _progress_front()
+        return
     try:
         info = check()
     except Exception as e:
@@ -143,20 +151,99 @@ def _manual_check():
 
 
 def _offer(info):
-    if not _ask(f"Sotto {info['version']} is available",
-                f"You're using {__version__}. Sotto will download the update "
-                "in the background (a minute or two), then install and "
-                "relaunch itself. Your settings, history, and permissions "
-                "are untouched."):
+    if not _update_lock.acquire(blocking=False):
+        _progress_front()
         return
     try:
-        download_and_install(info)
-    except Exception as e:
-        log.error("update failed: %s", e)
-        alert("Update failed",
-              f"{e}\n\nYou can install manually: download the DMG from "
-              "github.com/psancheti6666/sotto/releases and drag Sotto to "
-              "Applications.")
+        if not _ask(f"Sotto {info['version']} is available",
+                    f"You're using {__version__}. Sotto will download and "
+                    "install the update, then relaunch itself. Your "
+                    "settings, history, and permissions are untouched."):
+            return
+        _progress_show(f"Downloading Sotto {info['version']}…")
+        try:
+            download_and_install(info)
+        except Exception as e:
+            _progress_hide()
+            log.error("update failed: %s", e)
+            alert("Update failed",
+                  f"{e}\n\nYou can install manually: download the DMG from "
+                  "github.com/psancheti6666/sotto/releases and drag Sotto "
+                  "to Applications.")
+    finally:
+        _update_lock.release()
+
+
+# --------------------------------------------------------- progress window
+# A small floating "Updating Sotto" window: determinate bar while the DMG
+# downloads (we know content-length), indeterminate while installing. All
+# AppKit access is dispatched to the main thread; the download worker only
+# calls these wrappers.
+
+def _progress_show(text: str):
+    from .platform.macos import _on_main
+
+    def go():
+        global _progress
+        if _progress is None:
+            from AppKit import (
+                NSBackingStoreBuffered, NSFloatingWindowLevel, NSMakeRect,
+                NSProgressIndicator, NSTextField, NSWindow,
+                NSWindowStyleMaskTitled)
+            w, h = 400, 92
+            win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+                NSMakeRect(0, 0, w, h), NSWindowStyleMaskTitled,
+                NSBackingStoreBuffered, False)
+            win.setTitle_("Updating Sotto")
+            win.setReleasedWhenClosed_(False)
+            win.setLevel_(NSFloatingWindowLevel)
+            label = NSTextField.labelWithString_("")
+            label.setFrame_(NSMakeRect(20, h - 40, w - 40, 18))
+            bar = NSProgressIndicator.alloc().initWithFrame_(
+                NSMakeRect(20, h - 68, w - 40, 16))
+            bar.setMinValue_(0)
+            bar.setMaxValue_(1)
+            win.contentView().addSubview_(label)
+            win.contentView().addSubview_(bar)
+            win.center()
+            _progress = {"win": win, "bar": bar, "label": label}
+        _progress["label"].setStringValue_(text)
+        _progress["bar"].setIndeterminate_(True)
+        _progress["bar"].startAnimation_(None)
+        from AppKit import NSApp
+        NSApp.activateIgnoringOtherApps_(True)
+        _progress["win"].makeKeyAndOrderFront_(None)
+
+    _on_main(go)
+
+
+def _progress_set(text: str, fraction=None):
+    from .platform.macos import _on_main
+
+    def go():
+        if _progress is None:
+            return
+        _progress["label"].setStringValue_(text)
+        bar = _progress["bar"]
+        if fraction is None:
+            bar.setIndeterminate_(True)
+            bar.startAnimation_(None)
+        else:
+            bar.stopAnimation_(None)
+            bar.setIndeterminate_(False)
+            bar.setDoubleValue_(fraction)
+
+    _on_main(go)
+
+
+def _progress_hide():
+    from .platform.macos import _on_main
+    _on_main(lambda: _progress and _progress["win"].orderOut_(None))
+
+
+def _progress_front():
+    from .platform.macos import _on_main
+    _on_main(lambda: _progress and _progress["win"].makeKeyAndOrderFront_(None))
 
 
 def _ask(title: str, text: str) -> bool:
@@ -201,9 +288,17 @@ def download_and_install(info):
     log.info("downloading %s", info["url"])
     with requests.get(info["url"], stream=True, timeout=60) as r:
         r.raise_for_status()
+        total = int(r.headers.get("content-length") or 0)
+        got = 0
         with open(dmg, "wb") as f:
             for chunk in r.iter_content(1 << 20):
                 f.write(chunk)
+                got += len(chunk)
+                if total:
+                    _progress_set(
+                        f"Downloading Sotto {info['version']}… "
+                        f"{got >> 20} of {total >> 20} MB", got / total)
+    _progress_set("Installing… Sotto will relaunch itself in a moment.")
 
     mnt = os.path.join(workdir, "mnt")
     staged = os.path.join(workdir, "Sotto.app")
