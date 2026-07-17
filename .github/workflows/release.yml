@@ -23,8 +23,8 @@ jobs:
         include:
           - os: macos-14 # Apple Silicon (arm64) → MLX ASR backend
             arch: apple-silicon
-          - os: macos-13 # Intel (x86_64) → ONNX ASR backend
-            arch: intel
+          - os: macos-15-intel # Intel (x86_64) → ONNX ASR backend
+            arch: intel # (macos-13, the old Intel label, is retired — jobs queue forever)
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -36,12 +36,45 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/python -m pip install -r requirements.txt
-      # The runners have no "Sotto Dev" certificate, so build_app.sh takes its
-      # ad-hoc signing fallback — expected and fine for release DMGs: the app
-      # ships unsigned either way and users go through Privacy & Security →
-      # "Open Anyway" on first launch (explained in the bundled README.txt).
+      # Sign with the same self-signed "Sotto Dev" certificate as dev builds,
+      # imported from repo secrets into a throwaway keychain. This does NOT
+      # make Gatekeeper happy (users still go through Privacy & Security →
+      # "Open Anyway", per the bundled README.txt) — it gives every release
+      # the SAME designated requirement (bundle id + cert leaf), so macOS
+      # keeps users' Accessibility/Input Monitoring grants across updates.
+      # Without the secrets (e.g. forks) build_app.sh falls back to ad-hoc,
+      # where every build's new signature hash silently drops those grants.
+      - name: Import signing certificate
+        env:
+          SOTTO_SIGN_P12: ${{ secrets.SOTTO_SIGN_P12 }}
+          SOTTO_SIGN_P12_PASSWORD: ${{ secrets.SOTTO_SIGN_P12_PASSWORD }}
+        run: |
+          if [ -z "$SOTTO_SIGN_P12" ]; then
+            echo "no SOTTO_SIGN_P12 secret — release will be ad-hoc signed"
+            exit 0
+          fi
+          KC="$RUNNER_TEMP/sotto-sign.keychain-db"
+          KC_PASS="$(openssl rand -hex 16)"
+          security create-keychain -p "$KC_PASS" "$KC"
+          security set-keychain-settings -lut 3600 "$KC"
+          security unlock-keychain -p "$KC_PASS" "$KC"
+          echo "$SOTTO_SIGN_P12" | base64 -d > "$RUNNER_TEMP/sotto-dev.p12"
+          security import "$RUNNER_TEMP/sotto-dev.p12" -k "$KC" \
+            -P "$SOTTO_SIGN_P12_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/sotto-dev.p12"
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k "$KC_PASS" "$KC" > /dev/null
+          # prepend to the search list (keeping existing keychains) so
+          # build_app.sh's `security find-identity` sees the identity
+          security list-keychains -d user -s "$KC" \
+            $(security list-keychains -d user | tr -d '"')
+      # SOTTO_RELEASE=1 builds the real "Sotto" (bundle id without the .dev
+      # suffix, clean icon). Local default builds are "Sotto Dev" — a separate
+      # app that coexists with an installed release copy.
       - name: Build Sotto.app
         run: ./macapp/build_app.sh
+        env:
+          SOTTO_RELEASE: "1"
       - name: Build DMG
         run: ./macapp/make_dmg.sh
       - name: Upload DMG artifact

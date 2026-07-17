@@ -1,10 +1,26 @@
 #!/bin/bash
 # Created by Pratik Sancheti / https://github.com/psancheti6666
-# Build the unsigned menu-bar Sotto.app for the machine's architecture:
+# Build the unsigned Sotto app for the machine's architecture:
 # arm64 → MLX ASR backend, x86_64 → ONNX (setup_app.py swaps the stacks).
-# Usage: ./macapp/build_app.sh   →   dist/Sotto.app
+#
+# Two variants (separate apps: different bundle ids, names, icons — they
+# coexist and hold permissions independently):
+#   ./macapp/build_app.sh                  → "dist/Sotto Dev.app" (DEV-badged
+#                                            icon; the default for development
+#                                            so it never fights an installed
+#                                            release Sotto)
+#   SOTTO_RELEASE=1 ./macapp/build_app.sh  → dist/Sotto.app (the real thing;
+#                                            what CI ships in DMGs)
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+# py2app names the bundle after CFBundleName, so the dev app is
+# "dist/Sotto Dev.app" (space and all — keep paths quoted)
+if [[ "${SOTTO_RELEASE:-0}" == "1" ]]; then
+  APP=Sotto; ICNS_FLAGS=""
+else
+  APP="Sotto Dev"; ICNS_FLAGS="--dev"
+fi
 
 PY=.venv/bin/python
 [[ -x $PY ]] || { echo "No .venv — run ./setup.sh first (the build reuses the project venv)."; exit 1; }
@@ -30,7 +46,8 @@ fi
 rm -rf build dist
 mkdir -p build
 
-"$PY" macapp/make_icns.py logo/sottoLogo.png build/Sotto.icns
+# $ICNS_FLAGS deliberately unquoted: empty → no extra argument
+"$PY" macapp/make_icns.py logo/sottoLogo.png build/Sotto.icns $ICNS_FLAGS
 
 "$PY" macapp/setup_app.py py2app --dist-dir dist --bdist-base build
 
@@ -48,7 +65,7 @@ if [[ ! -f $TGZ ]]; then
 fi
 echo "$OLLAMA_SHA256  $TGZ" | shasum -a 256 -c - >/dev/null
 
-OLDIR=dist/Sotto.app/Contents/Resources/ollama
+OLDIR="dist/$APP.app/Contents/Resources/ollama"
 mkdir -p "$OLDIR"
 tar -xzf "$TGZ" -C "$OLDIR"
 # Prune the universal tarball to what serving a GGUF model on THIS arch uses
@@ -86,10 +103,10 @@ echo "bundled ollama $OLLAMA_VERSION ($(du -sh "$OLDIR" | cut -f1))"
 SIGN_ID="${SOTTO_SIGN_IDENTITY:-Sotto Dev}"
 if security find-identity -p codesigning -v 2>/dev/null | grep -q "\"$SIGN_ID\""; then
   echo "signing with local identity: $SIGN_ID (permission grants survive rebuilds)"
-  codesign --force --deep --sign "$SIGN_ID" dist/Sotto.app
+  codesign --force --deep --sign "$SIGN_ID" "dist/$APP.app"
 else
   echo "no '$SIGN_ID' certificate — ad-hoc signing (permission grants will reset on every rebuild)"
-  codesign --force --deep --sign - dist/Sotto.app
+  codesign --force --deep --sign - "dist/$APP.app"
 fi
 
-echo "OK: dist/Sotto.app ($(du -sh dist/Sotto.app | cut -f1))"
+echo "OK: dist/$APP.app ($(du -sh "dist/$APP.app" | cut -f1))"

@@ -18,6 +18,7 @@ the app so settled questions don't get reopened.
 | Per-arch builds | **Two DMGs**: Apple Silicon (MLX backend) and Intel (ONNX backend). Built by GitHub Actions (arm64 + Intel macOS runners) on release. | Matches the existing backend split; universal2 not worth it with MLX being arm-only. |
 | Updates | Manual "Check for updates" menu item hitting the GitHub releases API **only when clicked**. No auto-update, no Sparkle for now. | Privacy story stays pure (zero unsolicited network calls). run.sh's git-pull auto-update doesn't apply to the app. |
 | Permissions | Info.plist usage strings (NSMicrophoneUsageDescription etc.); mic / Accessibility / Input Monitoring prompts attach to Sotto.app itself. | Strictly better than today's grant-to-terminal experience. |
+| Dev/release split (added post-v0.3.0 testing) | Local builds are **"Sotto Dev"** (`…sotto.dev` bundle id, DEV-badged icon, `dist/SottoDev.app`); `SOTTO_RELEASE=1` (CI) builds the real **"Sotto"**. Two separate apps to macOS. | Same-bundle-id copies with different signatures fight over one TCC row (toggle-on-but-denied loops, hit live testing the v0.3.0 DMG). Separate identities = separate permission rows; contributors' builds never break their installed Sotto. |
 
 ## Open decisions
 

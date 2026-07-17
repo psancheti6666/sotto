@@ -11,6 +11,7 @@ ONNX on Intel), so each arch force-includes its own backend and excludes the
 other's — on arm64 the exclusion matters because onnxruntime is installed in
 the dev venv and would otherwise ride in through sotto/asr.py's lazy import.
 """
+import os
 import pathlib
 import platform
 import re
@@ -20,6 +21,15 @@ from setuptools import setup
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 VERSION = re.search(r'__version__\s*=\s*"([^"]+)"',
                     (ROOT / "sotto" / "__init__.py").read_text()).group(1)
+
+# Dev/release split: the default local build is "Sotto Dev" — its own bundle
+# id, name, and DEV-badged icon — so it coexists with an installed release
+# Sotto as a completely separate app (separate permission rows, separate Dock
+# tile; contributors never fight their daily-driver copy). CI sets
+# SOTTO_RELEASE=1 to build the real thing.
+RELEASE = os.environ.get("SOTTO_RELEASE") == "1"
+APP_NAME = "Sotto" if RELEASE else "Sotto Dev"  # py2app: dist/<CFBundleName>.app
+BUNDLE_ID = "io.github.psancheti6666.sotto" + ("" if RELEASE else ".dev")
 
 ARM64 = platform.machine() == "arm64"
 
@@ -97,9 +107,9 @@ OPTIONS = {
         "jaraco",
     ],
     "plist": {
-        "CFBundleName": "Sotto",
-        "CFBundleDisplayName": "Sotto",
-        "CFBundleIdentifier": "io.github.psancheti6666.sotto",
+        "CFBundleName": APP_NAME,
+        "CFBundleDisplayName": APP_NAME,
+        "CFBundleIdentifier": BUNDLE_ID,
         "CFBundleShortVersionString": VERSION,
         "CFBundleVersion": VERSION,
         "LSUIElement": False,  # regular app: Dock icon + menu-bar waveform
@@ -122,7 +132,7 @@ OPTIONS = {
 }
 
 setup(
-    name="Sotto",
+    name=APP_NAME.replace(" ", ""),
     version=VERSION,
     app=["macapp/sotto_app.py"],
     options={"py2app": OPTIONS},
