@@ -11,6 +11,7 @@ If the chosen tool fails at runtime, the chain falls through to the next one.
 """
 
 import logging
+import os
 import shutil
 import subprocess
 import time
@@ -19,12 +20,30 @@ from .platform import session_type
 
 log = logging.getLogger("sotto")
 
+# Canonical ydotool socket. The client's default path has drifted across
+# ydotool versions (older builds used /tmp/.ydotool_socket, 1.x uses
+# $XDG_RUNTIME_DIR/.ydotool_socket), so we pin ONE path and pass it to both
+# ends: firstrun's ydotoold user-unit starts the daemon at %t/.ydotool_socket
+# (systemd's %t == XDG_RUNTIME_DIR), and every client call below sets
+# YDOTOOL_SOCKET to match. Without this the daemon and client can start fine
+# yet never connect, leaving the Typing row red forever.
+YDOTOOL_SOCKET = os.path.join(
+    os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}",
+    ".ydotool_socket")
 
-def _probe(cmd) -> bool:
+
+def _ydotool_env():
+    env = os.environ.copy()
+    env["YDOTOOL_SOCKET"] = YDOTOOL_SOCKET
+    return env
+
+
+def _probe(cmd, env=None) -> bool:
     """A tool exists AND a no-op invocation succeeds (e.g. wtype exits non-zero
     on GNOME, ydotool errors when ydotoold isn't running)."""
     try:
-        return subprocess.run(cmd, capture_output=True, timeout=3).returncode == 0
+        return subprocess.run(cmd, capture_output=True, timeout=3,
+                              env=env).returncode == 0
     except Exception:
         return False
 
@@ -74,14 +93,16 @@ class _YdotoolInjector:
 
     def type_text(self, text: str, interval_s: float):
         subprocess.run(["ydotool", "type", "--key-delay",
-                        str(max(1, int(interval_s * 1000))), "--", text], check=True)
+                        str(max(1, int(interval_s * 1000))), "--", text],
+                       check=True, env=_ydotool_env())
 
     def paste_text(self, text: str, restore_delay_s: float):
         saved = _wl_paste()
         _wl_copy(text)
         time.sleep(0.05)
         # keycodes from linux/input-event-codes.h: 29=Ctrl, 47=V
-        subprocess.run(["ydotool", "key", "29:1", "47:1", "47:0", "29:0"], check=True)
+        subprocess.run(["ydotool", "key", "29:1", "47:1", "47:0", "29:0"],
+                       check=True, env=_ydotool_env())
         time.sleep(restore_delay_s)
         if saved is not None:
             _wl_copy(saved)
@@ -155,7 +176,8 @@ def build_injector() -> _Chain:
     if session == "wayland":
         if shutil.which("wtype") and _probe(["wtype", "--", ""]):
             chain.append(_WtypeInjector())
-        if shutil.which("ydotool") and _probe(["ydotool", "type", "--", ""]):
+        if shutil.which("ydotool") and _probe(["ydotool", "type", "--", ""],
+                                               env=_ydotool_env()):
             chain.append(_YdotoolInjector())
     else:  # x11, or headless/unknown (xdotool will fail loudly there anyway)
         if shutil.which("xdotool"):

@@ -148,6 +148,14 @@ def fix_input():
         r = subprocess.run(argv, capture_output=True, text=True, timeout=180)
         log.info("sotto-perms exited %d: %s", r.returncode,
                  (r.stdout + r.stderr).strip())
+        # pkexec: 126 = user dismissed the auth dialog, 127 = no polkit agent /
+        # not authorized. Tell the user rather than leaving the row silently
+        # gray (parity with the Typing row's alert).
+        if r.returncode in (126, 127):
+            from .platform import alert
+            alert("Keyboard access not granted",
+                  "Sotto still can't see the hotkey. If you dismissed the "
+                  "password prompt, click Fix again and approve it.")
         # read ACL state directly — getfacl needs no privilege, so this avoids
         # a SECOND password prompt (auth_admin_keep doesn't span the generic
         # bootstrap action the AppImage's first fix uses)
@@ -163,6 +171,28 @@ def fix_input():
             log.info("device ACL state after fix:\n%s", "\n".join(state))
     except Exception as e:
         log.warning("fix input failed: %s", e)
+
+
+def _ydotoold_unit(ydotoold: str) -> str:
+    """systemd --user unit text for the ydotool daemon. Socket is
+    %t/.ydotool_socket (%t == XDG_RUNTIME_DIR), matching the path the
+    injector's client uses (inject_linux.YDOTOOL_SOCKET) so they connect."""
+    return ("# Created by Sotto (io.github.psancheti6666.sotto)\n"
+            "[Unit]\nDescription=ydotool daemon for Sotto dictation\n\n"
+            "[Service]\n"
+            f"ExecStart={ydotoold} --socket-path=%t/.ydotool_socket\n"
+            "Restart=on-failure\nRestartSec=2\n\n"
+            "[Install]\nWantedBy=default.target\n")
+
+
+# reset-failed first: clicking Typing before Keyboard starts ydotoold without
+# uinput access, and its fast Restart can trip systemd's start-limit — which a
+# plain enable --now won't clear.
+_YDOTOOLD_SETUP = (
+    ["systemctl", "--user", "daemon-reload"],
+    ["systemctl", "--user", "reset-failed", "sotto-ydotoold.service"],
+    ["systemctl", "--user", "enable", "--now", "sotto-ydotoold.service"],
+)
 
 
 def fix_injection():
@@ -183,20 +213,8 @@ def fix_injection():
         return
     os.makedirs(os.path.dirname(YDOTOOLD_UNIT), exist_ok=True)
     with open(YDOTOOLD_UNIT, "w") as f:
-        f.write("# Created by Sotto (io.github.psancheti6666.sotto)\n"
-                "[Unit]\nDescription=ydotool daemon for Sotto dictation\n\n"
-                "[Service]\n"
-                f"ExecStart={ydotoold} --socket-path=%t/.ydotool_socket\n"
-                "Restart=on-failure\nRestartSec=2\n\n"
-                "[Install]\nWantedBy=default.target\n")
-    # reset-failed first: clicking Typing before Keyboard starts ydotoold
-    # without uinput access, and its fast Restart can trip systemd's
-    # start-limit — which a plain enable --now won't clear.
-    for argv in (["systemctl", "--user", "daemon-reload"],
-                 ["systemctl", "--user", "reset-failed",
-                  "sotto-ydotoold.service"],
-                 ["systemctl", "--user", "enable", "--now",
-                  "sotto-ydotoold.service"]):
+        f.write(_ydotoold_unit(ydotoold))
+    for argv in _YDOTOOLD_SETUP:
         try:
             subprocess.run(argv, capture_output=True, timeout=30)
         except Exception as e:

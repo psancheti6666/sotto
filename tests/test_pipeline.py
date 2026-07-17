@@ -956,6 +956,37 @@ def test_firstrun_linux():
             else:
                 os.environ[k] = v
 
+    # ydotoold unit: socket path must match the injector client's socket, or
+    # daemon + client start fine yet never connect (Typing row stuck red)
+    from sotto import inject_linux as il2
+    unit = fl._ydotoold_unit("/usr/bin/ydotoold")
+    check("unit starts ydotoold at %t/.ydotool_socket",
+          "ExecStart=/usr/bin/ydotoold --socket-path=%t/.ydotool_socket" in unit,
+          unit)
+    check("unit has RestartSec (avoids start-limit wedge)", "RestartSec=2" in unit)
+    check("injector client socket is XDG_RUNTIME_DIR/.ydotool_socket "
+          "(matches %t)", il2.YDOTOOL_SOCKET.endswith("/.ydotool_socket")
+          and il2._ydotool_env()["YDOTOOL_SOCKET"] == il2.YDOTOOL_SOCKET,
+          il2.YDOTOOL_SOCKET)
+    check("systemctl setup does reset-failed before enable",
+          [a[2] for a in fl._YDOTOOLD_SETUP]
+          == ["daemon-reload", "reset-failed", "enable"],
+          str(fl._YDOTOOLD_SETUP))
+
+    # fix_injection with no ydotoold → user-visible alert (not a silent dead
+    # button). fix_injection does `from .platform import alert`, so patch there.
+    from sotto import platform as spkg
+    alerts = []
+    orig_which2, orig_alert2 = fl.shutil.which, spkg.alert
+    fl.shutil.which = lambda c: None
+    spkg.alert = lambda t, x: alerts.append((t, x))
+    try:
+        fl.fix_injection()
+        check("no ydotoold → alert, not silent",
+              len(alerts) == 1 and "ydotool" in alerts[0][1], str(alerts))
+    finally:
+        fl.shutil.which, spkg.alert = orig_which2, orig_alert2
+
     # autostart writer
     orig_auto = fl.AUTOSTART_PATH
     try:
@@ -1010,16 +1041,47 @@ def test_tk_firstrun_windows():
         stop = s.drain()  # setup still "missing" → must show Retry, stop polling
         check("incomplete download shows Retry and stops polling",
               s.retry.winfo_manager() != "" and stop is False)
-        # Retry must re-arm: a subsequent successful run reaches relaunch
-        # (the dead-poll bug two reviewers caught was invisible without this)
-        fl.setup_missing = lambda c: False
+        # Retry must re-arm: a subsequent successful run reaches relaunch.
+        # relaunch is stubbed to a recorder — the REAL relaunch execv's into a
+        # live Sotto, so it must never run under test.
         relaunched = []
         orig_re = fl.relaunch
         fl.relaunch = lambda: relaunched.append(True)
         try:
+            fl.setup_missing = lambda c: False
             s.q.put(("__done__", None))
             s.drain()
             check("completed download relaunches", relaunched == [True])
+
+            # engine-download-failure branch of begin().work(): the except
+            # posts a failure line + exactly one __done__ (screen doesn't
+            # hang), and finish() shows Retry — never relaunch. setup_missing
+            # forced True so even if drain reaches finish, no relaunch fires.
+            fl.setup_missing = lambda c: True
+            from sotto import ollama_runtime as orr
+            orig_em, orig_dl = fl.engine_missing, orr.download
+            fl.engine_missing = lambda c: True
+            def boom(cb=None): raise RuntimeError("network down")
+            orr.download = boom
+            s2 = ft._DownloadScreen(cfg)
+            try:
+                s2.begin()  # spawns worker; no mainloop, so pump manually below
+                import time as _t
+                for _ in range(150):  # drain until the worker's __done__ lands
+                    if not s2._busy:   # __done__ consumed → finish() has run
+                        break
+                    s2.drain()
+                    _t.sleep(0.02)
+                check("engine failure lands on Retry (no hang), status shows the "
+                      "failure, and no relaunch fires",
+                      s2.retry.winfo_manager() != ""
+                      and "failed" in str(s2.status.cget("text"))
+                      and relaunched == [True],
+                      f"busy={s2._busy} retry={s2.retry.winfo_manager()!r} "
+                      f"status={s2.status.cget('text')!r} relaunched={relaunched}")
+            finally:
+                fl.engine_missing, orr.download = orig_em, orig_dl
+                s2.root.destroy()
         finally:
             fl.relaunch = orig_re
     finally:
@@ -1079,7 +1141,7 @@ def test_linux_injector_selection():
     try:
         il.session_type = lambda: "x11"
         il.shutil.which = which_of({"xdotool", "xclip"})
-        il._probe = lambda cmd: True
+        il._probe = lambda cmd, env=None: True
         names = [i.name for i in il.build_injector()._injectors]
         check("X11 → xdotool, clipboard fallback", names == ["xdotool", "clipboard"], str(names))
 
@@ -1092,7 +1154,7 @@ def test_linux_injector_selection():
         names = [i.name for i in il.build_injector()._injectors]
         check("Wayland without wtype → ydotool", names == ["ydotool", "clipboard"], str(names))
 
-        il._probe = lambda cmd: False  # wtype present but compositor rejects it
+        il._probe = lambda cmd, env=None: False  # wtype present but compositor rejects it
         il.shutil.which = which_of({"wtype", "wl-copy"})
         names = [i.name for i in il.build_injector()._injectors]
         check("failed probe skips the tool", names == ["clipboard"], str(names))

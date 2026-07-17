@@ -86,7 +86,8 @@ every test round attaches `~/.sotto/sotto.log`.
    (PR #49, issue #48). `sotto/firstrun_linux.py` (rows: Keyboard access /
    Typing / Models info / Start-at-login optional; checks actually open
    devices and run the injection probes), `sotto/firstrun_tk.py` (walkthrough
-   + download screen, same 1 s tick and Start-click re-verify rules as AppKit,
+   + download screen; walkthrough re-verifies on a 1 s tick, the download
+   screen polls its queue at 100 ms; Start-click re-verify as AppKit,
    `os.execv` relaunch), `linuxapp/deb/{60-sotto-input.rules, polkit policy,
    sotto-perms, sotto-uinput.conf}`, app.py Linux gate, bundle-aware
    `PERMISSION_HELP`. **Security (sweep):** the root helper exposes only
@@ -103,9 +104,12 @@ every test round attaches `~/.sotto/sotto.log`.
 7. **L6 — .deb + release pipeline** (the big one). `make_deb.sh` + packaging
    payload + icons; **the `/usr/bin/sotto` launcher MUST export
    `SOTTO_BUNDLE=deb`** (the entire L5 first-run gate + bundle-aware
-   `PERMISSION_HELP` are dormant without it); CI **installs the deb and smokes
-   `/usr/bin/sotto`**; release job glob gains `linux-*`. Unit:
-   `test_deb_layout`. Friend, fresh state: double-click → App Center → ONE
+   `PERMISSION_HELP` are dormant without it); **the postinst MUST install
+   `/usr/libexec/sotto/sotto-perms` as `0755 root:root`** — if it's ever
+   group/world-writable the pinned polkit action becomes a local root
+   escalation (flagged by L5's security sweep; assert it in `test_deb_layout`
+   / `dpkg-deb --contents`); CI **installs the deb and smokes `/usr/bin/sotto`**;
+   release job glob gains `linux-*`. Unit: `test_deb_layout`. Friend, fresh state: double-click → App Center → ONE
    password prompt → launch from app grid → **Keyboard row expected already
    green**; if gray, Fix → polkit → **paste `getfacl /dev/input/event0
    /dev/uinput`** (the uaccess verification) → walkthrough → downloads
