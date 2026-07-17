@@ -41,6 +41,14 @@ carry over. There's also a **Check for Updates…** item in the menu-bar menu,
 and `update_check_days = 0` in `~/.sotto/config.toml` turns the scheduled
 check off entirely.
 
+## Download (Linux) — in progress
+
+A native Linux app is being built: a `.deb` for Ubuntu (double-click install,
+no terminal ever) and an AppImage for other distros, with the same guided
+setup, overlay, and self-update as the Mac app. Plan and progress:
+[docs/linux-app.md](docs/linux-app.md). Until it ships, Linux runs from
+source — see below.
+
 Everything below this point is for running Sotto **from source** — Linux
 users, tinkerers, and contributors.
 
