@@ -68,8 +68,13 @@ jobs:
           # build_app.sh's `security find-identity` sees the identity
           security list-keychains -d user -s "$KC" \
             $(security list-keychains -d user | tr -d '"')
+      # SOTTO_RELEASE=1 builds the real "Sotto" (bundle id without the .dev
+      # suffix, clean icon). Local default builds are "Sotto Dev" — a separate
+      # app that coexists with an installed release copy.
       - name: Build Sotto.app
         run: ./macapp/build_app.sh
+        env:
+          SOTTO_RELEASE: "1"
       - name: Build DMG
         run: ./macapp/make_dmg.sh
       - name: Upload DMG artifact

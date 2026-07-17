@@ -8,7 +8,15 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 APP=dist/Sotto.app
-[[ -d $APP ]] || { echo "No $APP — run ./macapp/build_app.sh first."; exit 1; }
+if [[ ! -d $APP ]]; then
+  if [[ -d "dist/Sotto Dev.app" ]]; then
+    echo "dist/ holds the Sotto Dev build — DMGs ship the release app:"
+    echo "  SOTTO_RELEASE=1 ./macapp/build_app.sh && ./macapp/make_dmg.sh"
+  else
+    echo "No $APP — run: SOTTO_RELEASE=1 ./macapp/build_app.sh first."
+  fi
+  exit 1
+fi
 
 VERSION=$(sed -nE 's/^__version__ = "([^"]+)"$/\1/p' sotto/__init__.py)
 [[ -n $VERSION ]] || { echo "Could not parse __version__ from sotto/__init__.py"; exit 1; }
