@@ -1,0 +1,14 @@
+Package: sotto
+Version: @VERSION@
+Architecture: amd64
+Maintainer: Pratik Sancheti <psancheti6666@gmail.com>
+Section: utils
+Priority: optional
+Homepage: https://github.com/psancheti6666/sotto
+Depends: acl, pkexec | policykit-1, zenity | kdialog, libnotify-bin, pulseaudio-utils, xdotool, xclip, wl-clipboard, ydotool
+Recommends: wtype
+Description: Private, local-first dictation
+ Hold a key, speak naturally, release — cleaned, punctuated text is typed at
+ your cursor in any app. Speech recognition and cleanup run entirely on your
+ own machine; nothing is sent to the cloud. The AI models (~3-4 GB) download
+ themselves on first launch. No account, no subscription.

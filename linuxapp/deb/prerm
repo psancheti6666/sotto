@@ -1,0 +1,7 @@
+#!/bin/sh
+# Created by Pratik Sancheti / https://github.com/psancheti6666
+# dpkg removes the packaged files itself; nothing to undo before removal.
+# (~/.sotto — models, history, dictionary, config — is the user's data and is
+# deliberately left untouched, same as the macOS app.)
+set -e
+exit 0

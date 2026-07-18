@@ -101,8 +101,8 @@ every test round attaches `~/.sotto/sotto.log`.
    walkthrough renders, rows reflect the honest checks, gating enables/
    disables Start → screenshot. The decisive **uaccess-lands-without-logout**
    check (Fix → polkit → `getfacl`) needs the real .deb → it lives in L6.
-7. **L6 — .deb + release pipeline** (the big one). `make_deb.sh` + packaging
-   payload + icons; **the `/usr/bin/sotto` launcher MUST export
+7. **L6 — .deb + release pipeline** (the big one). ✅ code done (PR #51,
+   issue #50). `make_deb.sh` + packaging payload + icons; **the `/usr/bin/sotto` launcher MUST export
    `SOTTO_BUNDLE=deb`** (the entire L5 first-run gate + bundle-aware
    `PERMISSION_HELP` are dormant without it); **the postinst MUST install
    `/usr/libexec/sotto/sotto-perms` as `0755 root:root`** — if it's ever

@@ -1,0 +1,15 @@
+#!/bin/sh
+# Created by Pratik Sancheti / https://github.com/psancheti6666
+# After dpkg deletes the files, refresh the caches so the launcher/icon stop
+# showing. The udev rule is gone with the package; reloading drops its tags.
+set -e
+
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    if command -v udevadm >/dev/null 2>&1; then
+        udevadm control --reload || true
+    fi
+    update-desktop-database /usr/share/applications 2>/dev/null || true
+    gtk-update-icon-cache -q -f /usr/share/icons/hicolor 2>/dev/null || true
+fi
+
+exit 0

@@ -1,0 +1,18 @@
+#!/bin/sh
+# Created by Pratik Sancheti / https://github.com/psancheti6666
+# Runs as root at install time. Everything is `|| true`: the install must
+# succeed even in a container/chroot with no udev (CI installs the package to
+# smoke it). The udev reload+trigger is what makes the one install password
+# prompt double as Sotto's keyboard-access grant — no re-login needed.
+set -e
+
+modprobe uinput 2>/dev/null || true
+if command -v udevadm >/dev/null 2>&1; then
+    udevadm control --reload || true
+    udevadm trigger --subsystem-match=input || true
+    udevadm trigger --sysname-match=uinput || true
+fi
+update-desktop-database /usr/share/applications 2>/dev/null || true
+gtk-update-icon-cache -q -f /usr/share/icons/hicolor 2>/dev/null || true
+
+exit 0
