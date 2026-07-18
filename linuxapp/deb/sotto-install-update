@@ -37,9 +37,13 @@ SIZE=$(wc -c < "$1") || fail "cannot stat $1"
 [ "$SIZE" -le 1073741824 ] || fail "file exceeds 1 GB — not a Sotto release"
 
 # fixed template, not $TMPDIR: pkexec scrubs the env, but never trust a
-# caller-influenced tempdir for the files apt will read as root
+# caller-influenced tempdir for the files apt will read as root. Traps go
+# in BEFORE mktemp (no leak window); INT/TERM exit so the EXIT trap cleans
+# up once — a bare INT trap would resume the script against deleted files.
+WORK=""
+trap '[ -n "$WORK" ] && rm -rf "$WORK"' EXIT
+trap 'exit 130' INT TERM
 WORK=$(mktemp -d /var/tmp/sotto-update.XXXXXX)
-trap 'rm -rf "$WORK"' EXIT INT TERM
 chmod 700 "$WORK"
 cp -- "$1" "$WORK/pkg.deb"
 cp -- "$2" "$WORK/pkg.deb.sig"
@@ -53,7 +57,15 @@ openssl dgst -sha256 -verify "$PUBKEY" \
 PKG=$(dpkg-deb -f "$WORK/pkg.deb" Package) || fail "not a valid .deb"
 [ "$PKG" = "sotto" ] || fail "package is '$PKG', not sotto"
 NEW=$(dpkg-deb -f "$WORK/pkg.deb" Version)
-CUR=$(dpkg-query -W -f '${Version}' sotto 2>/dev/null || echo "")
+# Status-Status guards the removed-but-not-purged case: dpkg-query still
+# reports a Version for an "rc" package, which would wrongly refuse a
+# reinstall after apt remove
+CUR=$(dpkg-query -W -f '${db:Status-Status} ${Version}' sotto 2>/dev/null \
+      || echo "")
+case "$CUR" in
+    installed\ *) CUR="${CUR#installed }" ;;
+    *) CUR="" ;;
+esac
 if [ -n "$CUR" ] && ! dpkg --compare-versions "$NEW" gt "$CUR"; then
     fail "refusing downgrade/reinstall: $NEW is not newer than installed $CUR"
 fi
@@ -62,7 +74,9 @@ fi
 # reading a local file as root ("Download is performed unsandboxed") —
 # expected for local-deb installs, harmless here: the file is root-owned.
 export DEBIAN_FRONTEND=noninteractive
-apt-get install --yes "$WORK/pkg.deb" \
+# Lock::Timeout rides out unattended-upgrades holding the dpkg lock — a
+# transient condition that would otherwise surface as a raw exit-100 alert
+apt-get -o DPkg::Lock::Timeout=120 install --yes "$WORK/pkg.deb" \
     || fail "apt-get install failed (exit $?)"
 
 echo "sotto $NEW installed"

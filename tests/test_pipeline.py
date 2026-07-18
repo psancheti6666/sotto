@@ -638,9 +638,10 @@ def test_update_linux():
           str(argv))
     check("helper path is the packaged one",
           ul.HELPER == "/usr/libexec/sotto/sotto-install-update")
-    argv = ul._relaunch_argv()
-    check("relaunch execs the installed launcher after we exit",
-          "/usr/bin/sotto" in argv[-1], str(argv))
+    argv = ul._relaunch_argv(12345)
+    check("relaunch waits for OUR pid to vanish, then execs the launcher",
+          "kill -0 12345" in argv[-1] and "/usr/bin/sotto" in argv[-1],
+          str(argv))
 
     # install flow: pkexec dismissal (126) is a quiet no-op, helper failure
     # raises, success relaunches + SIGINTs self. All I/O injected.
@@ -652,9 +653,12 @@ def test_update_linux():
         calls = {"popen": [], "kill": []}
         info = {"version": "9.9.9", "name": "Sotto-9.9.9-amd64.deb",
                 "url": "u", "sig_url": "s"}
+        saved_bundle = os.environ.get("SOTTO_BUNDLE")
         os.environ["SOTTO_BUNDLE"] = "deb"
         orig_exists, orig_kill = os.path.exists, os.kill
-        os.path.exists = lambda p: True
+        # narrow patch: only the helper-presence probe is faked
+        os.path.exists = (lambda p: True if p == ul.HELPER
+                          else orig_exists(p))
         os.kill = lambda pid, sig: calls["kill"].append((pid, sig))
 
         def fake_get(url, stream=True, timeout=0):
@@ -677,7 +681,10 @@ def test_update_linux():
         finally:
             requests.get = orig_get
             os.path.exists, os.kill = orig_exists, orig_kill
-            os.environ.pop("SOTTO_BUNDLE", None)
+            if saved_bundle is None:
+                os.environ.pop("SOTTO_BUNDLE", None)
+            else:
+                os.environ["SOTTO_BUNDLE"] = saved_bundle
         return calls
 
     calls = flow(0)

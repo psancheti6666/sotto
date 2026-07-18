@@ -66,10 +66,14 @@ def _install_argv(deb_path: str, sig_path: str):
     return ["pkexec", HELPER, deb_path, sig_path]
 
 
-def _relaunch_argv():
-    # detached shell: wait for this process to exit, then start the (just
-    # replaced) installed launcher; systemd-run would tie it to our scope
-    return ["/bin/sh", "-c", "sleep 2; exec /usr/bin/sotto"]
+def _relaunch_argv(pid: int):
+    # detached shell: wait for THIS pid to actually exit (a fixed sleep
+    # would race a slow tk/ollama teardown — the new instance would adopt
+    # the old one's ollama just before atexit kills it), then start the
+    # just-replaced installed launcher
+    return ["/bin/sh", "-c",
+            f"while kill -0 {int(pid)} 2>/dev/null; do sleep 0.5; done; "
+            "exec /usr/bin/sotto"]
 
 
 # ----------------------------------------------------------------- dialogs
@@ -92,7 +96,7 @@ def ask(title: str, text: str) -> bool:
 def progress_show(text: str):
     global _progress
     with _progress_lock:
-        progress_hide_locked()
+        _progress_hide_locked()
         if not shutil.which("zenity"):
             log.info("update progress: %s (no zenity)", text)
             return
@@ -126,10 +130,11 @@ def progress_set(text: str, fraction=None):
 
 def progress_hide():
     with _progress_lock:
-        progress_hide_locked()
+        _progress_hide_locked()
 
 
-def progress_hide_locked():
+def _progress_hide_locked():
+    # caller must hold _progress_lock
     global _progress
     if _progress is None:
         return
@@ -139,6 +144,10 @@ def progress_hide_locked():
     except (OSError, ValueError):
         pass
     proc.terminate()
+    try:
+        proc.wait(timeout=2)  # reap — no zombie until interpreter exit
+    except subprocess.TimeoutExpired:
+        pass
     _progress = None
 
 
@@ -158,7 +167,9 @@ def download_and_install(info, progress_set_cb, runner=subprocess.run,
     import requests
     workdir = tempfile.mkdtemp(prefix="sotto-update-")
     try:
-        deb = os.path.join(workdir, info["name"])
+        # basename: the asset name comes from the release JSON — never let
+        # it path-traverse out of the workdir
+        deb = os.path.join(workdir, os.path.basename(info["name"]))
         sig = deb + ".sig"
         for url, path, label in ((info["sig_url"], sig, "signature"),
                                  (info["url"], deb, info["name"])):
@@ -179,21 +190,32 @@ def download_and_install(info, progress_set_cb, runner=subprocess.run,
 
         progress_set_cb("Waiting for authorization… (Sotto verifies the "
                         "download's signature before installing)")
-        r = runner(_install_argv(deb, sig), capture_output=True, text=True,
-                   timeout=600)
+        try:
+            r = runner(_install_argv(deb, sig), capture_output=True,
+                       text=True, timeout=600)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(
+                "the authorization prompt or install timed out — if the "
+                "install did finish, the next launch already runs the new "
+                "version") from None
         if r.returncode == 126:      # user dismissed the polkit prompt
             log.info("update cancelled at the authorization prompt")
-            return
+            progress_hide()          # zenity has --no-cancel; without this
+            return                   # the window would outlive the flow
         if r.returncode != 0:
             detail = (r.stderr or r.stdout or "").strip()
             raise RuntimeError(
                 f"install helper failed (exit {r.returncode}): {detail[-500:]}")
 
         log.info("update installed — relaunching as %s", info["version"])
-        progress_set_cb("Installed — Sotto is relaunching…")
-        popen(_relaunch_argv(), start_new_session=True)
+        # cleanup + window teardown BEFORE the self-SIGINT: interpreter
+        # shutdown would otherwise race this worker thread mid-rmtree
+        shutil.rmtree(workdir, ignore_errors=True)
+        progress_hide()
+        popen(_relaunch_argv(os.getpid()), start_new_session=True)
         # same designed-shutdown path as the tray's Quit: SIGINT → tk root
-        # destroyed (or KeyboardInterrupt headless) → atexit stops ollama
+        # destroyed (or KeyboardInterrupt headless) → atexit stops ollama;
+        # the relaunch shell waits for this pid to vanish before starting
         os.kill(os.getpid(), signal.SIGINT)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)

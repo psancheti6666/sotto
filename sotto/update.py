@@ -34,11 +34,15 @@ from .platform import IS_LINUX, IS_MACOS, alert
 
 log = logging.getLogger("sotto")
 
-# SOTTO_RELEASES_API: test seam — lets the friend-test round point the whole
-# flow at a file:// or localhost fixture without code edits.
-RELEASES_API = os.environ.get(
-    "SOTTO_RELEASES_API",
-    "https://api.github.com/repos/psancheti6666/sotto/releases/latest")
+_RELEASES_API_DEFAULT = \
+    "https://api.github.com/repos/psancheti6666/sotto/releases/latest"
+
+
+def _releases_api() -> str:
+    """SOTTO_RELEASES_API: test seam — lets the friend-test round point the
+    whole flow at a localhost fixture without code edits. Read at call time
+    (an import-time read would freeze before a test can set it)."""
+    return os.environ.get("SOTTO_RELEASES_API", _RELEASES_API_DEFAULT)
 RELEASE_BUNDLE_ID = "io.github.psancheti6666.sotto"
 STATE_PATH = os.path.join(CONFIG_DIR, "update-state.json")
 INITIAL_DELAY_S = 30.0    # let launch (and any first-run alert) settle first
@@ -137,7 +141,7 @@ def check():
     if suffix is None:
         return None
     import requests
-    r = requests.get(RELEASES_API, timeout=10,
+    r = requests.get(_releases_api(), timeout=10,
                      headers={"Accept": "application/vnd.github+json"})
     r.raise_for_status()
     return evaluate(r.json(), __version__, suffix)
@@ -446,7 +450,9 @@ def download_and_install(info):
 
     import requests
     workdir = tempfile.mkdtemp(prefix="sotto-update-")
-    dmg = os.path.join(workdir, info["name"])
+    # basename: the asset name comes from the release JSON — never let it
+    # path-traverse out of the workdir
+    dmg = os.path.join(workdir, os.path.basename(info["name"]))
     log.info("downloading %s", info["url"])
     with requests.get(info["url"], stream=True, timeout=60) as r:
         r.raise_for_status()
