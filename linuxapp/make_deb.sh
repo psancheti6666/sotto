@@ -10,8 +10,9 @@
 # install time. Ollama is NOT packaged — it downloads at first run.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-# guarantee package dirs aren't group/world-writable regardless of the build
-# host's umask (--root-owner-group fixes ownership, not modes)
+# newly created dirs/files (mkdir, install) get sane modes regardless of the
+# build host's umask; cp -a PRESERVES source modes, so the onedir payload gets
+# an explicit chmod below (--root-owner-group fixes ownership, not modes)
 umask 022
 
 if [[ "$(uname -s)" != "Linux" ]]; then
@@ -31,9 +32,12 @@ PKG="$STAGE/pkg"
 mkdir -p "$PKG/opt"
 cp -a dist/sotto "$PKG/opt/sotto"
 # strip any stray setuid/setgid bits from the onedir: --root-owner-group would
-# turn a setuid file into a setuid-ROOT file. PyInstaller doesn't emit them,
-# but a dependency wheel theoretically could — belt and braces.
-chmod -R u-s,g-s "$PKG/opt/sotto"
+# turn a setuid file into a setuid-ROOT file. Also strip group/world-write —
+# cp -a preserved whatever modes the wheels shipped, and a writable root-owned
+# file under /opt/sotto would let a local user swap code the seat user runs.
+# PyInstaller doesn't emit either, but a dependency wheel theoretically could
+# — belt and braces. CI asserts both on the installed tree.
+chmod -R u-s,g-s,go-w "$PKG/opt/sotto"
 
 # discrete files + exact modes, from the manifest the unit test also reads
 while read -r mode src dest; do
