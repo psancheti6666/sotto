@@ -94,8 +94,10 @@ def autostart_ok() -> bool:
 
 
 def statuses(cfg) -> dict:
-    """Row states for the walkthrough. 'models' folds engine + both models —
-    informational, never gates (same rule as macOS)."""
+    """Row states for the walkthrough. 'models' folds engine + both models;
+    the tk walkthrough additionally gates Start on explicit download consent
+    when they're absent (VM-round decision, 2026-07-19 — macOS parity is a
+    separate follow-up)."""
     return {
         "input": input_ok(cfg.hotkey),
         "injection": injection_ok(),
@@ -105,14 +107,21 @@ def statuses(cfg) -> dict:
 
 
 def needed(cfg) -> bool:
-    """Show the walkthrough? Permissions only — models/engine download on
-    their own screen, and autostart is optional."""
+    """Show the walkthrough? Permissions, or anything left to download —
+    the 3-4 GB download needs the walkthrough's explicit consent checkbox
+    even when permissions are already green (e.g. ~/.sotto deleted while
+    the udev grant persists — #64 review closed this bypass). The pending
+    marker carries the given consent across the Start relaunch so the
+    walkthrough doesn't loop."""
     force = os.environ.get("SOTTO_FIRSTRUN")
     if force == "1":
         return True
     if force == "0":
         return False
-    return not (input_ok(cfg.hotkey) and injection_ok())
+    if os.path.exists(firstrun.PENDING_MARKER):
+        return False  # consent given; setup continuing post-relaunch
+    return (not (input_ok(cfg.hotkey) and injection_ok())
+            or setup_missing(cfg))
 
 
 def setup_missing(cfg) -> bool:
@@ -195,7 +204,9 @@ def fix_input():
     argv = fix_input_argv()
     log.info("fix input: %s", " ".join(argv))
     try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=180)
+        from .platform.linux import clean_env
+        r = subprocess.run(argv, env=clean_env(), capture_output=True,
+                           text=True, timeout=180)
         log.info("%s exited %d: %s", os.path.basename(argv[1]), r.returncode,
                  (r.stdout + r.stderr).strip())
         # pkexec: 126 = user dismissed the auth dialog, 127 = no polkit agent /
@@ -212,7 +223,7 @@ def fix_input():
         state = []
         for dev in ("/dev/input/event0", "/dev/uinput"):
             try:
-                g = subprocess.run(["getfacl", "-p", dev],
+                g = subprocess.run(["getfacl", "-p", dev], env=clean_env(),
                                    capture_output=True, text=True, timeout=10)
                 state.append((g.stdout or g.stderr).strip())
             except Exception:
@@ -267,9 +278,10 @@ def fix_injection():
     os.makedirs(os.path.dirname(YDOTOOLD_UNIT), exist_ok=True)
     with open(YDOTOOLD_UNIT, "w") as f:
         f.write(_ydotoold_unit(ydotoold))
+    from .platform.linux import clean_env
     for argv in _YDOTOOLD_SETUP:
         try:
-            subprocess.run(argv, capture_output=True, timeout=30)
+            subprocess.run(argv, env=clean_env(), capture_output=True, timeout=30)
         except Exception as e:
             log.warning("fix injection: %s failed: %s", argv, e)
 
@@ -321,6 +333,19 @@ def relaunch_argv() -> list:
     return [sys.executable, "-m", "sotto"]
 
 
+def relaunch_env() -> dict:
+    """Env for the NEXT Sotto generation. The current environ is bundle-
+    poisoned (PyInstaller's LD_LIBRARY_PATH): passed through execv, the new
+    bootloader would save it as *_ORIG and clean_env() would faithfully
+    'restore' the poison for the generation that actually runs dictation —
+    exactly the VM-round bugs, back again (#64 review). Also strips the
+    transient HF_HUB_OFFLINE so the new process makes its own choice."""
+    from .platform.linux import clean_env
+    env = clean_env()
+    env.pop("HF_HUB_OFFLINE", None)
+    return env
+
+
 def relaunch():
     """Replace this process with a fresh Sotto — same flow as macOS (the
     fresh process re-runs every gate; consolidate_model_stores runs before
@@ -336,4 +361,4 @@ def relaunch():
     os.environ.pop("SOTTO_FIRSTRUN", None)  # it leaked once on macOS and
     argv = relaunch_argv()                  # looped the window — never again
     log.info("relaunching: %s", argv)
-    os.execv(argv[0], argv)
+    os.execve(argv[0], argv, relaunch_env())

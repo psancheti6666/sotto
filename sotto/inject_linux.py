@@ -20,6 +20,18 @@ from .platform import session_type
 
 log = logging.getLogger("sotto")
 
+_last_chain = None  # last logged chain — see the log-once note in the builder
+
+
+def _run(argv, **kw):
+    """subprocess.run for HOST binaries with the sanitized env (see
+    platform.linux.clean_env — the bundle's LD_LIBRARY_PATH otherwise leaks
+    into xdotool/wtype/ydotool/wl-copy and friends)."""
+    from .platform.linux import clean_env
+    if kw.get("env") is None:  # absent OR explicitly None → sanitized env
+        kw["env"] = clean_env()
+    return subprocess.run(argv, **kw)
+
 # Canonical ydotool socket. The client's default path has drifted across
 # ydotool versions (older builds used /tmp/.ydotool_socket, 1.x uses
 # $XDG_RUNTIME_DIR/.ydotool_socket), so we pin ONE path and pass it to both
@@ -33,7 +45,9 @@ YDOTOOL_SOCKET = os.path.join(
 
 
 def _ydotool_env():
-    env = os.environ.copy()
+    # on top of the SANITIZED env — ydotool is a host binary too (#64 review)
+    from .platform.linux import clean_env
+    env = clean_env()
     env["YDOTOOL_SOCKET"] = YDOTOOL_SOCKET
     return env
 
@@ -42,7 +56,7 @@ def _probe(cmd, env=None) -> bool:
     """A tool exists AND a no-op invocation succeeds (e.g. wtype exits non-zero
     on GNOME, ydotool errors when ydotoold isn't running)."""
     try:
-        return subprocess.run(cmd, capture_output=True, timeout=3,
+        return _run(cmd, capture_output=True, timeout=3,
                               env=env).returncode == 0
     except Exception:
         return False
@@ -52,7 +66,7 @@ class _XdotoolInjector:
     name = "xdotool"
 
     def type_text(self, text: str, interval_s: float):
-        subprocess.run(["xdotool", "type", "--clearmodifiers",
+        _run(["xdotool", "type", "--clearmodifiers",
                         "--delay", str(max(1, int(interval_s * 1000))), "--", text],
                        check=True)
 
@@ -65,7 +79,7 @@ class _XdotoolInjector:
             pass
         pyperclip.copy(text)
         time.sleep(0.05)
-        subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+v"], check=True)
+        _run(["xdotool", "key", "--clearmodifiers", "ctrl+v"], check=True)
         time.sleep(restore_delay_s)
         if saved is not None:
             pyperclip.copy(saved)
@@ -75,14 +89,14 @@ class _WtypeInjector:
     name = "wtype"
 
     def type_text(self, text: str, interval_s: float):
-        subprocess.run(["wtype", "-d", str(max(1, int(interval_s * 1000))), "--", text],
+        _run(["wtype", "-d", str(max(1, int(interval_s * 1000))), "--", text],
                        check=True)
 
     def paste_text(self, text: str, restore_delay_s: float):
         saved = _wl_paste()
         _wl_copy(text)
         time.sleep(0.05)
-        subprocess.run(["wtype", "-M", "ctrl", "-k", "v", "-m", "ctrl"], check=True)
+        _run(["wtype", "-M", "ctrl", "-k", "v", "-m", "ctrl"], check=True)
         time.sleep(restore_delay_s)
         if saved is not None:
             _wl_copy(saved)
@@ -92,7 +106,7 @@ class _YdotoolInjector:
     name = "ydotool"
 
     def type_text(self, text: str, interval_s: float):
-        subprocess.run(["ydotool", "type", "--key-delay",
+        _run(["ydotool", "type", "--key-delay",
                         str(max(1, int(interval_s * 1000))), "--", text],
                        check=True, env=_ydotool_env())
 
@@ -101,7 +115,7 @@ class _YdotoolInjector:
         _wl_copy(text)
         time.sleep(0.05)
         # keycodes from linux/input-event-codes.h: 29=Ctrl, 47=V
-        subprocess.run(["ydotool", "key", "29:1", "47:1", "47:0", "29:0"],
+        _run(["ydotool", "key", "29:1", "47:1", "47:0", "29:0"],
                        check=True, env=_ydotool_env())
         time.sleep(restore_delay_s)
         if saved is not None:
@@ -116,15 +130,15 @@ class _ClipboardNotifyInjector:
 
     def _deliver(self, text: str):
         if shutil.which("wl-copy"):
-            subprocess.run(["wl-copy"], input=text.encode(), check=True)
+            _run(["wl-copy"], input=text.encode(), check=True)
         elif shutil.which("xclip"):
-            subprocess.run(["xclip", "-selection", "clipboard"],
+            _run(["xclip", "-selection", "clipboard"],
                            input=text.encode(), check=True)
         else:
             import pyperclip
             pyperclip.copy(text)
         if shutil.which("notify-send"):
-            subprocess.run(["notify-send", "-a", "Sotto", "Sotto",
+            _run(["notify-send", "-a", "Sotto", "Sotto",
                             "Transcript copied — press Ctrl+V to paste."])
 
     def type_text(self, text: str, interval_s: float):
@@ -135,12 +149,12 @@ class _ClipboardNotifyInjector:
 
 
 def _wl_copy(text: str):
-    subprocess.run(["wl-copy"], input=text.encode(), check=True)
+    _run(["wl-copy"], input=text.encode(), check=True)
 
 
 def _wl_paste():
     try:
-        out = subprocess.run(["wl-paste", "--no-newline"], capture_output=True, timeout=2)
+        out = _run(["wl-paste", "--no-newline"], capture_output=True, timeout=2)
         return out.stdout.decode() if out.returncode == 0 else None
     except Exception:
         return None
@@ -183,5 +197,11 @@ def build_injector() -> _Chain:
         if shutil.which("xdotool"):
             chain.append(_XdotoolInjector())
     chain.append(_ClipboardNotifyInjector())
-    log.info("text injection chain: %s", " → ".join(i.name for i in chain))
+    names = " → ".join(i.name for i in chain)
+    # the walkthrough re-probes every second — log the chain only when it
+    # actually changes (VM round: one INFO line per second for minutes)
+    global _last_chain
+    if names != _last_chain:
+        log.info("text injection chain: %s", names)
+        _last_chain = names
     return _Chain(chain)

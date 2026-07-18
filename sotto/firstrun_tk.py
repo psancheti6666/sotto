@@ -17,6 +17,9 @@ from . import firstrun, firstrun_linux
 log = logging.getLogger("sotto")
 
 GREEN, GRAY = "#2e9e4f", "#b9b3a9"
+AMBER = "#d99a06"  # authorized-but-not-done (the models consent) — never
+                   # green until the download actually exists ("no lying
+                   # green rows")
 
 
 class _Walkthrough:
@@ -35,6 +38,10 @@ class _Walkthrough:
                  fg="#555").grid(row=1, column=0, columnspan=3,
                                  sticky="w", padx=18, pady=(0, 8))
         self.dots, self.buttons = {}, {}
+        # Downloading 3-4 GB needs explicit consent, not an FYI row: Start
+        # stays disabled until the user ticks this (or the models already
+        # exist) — VM-round product decision, 2026-07-19.
+        self.models_ok = tk.BooleanVar(value=False)
         for i, (key, title, detail, btn, action) in enumerate(
                 firstrun_linux.ROWS):
             r = 2 + i * 2
@@ -51,6 +58,12 @@ class _Walkthrough:
                     lambda a=action: firstrun_linux.run_fix(a)))
                 b.grid(row=r, column=2, rowspan=2, sticky="e", padx=(8, 18))
                 self.buttons[key] = b
+            if key == "models":
+                cb = tk.Checkbutton(root, text="OK, download",
+                                    variable=self.models_ok,
+                                    command=lambda: self.tick(loop=False))
+                cb.grid(row=r, column=2, rowspan=2, sticky="e", padx=(8, 18))
+                self.buttons[key] = cb
         self.start_btn = tk.Button(root, text="Start Sotto",
                                    command=self.start, state="disabled")
         self.start_btn.grid(row=20, column=0, columnspan=3,
@@ -58,16 +71,27 @@ class _Walkthrough:
         root.protocol("WM_DELETE_WINDOW", self.close)
         self._closed = False
 
+    def _models_gate(self, st) -> bool:
+        """Models gate Start until either they exist or the user has
+        explicitly OK'd the download."""
+        return bool(st.get("models")) or self.models_ok.get()
+
     # one honest re-check per second, same cadence as the AppKit window
     def tick(self, loop=True):
         st = firstrun_linux.statuses(self.cfg)
         for key, dot in self.dots.items():
             dot.delete("all")
-            dot.create_oval(2, 2, 12, 12,
-                            fill=GREEN if st.get(key) else GRAY, outline="")
+            if st.get(key):
+                fill = GREEN
+            elif key == "models" and self.models_ok.get():
+                fill = AMBER  # consented, download still ahead
+            else:
+                fill = GRAY
+            dot.create_oval(2, 2, 12, 12, fill=fill, outline="")
         for key, btn in self.buttons.items():
             btn.grid_remove() if st.get(key) else btn.grid()
-        ready = all(st[k] for k in firstrun_linux.GATING)
+        ready = (all(st[k] for k in firstrun_linux.GATING)
+                 and self._models_gate(st))
         self.start_btn.config(state="normal" if ready else "disabled")
         if loop and not self._closed:
             self.root.after(1000, self.tick)
@@ -77,7 +101,8 @@ class _Walkthrough:
         # trust nothing: re-verify at the click, refuse + repaint if a
         # permission regressed since the last tick
         st = firstrun_linux.statuses(self.cfg)
-        if not all(st[k] for k in firstrun_linux.GATING):
+        if (not all(st[k] for k in firstrun_linux.GATING)
+                or not self._models_gate(st)):
             self.tick(loop=False)
             return
         open(firstrun.PENDING_MARKER, "w").close()

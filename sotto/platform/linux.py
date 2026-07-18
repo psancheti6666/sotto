@@ -14,6 +14,54 @@ log = logging.getLogger("sotto")
 _SOUND_DIR = "/usr/share/sounds/freedesktop/stereo"
 
 
+def clean_env() -> dict:
+    """Environment for HOST binaries launched from the frozen bundle.
+
+    PyInstaller exports LD_LIBRARY_PATH pointing INTO the bundle so its own
+    binaries resolve — but system tools (zenity, xdg-open, paplay, browsers…)
+    then load the bundle's libraries instead of the system's and can crash or
+    silently misbehave (VM validation round: the tray's Insights opened
+    nothing, alerts fell through to the weakest backend). PyInstaller saves
+    the pre-launch values in *_ORIG — restore those, drop the overrides.
+    Harmless outside a bundle (nothing to restore, env returned unchanged)."""
+    env = os.environ.copy()
+    for var in ("LD_LIBRARY_PATH", "LD_PRELOAD"):
+        orig = env.pop(var + "_ORIG", None)
+        if orig is not None:
+            env[var] = orig
+        else:
+            env.pop(var, None)
+    # PyInstaller's GTK runtime hooks also point these into the bundle; zenity
+    # and kdialog are GTK apps and can misload modules against them even with
+    # LD_LIBRARY_PATH fixed (#64 review). Drop any Sotto-bundle-scoped copies;
+    # a real desktop already has correct system values or none.
+    meipass = getattr(__import__("sys"), "_MEIPASS", None)
+    for var in ("GI_TYPELIB_PATH", "GDK_PIXBUF_MODULE_FILE",
+                "GDK_PIXBUF_MODULEDIR", "GSETTINGS_SCHEMA_DIR",
+                "GTK_PATH", "GTK_EXE_PREFIX", "GTK_DATA_PREFIX",
+                "XDG_DATA_DIRS", "FONTCONFIG_FILE", "FONTCONFIG_PATH"):
+        val = env.get(var)
+        if val and meipass and meipass in val:
+            env.pop(var, None)
+    return env
+
+
+def open_url(url: str):
+    """Open a URL in the user's browser — xdg-open with a sanitized env
+    (webbrowser.open inherits the poisoned one inside a bundle), falling
+    back to webbrowser for exotic setups."""
+    if shutil.which("xdg-open"):
+        try:
+            subprocess.Popen(["xdg-open", url], env=clean_env(),
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+            return
+        except Exception as e:
+            log.warning("xdg-open failed (%s) — falling back", e)
+    import webbrowser
+    webbrowser.open(url)
+
+
 def play_sound(name: str):
     """Play a freedesktop sound-theme name (or an absolute file path).
     Silent no-op if paplay or the file is missing."""
@@ -21,7 +69,7 @@ def play_sound(name: str):
     if not os.path.exists(path) or not shutil.which("paplay"):
         return
     try:
-        subprocess.Popen(["paplay", path],
+        subprocess.Popen(["paplay", path], env=clean_env(),
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception:
         pass
@@ -54,7 +102,7 @@ def alert(title: str, text: str):
         log.warning("alert (no zenity/kdialog/notify-send): %s — %s", title, text)
         return
     try:
-        subprocess.Popen(argv, stdout=subprocess.DEVNULL,
+        subprocess.Popen(argv, env=clean_env(), stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL)
     except Exception:
         log.warning("alert (%s failed to spawn): %s — %s", argv[0], title, text)
@@ -71,12 +119,12 @@ def active_app_id() -> str:
     if session_type() != "x11":
         return ""
     try:
-        win = subprocess.run(["xdotool", "getactivewindow"],
+        win = subprocess.run(["xdotool", "getactivewindow"], env=clean_env(),
                              capture_output=True, text=True, timeout=1)
         wid = win.stdout.strip()
         if win.returncode != 0 or not wid:
             return ""
-        out = subprocess.run(["xprop", "-id", wid, "WM_CLASS"],
+        out = subprocess.run(["xprop", "-id", wid, "WM_CLASS"], env=clean_env(),
                              capture_output=True, text=True, timeout=1)
         parts = out.stdout.split('"')  # WM_CLASS(STRING) = "instance", "Class"
         if len(parts) >= 4:
