@@ -48,9 +48,11 @@ done < linuxapp/deb/manifest.txt
 ICON_SRC=logo/sottoLogo.png
 PAPER='#F7F7F5'  # the logo's warm off-white (make_icns.py PAPER)
 IM="$(command -v magick || command -v convert || true)"  # IM7 vs IM6
-if [[ -n "$IM" ]]; then
-  read -r LW LH < <("$IM" identify -format '%w %h' "$ICON_SRC" 2>/dev/null \
-                    || identify -format '%w %h' "$ICON_SRC")
+if [[ -n "$IM" ]] && command -v identify >/dev/null 2>&1; then
+  # command substitution (not `read < <(identify …)` — identify prints no
+  # trailing newline, so read returns non-zero and set -e would kill us)
+  DIMS="$(identify -format '%w %h' "$ICON_SRC")"
+  LW="${DIMS%% *}"; LH="${DIMS##* }"
   MX=$(( LW * 2 / 100 )); MY=$(( LH * 5 / 100 ))
   MW=$(( LW * 28 / 100 )); MH=$(( LH * 90 / 100 ))
   SQ=$(( MH * 130 / 100 ))  # square canvas with ~30% padding around the mark
