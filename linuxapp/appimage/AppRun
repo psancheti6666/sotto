@@ -6,4 +6,7 @@
 # even under --appimage-extract style manual runs where APPIMAGE is absent.
 HERE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 export SOTTO_BUNDLE=appimage
+# extract-mode runs have no runtime to set APPDIR — the bootstrap staging
+# and the embedded-pubkey lookup both need it
+[ -n "${APPDIR:-}" ] || export APPDIR="$HERE"
 exec "$HERE/opt/sotto/sotto" "$@"

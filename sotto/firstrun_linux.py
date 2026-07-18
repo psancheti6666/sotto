@@ -196,7 +196,7 @@ def fix_input():
     log.info("fix input: %s", " ".join(argv))
     try:
         r = subprocess.run(argv, capture_output=True, text=True, timeout=180)
-        log.info("sotto-perms exited %d: %s", r.returncode,
+        log.info("%s exited %d: %s", os.path.basename(argv[1]), r.returncode,
                  (r.stdout + r.stderr).strip())
         # pkexec: 126 = user dismissed the auth dialog, 127 = no polkit agent /
         # not authorized. Tell the user rather than leaving the row silently

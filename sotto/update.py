@@ -231,11 +231,19 @@ def _run_update(info):
         except Exception as e:
             _progress_hide()
             log.error("update failed: %s", e)
-            manual = ("download the .deb from github.com/psancheti6666/"
-                      "sotto/releases and open it to install"
-                      if IS_LINUX else
-                      "download the DMG from github.com/psancheti6666/"
-                      "sotto/releases and drag Sotto to Applications")
+            if IS_LINUX:
+                from . import update_linux
+                if update_linux.bundle_type() == "appimage":
+                    manual = ("download the new AppImage from github.com/"
+                              "psancheti6666/sotto/releases and replace "
+                              "your current file with it")
+                else:
+                    manual = ("download the .deb from github.com/"
+                              "psancheti6666/sotto/releases and open it "
+                              "to install")
+            else:
+                manual = ("download the DMG from github.com/psancheti6666/"
+                          "sotto/releases and drag Sotto to Applications")
             alert("Update failed", f"{e}\n\nYou can install manually: {manual}.")
     finally:
         _update_lock.release()

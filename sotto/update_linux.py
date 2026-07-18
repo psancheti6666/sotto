@@ -246,8 +246,13 @@ def _self_replace(info, progress_set_cb, runner, popen):
     $APPIMAGE, relaunch. The temp file lives NEXT TO the target: os.replace
     must stay on one filesystem, and ~/Downloads vs /tmp usually isn't."""
     target = os.environ.get("APPIMAGE")
-    if not target or not os.path.exists(target):
+    if not target:
         raise RuntimeError("$APPIMAGE not set — not running from an AppImage")
+    if not os.path.exists(target):
+        # docs invite deleting the file (permissions persist) — say what
+        # actually happened rather than a wrong "not an AppImage"
+        raise RuntimeError(f"the AppImage file is gone ({target}) — "
+                           "download the new version manually")
     pubkey = _appimage_pubkey()
     if not pubkey or not os.path.exists(pubkey):
         raise RuntimeError("embedded release key missing from this AppImage")
@@ -264,6 +269,8 @@ def _self_replace(info, progress_set_cb, runner, popen):
         r = runner(_verify_argv(pubkey, sig, new), capture_output=True,
                    text=True, timeout=120)
         if r.returncode != 0:
+            detail = (r.stderr or r.stdout or "").strip()
+            log.warning("AppImage verify failed: %s", detail)  # diagnosable
             raise RuntimeError("signature verification FAILED — the download "
                                "was not accepted (it may be corrupt or not a "
                                "Sotto release)")

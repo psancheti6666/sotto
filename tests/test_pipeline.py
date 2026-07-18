@@ -815,6 +815,17 @@ def test_appimage_bootstrap():
               f in mk and "linuxapp/deb/$f" in mk)
     check("make_appimage pins the vendored runtime hash",
           "RUNTIME_SHA256=" in mk and "sha256sum -c" in mk)
+    # and the pin must match the actual vendored bytes AND PROVENANCE.md —
+    # drift is otherwise invisible until the Linux CI build runs
+    import hashlib
+    import re as _re
+    pinned = _re.search(r"RUNTIME_SHA256=([0-9a-f]{64})", mk).group(1)
+    actual = hashlib.sha256(open(os.path.join(
+        root, "linuxapp", "appimage", "runtime-x86_64"), "rb").read()).hexdigest()
+    prov = open(os.path.join(root, "linuxapp", "appimage", "PROVENANCE.md")).read()
+    check("pinned hash == vendored runtime bytes == PROVENANCE.md",
+          pinned == actual and pinned in prov,
+          f"pin={pinned[:12]} actual={actual[:12]}")
 
     # --- evaluate: AppImage assets need their signature too
     AI = "-x86_64.AppImage"
@@ -839,7 +850,7 @@ def test_appimage_bootstrap():
             saved = {k: os.environ.get(k) for k in ("APPIMAGE", "APPDIR")}
             os.environ["APPIMAGE"] = target
             os.environ["APPDIR"] = os.path.join(td, "appdir")
-            calls = {"popen": [], "kill": []}
+            calls = {"popen": [], "kill": [], "runner": []}
             orig_kill = os.kill
             os.kill = lambda pid, sig: calls["kill"].append((pid, sig))
 
@@ -866,7 +877,8 @@ def test_appimage_bootstrap():
                     {"version": "9.9.9", "name": "Sotto-9.9.9-x86_64.AppImage",
                      "url": "u", "sig_url": "s"},
                     lambda *a: None,
-                    runner=lambda *a, **k: R(),
+                    runner=lambda *a, **k: (calls["runner"].append(a[0]),
+                                            R())[1],
                     popen=lambda *a, **k: calls["popen"].append(a))
             except RuntimeError as e:
                 err = e
@@ -880,11 +892,19 @@ def test_appimage_bootstrap():
                         os.environ[k] = v
             leftovers = [p for p in os.listdir(td)
                          if p.startswith("Sotto.AppImage.sotto-new")]
-            return open(target).read(), calls, err, leftovers
+            expected_pub = os.path.join(td, "appdir", "setup",
+                                        "sotto-release.pub")
+            return (open(target).read(), calls, err, leftovers,
+                    expected_pub)
 
-    content, calls, err, leftovers = replace_flow(0)
+    content, calls, err, leftovers, expected_pub = replace_flow(0)
     check("verified update replaces $APPIMAGE atomically",
           content == "NEW" and err is None, repr((content, err)))
+    check("verification uses the pubkey EMBEDDED in the running AppImage "
+          "(the milestone's key invariant)",
+          len(calls["runner"]) == 1 and calls["runner"][0][:5] ==
+          ["openssl", "dgst", "-sha256", "-verify", expected_pub],
+          str(calls["runner"]))
     check("relaunch waits for our pid then execs the new AppImage",
           len(calls["popen"]) == 1 and "Sotto.AppImage" in calls["popen"][0][0][-1],
           str(calls["popen"]))
@@ -892,7 +912,7 @@ def test_appimage_bootstrap():
           calls["kill"] == [(os.getpid(), signal.SIGINT)])
     check("no temp files left beside the AppImage", leftovers == [],
           str(leftovers))
-    content, calls, err, leftovers = replace_flow(1)
+    content, calls, err, leftovers, _ = replace_flow(1)
     check("failed verification NEVER touches $APPIMAGE",
           content == "OLD" and err is not None
           and "signature verification FAILED" in str(err),

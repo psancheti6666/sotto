@@ -200,7 +200,9 @@ jobs:
       - name: Verify the AppImage bootstrap installs the payload
         run: |
           cd "$RUNNER_TEMP"
-          APPIMAGE_EXTRACT_AND_RUN=1 "$GITHUB_WORKSPACE"/dist/Sotto-*-x86_64.AppImage --appimage-extract >/dev/null 2>&1 || true
+          # extraction failures must fail HERE with their own message, not
+          # as a bare test -x two lines later
+          "$GITHUB_WORKSPACE"/dist/Sotto-*-x86_64.AppImage --appimage-extract | tail -1
           test -x squashfs-root/bootstrap
           squashfs-root/bootstrap 2>&1 | grep -q "must run as root" || {
             echo "FAIL: bootstrap ran without root"; exit 1; }
