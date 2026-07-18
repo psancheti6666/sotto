@@ -48,10 +48,13 @@ SMOKE_IMPORTS = [
 
 def smoke() -> int:
     import importlib
+    import os
     for name in SMOKE_IMPORTS:
         importlib.import_module(name)
     from sotto import __version__
-    print(f"sotto {__version__} smoke OK")
+    # bundle= lets CI verify the /usr/bin/sotto launcher's SOTTO_BUNDLE=deb
+    # export actually reaches the app (the deb smoke greps for bundle=deb)
+    print(f"sotto {__version__} smoke OK (bundle={os.environ.get('SOTTO_BUNDLE', '-')})")
     return 0
 
 
