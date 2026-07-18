@@ -20,7 +20,9 @@ step "shellcheck — root-executed + build shell (tests.yml gate)"
 # GATING: exactly the files the CI gate checks — fail only where CI fails
 GATED="linuxapp/deb/sotto-perms linuxapp/deb/sotto-install-update \
 linuxapp/deb/postinst linuxapp/deb/prerm linuxapp/deb/postrm \
-linuxapp/deb/sotto-launcher linuxapp/build_app.sh linuxapp/make_deb.sh"
+linuxapp/deb/sotto-launcher linuxapp/appimage/bootstrap \
+linuxapp/appimage/AppRun linuxapp/build_app.sh linuxapp/make_deb.sh \
+linuxapp/make_appimage.sh"
 # shellcheck disable=SC2086  # word-splitting the list is the point
 shellcheck $GATED || fail=1
 # INFO ONLY: other tracked shell isn't a CI gate today; surfaced, not blocking

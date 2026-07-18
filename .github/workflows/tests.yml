@@ -35,4 +35,6 @@ jobs:
         run: >
           shellcheck linuxapp/deb/sotto-perms linuxapp/deb/sotto-install-update
           linuxapp/deb/postinst linuxapp/deb/prerm linuxapp/deb/postrm
-          linuxapp/deb/sotto-launcher linuxapp/build_app.sh linuxapp/make_deb.sh
+          linuxapp/deb/sotto-launcher linuxapp/appimage/bootstrap
+          linuxapp/appimage/AppRun linuxapp/build_app.sh linuxapp/make_deb.sh
+          linuxapp/make_appimage.sh

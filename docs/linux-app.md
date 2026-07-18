@@ -36,10 +36,14 @@ questions don't get reopened. Windows scouting notes live at the bottom.
   measurements on the friend's CPU-only machine), exact `lib/ollama` delete
   list TBD. Alternative if disk pressure complains earlier: prune CUDA
   immediately and accept CPU-only inference (fine on 8 GB RAM).
-- **Bundling AGPL ydotool/wtype inside the AppImage** (with licenses +
-  source links) — planned, for zero-terminal on non-Ubuntu GNOME-Wayland.
-  Alternative: an honest red walkthrough row telling that slice to install
-  ydotool via their package manager.
+- ~~Bundling AGPL ydotool/wtype inside the AppImage~~ — **RESOLVED
+  (Pratik, 2026-07-18): deferred.** The honest red walkthrough row ships
+  instead (fix_injection's alert names the apt AND dnf install commands).
+  Rationale: ydotool without its user-daemon configured is half-functional,
+  so real bundling means the bootstrap also installing a systemd user unit
+  — new surface right before release; the affected slice (non-deb distro +
+  GNOME + Wayland) is the community-tested tier. Revisit as its own PR if
+  a Fedora tester asks; do the AGPL license/source-link compliance then.
 - **Windows distribution channel** — decided when Windows work starts; see
   scouting notes below (leading option: Microsoft Store, now free for
   individuals and Store-signed = no SmartScreen).
@@ -171,14 +175,39 @@ every test round attaches `~/.sotto/sotto.log`.
    test (PENDING): deb vN → test release vN+1 → Check for Updates →
    Update Now → polkit prompt → relaunches as vN+1. (AppImage
    self-replace is verified in L9, once that artifact exists.)
-10. **L9 — AppImage.** `make_appimage.sh` + AppRun + static runtime + embedded
-    setup payload + bundled wtype/ydotool (+ licenses) + pkexec `bootstrap`
-    flow. Unit: `test_appimage_bootstrap`. CI: AppImage `--smoke` on the
-    runner (proves no libfuse2 needed). Friend: document the exact
-    right-click→Execute path, generic polkit bootstrap prompt (expected),
-    full setup, dictation; delete the AppImage → permissions persist; run
-    the updater's AppImage self-replace against a test release (deferred
-    here from L8).
+10. **L9 — AppImage.** ✅ code done (PR #59, issue #58).
+    `linuxapp/make_appimage.sh`: manual assembly — mksquashfs + the
+    VENDORED hash-pinned static type2 runtime (linuxapp/appimage/
+    runtime-x86_64, provenance + upgrade procedure in PROVENANCE.md; no
+    unpinned build-time downloads can reach a signed artifact). AppRun
+    exports SOTTO_BUNDLE=appimage; AppDir embeds the BYTE-IDENTICAL deb
+    payload + sotto-release.pub under setup/ plus the `bootstrap` script.
+    **Bootstrap (L5/L9 constraint honored):** first Fix click with no
+    pinned helper runs `pkexec <mounted>/bootstrap` → polkit's GENERIC
+    unpinned prompt (honest: consenting to a downloaded file as root,
+    once ever); it installs the payload to FHS homes with fixed modes +
+    udev reload + PKEXEC_UID setfacl, after which the pinned action
+    exists and all later fixes use it. Never installs the apt-based
+    sotto-install-update (test-pinned). Proven in-container: modes,
+    byte-identity, idempotency, non-root refusal, no apt helper.
+    Updater: bundle_type() consolidated in firstrun_linux ("appimage"
+    via $APPIMAGE or SOTTO_BUNDLE); asset_suffix() bundle-aware
+    (-amd64.deb vs -x86_64.AppImage — a deb was otherwise offered to
+    AppImage users); evaluate() requires .sig for both Linux artifact
+    types; self-replace downloads AppImage+.sig, verifies against the
+    pubkey EMBEDDED in the running AppImage, atomic os.replace over
+    $APPIMAGE (temp file beside the target — same filesystem), pid-waited
+    relaunch, SIGINT self. CI signs the AppImage like the deb (ephemeral
+    on PRs), smokes it in a bare container via self-extraction (no FUSE
+    at all — proves the no-libfuse2 claim end-to-end, greps
+    bundle=appimage), and runs the bootstrap as root asserting modes +
+    no-apt-helper. AGPL ydotool bundling DEFERRED (see Open decisions) —
+    fix_injection's alert now names apt AND dnf. Units:
+    `test_appimage_bootstrap` (+ suffix/evaluate/self-replace pins).
+    Friend test (PENDING): document the exact right-click→Execute path,
+    generic polkit bootstrap prompt (expected, once), full setup,
+    dictation; delete the AppImage → permissions persist; updater
+    self-replace against a test release (deferred here from L8).
 11. **L10 — Docs + release dry run.** This file's milestones marked done with
     live-test outcomes; README "Download for Linux" (incl. the uaccess
     security note); tag → draft release carries 2 DMGs + deb + AppImage →

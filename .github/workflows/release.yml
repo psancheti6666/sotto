@@ -170,6 +170,44 @@ jobs:
         run: |
           sudo apt-get install -y imagemagick
           ./linuxapp/make_deb.sh
+      # AppImage from the same onedir (L9): vendored hash-pinned static
+      # runtime + mksquashfs — no build-time downloads.
+      - name: Build AppImage
+        run: |
+          sudo apt-get install -y squashfs-tools
+          ./linuxapp/make_appimage.sh
+      # The static runtime needs no libfuse2; a bare container also has no
+      # FUSE device at all, so the self-extraction fallback is what runs —
+      # exactly what a locked-down desktop would hit. bundle=appimage proves
+      # AppRun's export reaches the app (deb-smoke parity).
+      - name: Smoke the AppImage in a bare container
+        timeout-minutes: 10
+        run: |
+          docker run --rm -v "$PWD/dist:/dist:ro" ubuntu:22.04 bash -exc '
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y \
+              xvfb xauth libxft2 libxext6 libasound2
+            cp /dist/Sotto-*-x86_64.AppImage /tmp/sotto.AppImage
+            out=$(APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a /tmp/sotto.AppImage --smoke)
+            echo "$out"
+            grep -q "bundle=appimage" <<<"$out"'
+      # The bootstrap, exercised as root exactly as the generic pkexec
+      # prompt would run it: extract the AppImage, run bootstrap from the
+      # extracted tree, assert the payload landed with the deb's exact
+      # modes. (The deb is installed later in the job and overwrites these
+      # same paths with identical bytes — order-independent.)
+      - name: Verify the AppImage bootstrap installs the payload
+        run: |
+          cd "$RUNNER_TEMP"
+          APPIMAGE_EXTRACT_AND_RUN=1 "$GITHUB_WORKSPACE"/dist/Sotto-*-x86_64.AppImage --appimage-extract >/dev/null 2>&1 || true
+          test -x squashfs-root/bootstrap
+          sudo squashfs-root/bootstrap
+          test "$(stat -c '%U:%G %a' /usr/libexec/sotto/sotto-perms)" = "root:root 755"
+          test "$(stat -c '%a' /usr/lib/udev/rules.d/60-sotto-input.rules)" = "644"
+          test "$(stat -c '%a' /usr/share/polkit-1/actions/io.github.psancheti6666.sotto.policy)" = "644"
+          # bootstrap must NOT install the apt-based updater helper
+          test ! -e /usr/libexec/sotto/sotto-install-update
+          cmp squashfs-root/setup/sotto-perms /usr/libexec/sotto/sotto-perms
       # Detached signature over the .deb — what sotto-install-update verifies
       # against the pinned pubkey before any self-update installs (L8).
       # Release/dispatch runs use the real key (step-scoped, wiped after;
@@ -197,10 +235,10 @@ jobs:
             printf '%s\n' "$SOTTO_DEB_SIGN_KEY" > "$RUNNER_TEMP/deb-sign.pem"
             pub=linuxapp/deb/sotto-release.pub
           fi
-          for deb in dist/Sotto-*-amd64.deb; do
+          for f in dist/Sotto-*-amd64.deb dist/Sotto-*-x86_64.AppImage; do
             openssl dgst -sha256 -sign "$RUNNER_TEMP/deb-sign.pem" \
-              -out "$deb.sig" "$deb"
-            openssl dgst -sha256 -verify "$pub" -signature "$deb.sig" "$deb"
+              -out "$f.sig" "$f"
+            openssl dgst -sha256 -verify "$pub" -signature "$f.sig" "$f"
           done
           rm -f "$RUNNER_TEMP/deb-sign.pem"
       - name: Install the .deb and smoke the installed launcher
@@ -273,6 +311,8 @@ jobs:
             dist/sotto-linux-x86_64-onedir.tar.gz
             dist/Sotto-*-amd64.deb
             dist/Sotto-*-amd64.deb.sig
+            dist/Sotto-*-x86_64.AppImage
+            dist/Sotto-*-x86_64.AppImage.sig
           if-no-files-found: error
 
   # Tag builds gather both DMGs into one draft release. A single job (rather
@@ -303,10 +343,10 @@ jobs:
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" \
-              assets/*.dmg assets/*.deb assets/*.deb.sig --clobber
+              assets/*.dmg assets/*.deb assets/*.AppImage assets/*.sig --clobber
           else
             gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
               --title "$GITHUB_REF_NAME" \
               --notes "Draft — release notes to be written before publishing." \
-              assets/*.dmg assets/*.deb assets/*.deb.sig
+              assets/*.dmg assets/*.deb assets/*.AppImage assets/*.sig
           fi

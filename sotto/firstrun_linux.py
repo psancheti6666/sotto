@@ -27,10 +27,12 @@ YDOTOOLD_UNIT = os.path.expanduser(
 
 
 def bundle_type() -> str | None:
-    """"deb" | "appimage" | None (source checkout / bare onedir)."""
+    """"deb" | "appimage" | None (source checkout / bare onedir). The
+    SOTTO_BUNDLE check covers --appimage-extract style manual runs where
+    the runtime's APPIMAGE env is absent (AppRun exports it either way)."""
     if not getattr(sys, "frozen", False):
         return None
-    if os.environ.get("APPIMAGE"):
+    if os.environ.get("APPIMAGE") or os.environ.get("SOTTO_BUNDLE") == "appimage":
         return "appimage"
     if os.environ.get("SOTTO_BUNDLE") == "deb":
         return "deb"
@@ -130,12 +132,33 @@ def engine_missing(cfg) -> bool:
 
 # ------------------------------------------------------------- fix actions --
 
+def _bootstrap_path() -> str | None:
+    """The embedded bootstrap script inside the mounted AppImage, or None
+    outside an AppImage run. APPDIR is set by the runtime (and survives to
+    us, unlike to pkexec's scrubbed child env — the script re-derives its
+    own location from $0)."""
+    appdir = os.environ.get("APPDIR")
+    if not appdir:
+        return None
+    path = os.path.join(appdir, "bootstrap")
+    return path if os.path.exists(path) else None
+
+
 def fix_input_argv() -> list:
     """pkexec invocation for the Keyboard-access Fix button. The .deb install
     lays the helper + polkit policy down; the helper derives the target user
-    from pkexec's PKEXEC_UID, so no username is passed here. (The AppImage's
-    first-run bootstrap — installing those files with no pre-existing policy —
-    lands with the AppImage itself in L9.)"""
+    from pkexec's PKEXEC_UID, so no username is passed here.
+
+    AppImage first run: the pinned helper doesn't exist yet, so the ONE-TIME
+    bootstrap runs via pkexec on its mounted (unpinned) path → polkit's
+    GENERIC prompt. Deliberate and honest (docs/linux-app.md L9): the user
+    consents to running a downloaded file as root, once; the bootstrap
+    installs the pinned policy + helper, so every later Fix — and every
+    other machine state — uses the pinned prompt below."""
+    if not os.path.exists(HELPER) and bundle_type() == "appimage":
+        bootstrap = _bootstrap_path()
+        if bootstrap:
+            return ["pkexec", bootstrap]
     return ["pkexec", HELPER, "apply"]
 
 
@@ -202,12 +225,15 @@ def fix_injection():
     ydotoold = shutil.which("ydotoold")
     if not ydotoold:
         # a silent dead button is worse than the problem — tell the user how
-        # to get the typing helper (the .deb Depends on it; AppImage bundles
-        # it; a source checkout may not have it yet)
+        # to get the typing helper. The .deb Depends on it; the AppImage
+        # deliberately does NOT bundle it (AGPL ydotool bundling deferred,
+        # 2026-07-18 — this honest red row is the chosen alternative), so
+        # non-deb GNOME-Wayland users install it once from their distro.
         from .platform import alert
         alert("Sotto needs a typing helper",
               "To type on Wayland, install ydotool:\n\n"
-              "    sudo apt install ydotool\n\n"
+              "    Ubuntu/Debian:  sudo apt install ydotool\n"
+              "    Fedora:         sudo dnf install ydotool\n\n"
               "then click Fix again.")
         log.warning("fix injection: ydotoold not installed")
         return
