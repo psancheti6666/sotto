@@ -1223,39 +1223,40 @@ def test_firstrun_linux():
     # SOTTO_FIRSTRUN forces both ways; the pending marker suppresses the loop
     cfg = Config()
     orig_in, orig_inj, orig_sm = fl.input_ok, fl.injection_ok, fl.setup_missing
+    orig_marker = fl.firstrun.PENDING_MARKER
     had = os.environ.pop("SOTTO_FIRSTRUN", None)
-    marker = fl.firstrun.PENDING_MARKER
-    marker_existed = os.path.exists(marker)
+    tmpd = tempfile.mkdtemp()
+    marker = os.path.join(tmpd, ".firstrun-pending")  # never touch real ~/.sotto
+    fl.firstrun.PENDING_MARKER = marker
     try:
         fl.input_ok = lambda *a, **k: True
         fl.injection_ok = lambda: True
         fl.setup_missing = lambda c: False
-        if not marker_existed:
-            check("perms green + nothing to download → not needed",
-                  not fl.needed(cfg))
+        check("perms green + nothing to download → not needed",
+              not fl.needed(cfg))
         fl.injection_ok = lambda: False
         check("injection missing → needed", fl.needed(cfg))
         # the bypass #64 closed: perms already green but models missing must
         # STILL show the walkthrough (else the download runs without consent)
         fl.injection_ok = lambda: True
         fl.setup_missing = lambda c: True
-        if not marker_existed:
-            check("perms green but download pending → needed (consent gate)",
-                  fl.needed(cfg))
-            os.environ["SOTTO_FIRSTRUN"] = "0"
-            check("SOTTO_FIRSTRUN=0 suppresses", not fl.needed(cfg))
-            os.environ.pop("SOTTO_FIRSTRUN", None)
-            # once consent is given (marker written), no re-loop
-            open(marker, "w").close()
-            try:
-                check("pending marker suppresses the re-loop", not fl.needed(cfg))
-            finally:
-                os.unlink(marker)
+        check("perms green but download pending → needed (consent gate)",
+              fl.needed(cfg))
+        os.environ["SOTTO_FIRSTRUN"] = "0"
+        check("SOTTO_FIRSTRUN=0 suppresses", not fl.needed(cfg))
+        os.environ.pop("SOTTO_FIRSTRUN", None)
+        # once consent is given (marker written), no re-loop
+        open(marker, "w").close()
+        check("pending marker suppresses the re-loop", not fl.needed(cfg))
+        os.unlink(marker)
         os.environ["SOTTO_FIRSTRUN"] = "1"
         check("SOTTO_FIRSTRUN=1 forces", fl.needed(cfg))
     finally:
         fl.input_ok, fl.injection_ok, fl.setup_missing = (
             orig_in, orig_inj, orig_sm)
+        fl.firstrun.PENDING_MARKER = orig_marker
+        import shutil as _sh
+        _sh.rmtree(tmpd, ignore_errors=True)
         os.environ.pop("SOTTO_FIRSTRUN", None)
         if had is not None:
             os.environ["SOTTO_FIRSTRUN"] = had
