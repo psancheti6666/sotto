@@ -192,17 +192,22 @@ jobs:
             echo "$out"
             grep -q "bundle=appimage" <<<"$out"'
       # The bootstrap, exercised as root exactly as the generic pkexec
-      # prompt would run it: extract the AppImage, run bootstrap from the
-      # extracted tree, assert the payload landed with the deb's exact
-      # modes. (The deb is installed later in the job and overwrites these
-      # same paths with identical bytes — order-independent.)
+      # prompt would run it (from a staged real-fs copy — firstrun stages
+      # it off the FUSE mount for the same reason): assert the payload
+      # lands with the deb's exact modes, twice (idempotent), and refuses
+      # non-root. MUST run BEFORE the deb install below: the no-apt-helper
+      # assertion would false-fail once the deb has laid that file down.
       - name: Verify the AppImage bootstrap installs the payload
         run: |
           cd "$RUNNER_TEMP"
           APPIMAGE_EXTRACT_AND_RUN=1 "$GITHUB_WORKSPACE"/dist/Sotto-*-x86_64.AppImage --appimage-extract >/dev/null 2>&1 || true
           test -x squashfs-root/bootstrap
+          squashfs-root/bootstrap 2>&1 | grep -q "must run as root" || {
+            echo "FAIL: bootstrap ran without root"; exit 1; }
           sudo squashfs-root/bootstrap
+          sudo squashfs-root/bootstrap   # idempotent re-run must succeed
           test "$(stat -c '%U:%G %a' /usr/libexec/sotto/sotto-perms)" = "root:root 755"
+          test "$(stat -c '%U:%G %a' /usr/libexec/sotto)" = "root:root 755"
           test "$(stat -c '%a' /usr/lib/udev/rules.d/60-sotto-input.rules)" = "644"
           test "$(stat -c '%a' /usr/share/polkit-1/actions/io.github.psancheti6666.sotto.policy)" = "644"
           # bootstrap must NOT install the apt-based updater helper

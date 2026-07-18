@@ -152,10 +152,13 @@ def _progress_hide_locked():
 
 # ----------------------------------------------------------------- install
 
-def _appimage_pubkey() -> str:
+def _appimage_pubkey() -> str | None:
     """The release pubkey embedded in the RUNNING AppImage — self-replace
-    verifies the download against it before touching $APPIMAGE."""
-    appdir = os.environ.get("APPDIR", "")
+    verifies the download against it before touching $APPIMAGE. None when
+    APPDIR is unset (never degrade to a cwd-relative path)."""
+    appdir = os.environ.get("APPDIR")
+    if not appdir:
+        return None
     return os.path.join(appdir, "setup", "sotto-release.pub")
 
 
@@ -246,7 +249,7 @@ def _self_replace(info, progress_set_cb, runner, popen):
     if not target or not os.path.exists(target):
         raise RuntimeError("$APPIMAGE not set — not running from an AppImage")
     pubkey = _appimage_pubkey()
-    if not os.path.exists(pubkey):
+    if not pubkey or not os.path.exists(pubkey):
         raise RuntimeError("embedded release key missing from this AppImage")
     if not shutil.which("openssl"):
         raise RuntimeError("openssl is required to verify the update — "

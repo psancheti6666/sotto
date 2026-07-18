@@ -17,6 +17,10 @@
 # apt-based deb self-update path — meaningless without dpkg; the policy's
 # second action stays inert pointing at a path that never exists here).
 set -eu
+# install -m forces file modes, but install -D's CREATED parent dirs (e.g.
+# /usr/libexec/sotto on a fresh machine) inherit the umask — keep them 755,
+# matching the deb layout (same convention as make_deb.sh)
+umask 022
 
 HERE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 SETUP="$HERE/setup"

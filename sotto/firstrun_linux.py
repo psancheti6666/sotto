@@ -132,16 +132,42 @@ def engine_missing(cfg) -> bool:
 
 # ------------------------------------------------------------- fix actions --
 
-def _bootstrap_path() -> str | None:
-    """The embedded bootstrap script inside the mounted AppImage, or None
-    outside an AppImage run. APPDIR is set by the runtime (and survives to
-    us, unlike to pkexec's scrubbed child env — the script re-derives its
-    own location from $0)."""
+_staged_bootstrap_dir = None  # previous staging, replaced on each Fix click
+
+
+def _stage_bootstrap() -> str | None:
+    """Copy the embedded bootstrap + setup payload out of the mounted
+    AppImage into a fresh 0700 tempdir and return the staged bootstrap
+    path (None outside an AppImage run).
+
+    Staging is REQUIRED, not an optimization: the runtime's FUSE mount is
+    unprivileged and without allow_other, so every other uid — including
+    root, including the setuid pkexec — gets EACCES on the mounted path
+    (L9 security sweep). A real-filesystem copy is readable by root as
+    usual. The window where a same-user process could swap the staged
+    files during the auth prompt is within the consent model (that
+    process could equally invoke pkexec on its own script); mkdtemp's
+    0700 keeps other USERS out."""
+    global _staged_bootstrap_dir
     appdir = os.environ.get("APPDIR")
     if not appdir:
         return None
-    path = os.path.join(appdir, "bootstrap")
-    return path if os.path.exists(path) else None
+    src = os.path.join(appdir, "bootstrap")
+    setup = os.path.join(appdir, "setup")
+    if not (os.path.exists(src) and os.path.isdir(setup)):
+        return None
+    import shutil as _shutil
+    import tempfile
+    old, _staged_bootstrap_dir = _staged_bootstrap_dir, None
+    if old:
+        _shutil.rmtree(old, ignore_errors=True)
+    td = tempfile.mkdtemp(prefix="sotto-bootstrap-")
+    dst = os.path.join(td, "bootstrap")
+    _shutil.copy(src, dst)
+    os.chmod(dst, 0o755)
+    _shutil.copytree(setup, os.path.join(td, "setup"))
+    _staged_bootstrap_dir = td
+    return dst
 
 
 def fix_input_argv() -> list:
@@ -150,13 +176,14 @@ def fix_input_argv() -> list:
     from pkexec's PKEXEC_UID, so no username is passed here.
 
     AppImage first run: the pinned helper doesn't exist yet, so the ONE-TIME
-    bootstrap runs via pkexec on its mounted (unpinned) path → polkit's
+    bootstrap runs via pkexec on an unpinned STAGED copy (staged because
+    root can't read the FUSE mount — see _stage_bootstrap) → polkit's
     GENERIC prompt. Deliberate and honest (docs/linux-app.md L9): the user
     consents to running a downloaded file as root, once; the bootstrap
     installs the pinned policy + helper, so every later Fix — and every
     other machine state — uses the pinned prompt below."""
     if not os.path.exists(HELPER) and bundle_type() == "appimage":
-        bootstrap = _bootstrap_path()
+        bootstrap = _stage_bootstrap()
         if bootstrap:
             return ["pkexec", bootstrap]
     return ["pkexec", HELPER, "apply"]

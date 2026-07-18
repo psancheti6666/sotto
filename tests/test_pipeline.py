@@ -740,10 +740,13 @@ def test_appimage_bootstrap():
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-    # --- fix routing: first run (no pinned helper) → generic-pkexec bootstrap
+    # --- fix routing: first run (no pinned helper) → generic-pkexec on a
+    # STAGED copy (root can't read the FUSE mount — L9 security sweep)
     with tempfile.TemporaryDirectory() as td:
         bootstrap = os.path.join(td, "bootstrap")
         open(bootstrap, "w").write("#!/bin/sh\n")
+        os.makedirs(os.path.join(td, "setup"))
+        open(os.path.join(td, "setup", "sotto-perms"), "w").write("payload")
         saved = {k: os.environ.get(k) for k in ("APPIMAGE", "APPDIR",
                                                 "SOTTO_BUNDLE")}
         orig_helper, orig_frozen = fl.HELPER, getattr(sys, "frozen", None)
@@ -756,9 +759,18 @@ def test_appimage_bootstrap():
             check("update_linux delegates to the same detection",
                   ul.bundle_type() == "appimage")
             argv = fl.fix_input_argv()
-            check("no pinned helper → pkexec on the MOUNTED bootstrap "
+            staged = argv[1] if len(argv) == 2 else ""
+            check("no pinned helper → pkexec on a bootstrap copy "
                   "(generic prompt — the L5/L9 constraint)",
-                  argv == ["pkexec", bootstrap], str(argv))
+                  argv[0] == "pkexec" and staged.endswith("/bootstrap"),
+                  str(argv))
+            check("bootstrap is STAGED off the FUSE mount, executable, "
+                  "with the setup payload beside it",
+                  not staged.startswith(td)
+                  and os.access(staged, os.X_OK)
+                  and open(os.path.join(os.path.dirname(staged), "setup",
+                                        "sotto-perms")).read() == "payload",
+                  staged)
             fl.HELPER = bootstrap  # any existing file stands in for the helper
             argv = fl.fix_input_argv()
             check("pinned helper present → pinned action, bootstrap never again",
@@ -774,6 +786,10 @@ def test_appimage_bootstrap():
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
+            if fl._staged_bootstrap_dir:
+                import shutil as _sh
+                _sh.rmtree(fl._staged_bootstrap_dir, ignore_errors=True)
+                fl._staged_bootstrap_dir = None
 
     # --- bootstrap script pins (byte-identical payload, no apt helper)
     boot = open(os.path.join(root, "linuxapp", "appimage", "bootstrap")).read()
