@@ -10,6 +10,9 @@
 # install time. Ollama is NOT packaged — it downloads at first run.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# guarantee package dirs aren't group/world-writable regardless of the build
+# host's umask (--root-owner-group fixes ownership, not modes)
+umask 022
 
 if [[ "$(uname -s)" != "Linux" ]]; then
   echo "ERROR: Linux only" >&2
@@ -27,6 +30,10 @@ PKG="$STAGE/pkg"
 # the frozen app
 mkdir -p "$PKG/opt"
 cp -a dist/sotto "$PKG/opt/sotto"
+# strip any stray setuid/setgid bits from the onedir: --root-owner-group would
+# turn a setuid file into a setuid-ROOT file. PyInstaller doesn't emit them,
+# but a dependency wheel theoretically could — belt and braces.
+chmod -R u-s,g-s "$PKG/opt/sotto"
 
 # discrete files + exact modes, from the manifest the unit test also reads
 while read -r mode src dest; do
@@ -34,14 +41,25 @@ while read -r mode src dest; do
   install -D -m "$mode" "$src" "$PKG/$dest"
 done < linuxapp/deb/manifest.txt
 
-# icons: render sizes from the logo when ImageMagick is present, else ship the
-# source PNG at one size so the app still has a tile
+# icons: the logo is a wide wordmark (1170x340), so a plain resize squashes it.
+# Crop the waveform mark (same fractions macapp/make_icns.py uses for the mac
+# tile) and center it on the logo's paper background → a square tile matching
+# the macOS identity. Falls back to the raw PNG only if ImageMagick is absent.
 ICON_SRC=logo/sottoLogo.png
-if command -v convert >/dev/null 2>&1; then
+PAPER='#F7F7F5'  # the logo's warm off-white (make_icns.py PAPER)
+IM="$(command -v magick || command -v convert || true)"  # IM7 vs IM6
+if [[ -n "$IM" ]]; then
+  read -r LW LH < <("$IM" identify -format '%w %h' "$ICON_SRC" 2>/dev/null \
+                    || identify -format '%w %h' "$ICON_SRC")
+  MX=$(( LW * 2 / 100 )); MY=$(( LH * 5 / 100 ))
+  MW=$(( LW * 28 / 100 )); MH=$(( LH * 90 / 100 ))
+  SQ=$(( MH * 130 / 100 ))  # square canvas with ~30% padding around the mark
   for sz in 48 64 128 256 512; do
     d="$PKG/usr/share/icons/hicolor/${sz}x${sz}/apps"
     mkdir -p "$d"
-    convert "$ICON_SRC" -resize "${sz}x${sz}" "$d/sotto.png"
+    "$IM" "$ICON_SRC" -crop "${MW}x${MH}+${MX}+${MY}" +repage \
+      -background "$PAPER" -gravity center -extent "${SQ}x${SQ}" \
+      -resize "${sz}x${sz}" "$d/sotto.png"
   done
 else
   install -D -m 644 "$ICON_SRC" \

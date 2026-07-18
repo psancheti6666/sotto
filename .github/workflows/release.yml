@@ -164,6 +164,9 @@ jobs:
           # the postinst's udev calls are no-ops on the runner (no udev) but
           # must not fail the install; verify the helper is root:root 0755
           test "$(stat -c '%U:%G %a' /usr/libexec/sotto/sotto-perms)" = "root:root 755"
+          # no setuid/setgid anywhere in the installed tree (a setuid-root file
+          # would be a privilege-escalation surface)
+          test -z "$(find /opt/sotto /usr/libexec/sotto -perm /6000 -print -quit)"
           SOTTO_BUNDLE=deb xvfb-run -a /usr/bin/sotto --smoke
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4

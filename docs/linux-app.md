@@ -112,7 +112,10 @@ every test round attaches `~/.sotto/sotto.log`.
    release job glob gains `linux-*`. Unit: `test_deb_layout`. Friend, fresh state: double-click → App Center → ONE
    password prompt → launch from app grid → **Keyboard row expected already
    green**; if gray, Fix → polkit → **paste `getfacl /dev/input/event0
-   /dev/uinput`** (the uaccess verification) → walkthrough → downloads
+   /dev/uinput`** (the uaccess verification); also note the ydotool version
+   (`ydotool --version`) — jammy ships 0.1.8, noble ships 1.x, and the
+   injection chain should be sanity-checked against whichever the box has →
+   walkthrough → downloads
    → ready alert → dictate into gedit (Wayland) and a terminal (paste path);
    send timing lines, `getfacl`, `groups` (proves no input-group needed),
    ydotoold user-unit status if GNOME-Wayland. Hedge: App Center's local-deb
