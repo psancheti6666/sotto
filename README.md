@@ -50,9 +50,11 @@ two packages, X11 and Wayland both supported:
 - `Sotto-…-amd64.deb` — **Ubuntu 22.04+ / Debian 12+ (recommended).**
   Double-click → install through App Center. The install's one password
   prompt also grants Sotto keyboard access (details below), so dictation
-  works at first launch — no terminal, no re-login. Launch Sotto from the
-  app grid; it walks you through the rest (a typing-helper check and a
-  one-time ~3–4 GB model download).
+  should work at first launch — no terminal, no re-login; if your system
+  needs a nudge, the setup screen's one-click **Fix** covers it. Launch
+  Sotto from the app grid; it takes you through whatever remains (a
+  one-time ~3–4 GB model download; on GNOME Wayland also a typing-helper
+  check).
 - `Sotto-…-x86_64.AppImage` — other distros (Fedora 36+ etc.;
   community-tested). Make it executable (right-click → Properties →
   Executable as Program on GNOME) and run it. On first run, the setup
@@ -70,8 +72,9 @@ running as you could then technically read keystrokes too; this is the
 same exposure class as the common `usermod -aG input` setup that tools
 like ydotool document, made visible here instead of buried. Sotto itself
 records nothing until you hold the hotkey. If that trade-off isn't right
-for you, don't install — or run from source and audit first; every file
-that touches this is plain shell in [`linuxapp/`](linuxapp/).
+for you, don't install — or run from source and audit first; everything
+that ever runs with root privileges is plain readable shell in
+[`linuxapp/`](linuxapp/).
 
 Self-updates work like the Mac app's (scheduled check → **Update Now /
 Later**, or the tray's **Check for Updates…**): the .deb path verifies
