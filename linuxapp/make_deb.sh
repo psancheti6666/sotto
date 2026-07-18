@@ -88,6 +88,9 @@ rm -f "$DEB"
 # the pinned polkit action safe.
 dpkg-deb --root-owner-group --build "$PKG" "$DEB"
 
-command -v lintian >/dev/null 2>&1 && lintian "$DEB" || true  # advisory only
+# advisory only — findings are printed, never fail the build
+if command -v lintian >/dev/null 2>&1; then
+  lintian "$DEB" || true
+fi
 
 echo "OK: $DEB ($(du -h "$DEB" | cut -f1))"
