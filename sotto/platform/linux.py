@@ -31,6 +31,18 @@ def clean_env() -> dict:
             env[var] = orig
         else:
             env.pop(var, None)
+    # PyInstaller's GTK runtime hooks also point these into the bundle; zenity
+    # and kdialog are GTK apps and can misload modules against them even with
+    # LD_LIBRARY_PATH fixed (#64 review). Drop any Sotto-bundle-scoped copies;
+    # a real desktop already has correct system values or none.
+    meipass = getattr(__import__("sys"), "_MEIPASS", None)
+    for var in ("GI_TYPELIB_PATH", "GDK_PIXBUF_MODULE_FILE",
+                "GDK_PIXBUF_MODULEDIR", "GSETTINGS_SCHEMA_DIR",
+                "GTK_PATH", "GTK_EXE_PREFIX", "GTK_DATA_PREFIX",
+                "XDG_DATA_DIRS", "FONTCONFIG_FILE", "FONTCONFIG_PATH"):
+        val = env.get(var)
+        if val and meipass and meipass in val:
+            env.pop(var, None)
     return env
 
 

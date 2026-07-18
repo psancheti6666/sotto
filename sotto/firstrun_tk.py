@@ -17,6 +17,9 @@ from . import firstrun, firstrun_linux
 log = logging.getLogger("sotto")
 
 GREEN, GRAY = "#2e9e4f", "#b9b3a9"
+AMBER = "#d99a06"  # authorized-but-not-done (the models consent) — never
+                   # green until the download actually exists ("no lying
+                   # green rows")
 
 
 class _Walkthrough:
@@ -78,9 +81,13 @@ class _Walkthrough:
         st = firstrun_linux.statuses(self.cfg)
         for key, dot in self.dots.items():
             dot.delete("all")
-            on = st.get(key) or (key == "models" and self.models_ok.get())
-            dot.create_oval(2, 2, 12, 12,
-                            fill=GREEN if on else GRAY, outline="")
+            if st.get(key):
+                fill = GREEN
+            elif key == "models" and self.models_ok.get():
+                fill = AMBER  # consented, download still ahead
+            else:
+                fill = GRAY
+            dot.create_oval(2, 2, 12, 12, fill=fill, outline="")
         for key, btn in self.buttons.items():
             btn.grid_remove() if st.get(key) else btn.grid()
         ready = (all(st[k] for k in firstrun_linux.GATING)

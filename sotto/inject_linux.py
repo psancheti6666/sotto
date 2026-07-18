@@ -28,7 +28,8 @@ def _run(argv, **kw):
     platform.linux.clean_env — the bundle's LD_LIBRARY_PATH otherwise leaks
     into xdotool/wtype/ydotool/wl-copy and friends)."""
     from .platform.linux import clean_env
-    kw.setdefault("env", clean_env())
+    if kw.get("env") is None:  # absent OR explicitly None → sanitized env
+        kw["env"] = clean_env()
     return subprocess.run(argv, **kw)
 
 # Canonical ydotool socket. The client's default path has drifted across
@@ -44,7 +45,9 @@ YDOTOOL_SOCKET = os.path.join(
 
 
 def _ydotool_env():
-    env = os.environ.copy()
+    # on top of the SANITIZED env — ydotool is a host binary too (#64 review)
+    from .platform.linux import clean_env
+    env = clean_env()
     env["YDOTOOL_SOCKET"] = YDOTOOL_SOCKET
     return env
 

@@ -215,7 +215,9 @@ def download_and_install(info, progress_set_cb, runner=subprocess.run,
         # shutdown would otherwise race this worker thread mid-rmtree
         shutil.rmtree(workdir, ignore_errors=True)
         progress_hide()
-        popen(_relaunch_argv(os.getpid()), start_new_session=True)
+        from .firstrun_linux import relaunch_env
+        popen(_relaunch_argv(os.getpid()), start_new_session=True,
+              env=relaunch_env())
         # same designed-shutdown path as the tray's Quit: SIGINT → tk root
         # destroyed (or KeyboardInterrupt headless) → atexit stops ollama;
         # the relaunch shell waits for this pid to vanish before starting
@@ -281,9 +283,11 @@ def _self_replace(info, progress_set_cb, runner, popen):
         os.replace(new, target)  # atomic: old file vanishes, new one is live
         log.info("AppImage replaced — relaunching as %s", info["version"])
         progress_hide()
+        from .firstrun_linux import relaunch_env
         popen(["/bin/sh", "-c",
                f"while kill -0 {os.getpid()} 2>/dev/null; do sleep 0.5; done; "
-               f"exec {shlex.quote(target)}"], start_new_session=True)
+               f"exec {shlex.quote(target)}"], start_new_session=True,
+              env=relaunch_env())
         os.kill(os.getpid(), signal.SIGINT)
     finally:
         for p in (new, sig):

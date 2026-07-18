@@ -1218,23 +1218,44 @@ def test_firstrun_linux():
     check("real _Chain exposes _injectors",
           hasattr(il._Chain([object()]), "_injectors"))
 
-    # gating: models/engine never gate; SOTTO_FIRSTRUN forces both ways
+    # gating: perms OR a pending download trigger the walkthrough (so the
+    # 3-4 GB download always gets the consent checkbox — #64 review);
+    # SOTTO_FIRSTRUN forces both ways; the pending marker suppresses the loop
     cfg = Config()
-    orig_in, orig_inj = fl.input_ok, fl.injection_ok
+    orig_in, orig_inj, orig_sm = fl.input_ok, fl.injection_ok, fl.setup_missing
     had = os.environ.pop("SOTTO_FIRSTRUN", None)
+    marker = fl.firstrun.PENDING_MARKER
+    marker_existed = os.path.exists(marker)
     try:
         fl.input_ok = lambda *a, **k: True
         fl.injection_ok = lambda: True
-        check("both green → not needed", not fl.needed(cfg))
+        fl.setup_missing = lambda c: False
+        if not marker_existed:
+            check("perms green + nothing to download → not needed",
+                  not fl.needed(cfg))
         fl.injection_ok = lambda: False
         check("injection missing → needed", fl.needed(cfg))
-        os.environ["SOTTO_FIRSTRUN"] = "0"
-        check("SOTTO_FIRSTRUN=0 suppresses", not fl.needed(cfg))
-        os.environ["SOTTO_FIRSTRUN"] = "1"
+        # the bypass #64 closed: perms already green but models missing must
+        # STILL show the walkthrough (else the download runs without consent)
         fl.injection_ok = lambda: True
+        fl.setup_missing = lambda c: True
+        if not marker_existed:
+            check("perms green but download pending → needed (consent gate)",
+                  fl.needed(cfg))
+            os.environ["SOTTO_FIRSTRUN"] = "0"
+            check("SOTTO_FIRSTRUN=0 suppresses", not fl.needed(cfg))
+            os.environ.pop("SOTTO_FIRSTRUN", None)
+            # once consent is given (marker written), no re-loop
+            open(marker, "w").close()
+            try:
+                check("pending marker suppresses the re-loop", not fl.needed(cfg))
+            finally:
+                os.unlink(marker)
+        os.environ["SOTTO_FIRSTRUN"] = "1"
         check("SOTTO_FIRSTRUN=1 forces", fl.needed(cfg))
     finally:
-        fl.input_ok, fl.injection_ok = orig_in, orig_inj
+        fl.input_ok, fl.injection_ok, fl.setup_missing = (
+            orig_in, orig_inj, orig_sm)
         os.environ.pop("SOTTO_FIRSTRUN", None)
         if had is not None:
             os.environ["SOTTO_FIRSTRUN"] = had
@@ -1747,57 +1768,98 @@ def test_vm_round_fixes():
     try:
         hub = FakeHub(offline_fails=False)
         m = asr_onnx._load_offline_first(hub, "m", "")
-        check("cached model loads OFFLINE (no hub round-trip)",
-              m == "MODEL" and hub.calls == ["1"]
-              and os.environ.get("HF_HUB_OFFLINE") == "1", str(hub.calls))
-        os.environ.pop("HF_HUB_OFFLINE", None)
+        check("cached model loads OFFLINE (probe saw HF_HUB_OFFLINE=1)",
+              m == "MODEL" and hub.calls == ["1"], str(hub.calls))
+        check("the injected HF_HUB_OFFLINE never outlives the load "
+              "(children must not inherit it)",
+              os.environ.get("HF_HUB_OFFLINE") is None)
         hub = FakeHub(offline_fails=True)
         m = asr_onnx._load_offline_first(hub, "m", "")
         check("cache miss falls back to an ONLINE load",
               m == "MODEL" and hub.calls == ["1", None], str(hub.calls))
+        check("HF_HUB_OFFLINE cleaned up after the online fallback too",
+              os.environ.get("HF_HUB_OFFLINE") is None)
         os.environ["HF_HUB_OFFLINE"] = "0"
         hub = FakeHub(offline_fails=False)
         asr_onnx._load_offline_first(hub, "m", "")
         check("user-set HF_HUB_OFFLINE is respected, not overridden",
-              hub.calls == ["0"], str(hub.calls))
+              hub.calls == ["0"] and os.environ.get("HF_HUB_OFFLINE") == "0",
+              str(hub.calls))
     finally:
         os.environ.pop("HF_HUB_OFFLINE", None)
         if saved_off is not None:
             os.environ["HF_HUB_OFFLINE"] = saved_off
 
-    # --- single-instance lock
+    # --- single-instance lock (path socket in XDG_RUNTIME_DIR)
     from sotto import app as app_mod
 
     class FakeSock:
-        def __init__(self, taken):
-            self.taken, self.closed = taken, False
-        def bind(self, name):
-            if self.taken:
+        def __init__(self, mod):
+            self.mod, self.closed, self.listening = mod, False, False
+        def bind(self, path):
+            if path in self.mod.bound:      # a live holder occupies it
                 raise OSError(98, "address in use")
+            self.mod.bound.add(path)
+            self.bound_path = path
+        def listen(self, n):
+            self.listening = True
+        def connect(self, path):
+            if path not in self.mod.listening_paths:
+                raise OSError(111, "connection refused")
         def close(self):
             self.closed = True
 
     class FakeSocketMod:
         AF_UNIX = SOCK_STREAM = 0
-        def __init__(self, taken):
-            self.taken = taken
+        def __init__(self, bound=(), listening=()):
+            self.bound = set(bound)
+            self.listening_paths = set(listening)
             self.socks = []
         def socket(self, *a):
-            s = FakeSock(self.taken)
+            s = FakeSock(self)
             self.socks.append(s)
             return s
 
-    free = FakeSocketMod(taken=False)
-    lock = app_mod._acquire_instance_lock(free)
-    check("first instance acquires the lock (socket held, not closed)",
-          lock is free.socks[0] and not free.socks[0].closed)
-    busy = FakeSocketMod(taken=True)
-    lock = app_mod._acquire_instance_lock(busy)
-    check("second instance is refused (None) and its socket closed",
-          lock is None and busy.socks[0].closed)
-    check("non-Linux platforms get a no-op token",
-          app_mod._acquire_instance_lock() is True
-          or sys.platform.startswith("linux"))
+    saved_rt = os.environ.get("XDG_RUNTIME_DIR")
+    os.environ["XDG_RUNTIME_DIR"] = "/run/user/test"
+    try:
+        free = FakeSocketMod()
+        lock = app_mod._acquire_instance_lock(free)
+        check("first instance binds+listens the lock, held not closed",
+              lock is free.socks[0] and lock.listening and not lock.closed)
+        # a LIVE holder: path bound AND someone listening → refuse
+        busy = FakeSocketMod(bound=["/run/user/test/sotto.lock"],
+                             listening=["/run/user/test/sotto.lock"])
+        orig_unlink = os.unlink
+        os.unlink = lambda p: (_ for _ in ()).throw(AssertionError(
+            "must NOT unlink a live holder's socket"))
+        try:
+            lock = app_mod._acquire_instance_lock(busy)
+            check("second live instance refused (None), its socket closed",
+                  lock is None and busy.socks[-1].closed)
+        finally:
+            os.unlink = orig_unlink
+        # a STALE file: path 'bound' but nobody listening → reclaim
+        unlinked = []
+        stale = FakeSocketMod(bound=["/run/user/test/sotto.lock"])
+        os.unlink = lambda p: (unlinked.append(p),
+                               stale.bound.discard(p))
+        try:
+            lock = app_mod._acquire_instance_lock(stale)
+            check("stale lock file is reclaimed (unlinked, then bound)",
+                  lock is not None and unlinked == ["/run/user/test/sotto.lock"]
+                  and lock.listening)
+        finally:
+            os.unlink = orig_unlink
+    finally:
+        if saved_rt is None:
+            os.environ.pop("XDG_RUNTIME_DIR", None)
+        else:
+            os.environ["XDG_RUNTIME_DIR"] = saved_rt
+
+    if not sys.platform.startswith("linux"):
+        check("non-Linux platforms get a no-op token",
+              app_mod._acquire_instance_lock() is True)
 
 
 def test_smoke_imports():
