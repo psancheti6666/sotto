@@ -29,4 +29,10 @@ jobs:
       # shellcheck is a merge gate for it (runner has shellcheck preinstalled)
       - name: Shellcheck root-executed and build shell
         if: runner.os == 'Linux'
-        run: shellcheck linuxapp/deb/sotto-perms linuxapp/build_app.sh
+        # ALL shell in linuxapp/deb/ (the comment above used to promise this
+        # while gating one file — sotto-install-update joining in L8 exposed
+        # the gap) + the build scripts. Keep in sync with preflight.sh.
+        run: >
+          shellcheck linuxapp/deb/sotto-perms linuxapp/deb/sotto-install-update
+          linuxapp/deb/postinst linuxapp/deb/prerm linuxapp/deb/postrm
+          linuxapp/deb/sotto-launcher linuxapp/build_app.sh linuxapp/make_deb.sh

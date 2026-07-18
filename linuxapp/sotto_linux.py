@@ -44,6 +44,7 @@ SMOKE_IMPORTS = [
     "sotto.platform.linux",
     "sotto.tray_linux",
     "sotto.update",
+    "sotto.update_linux",
 ]
 
 # Bundled-presence checks (find_spec, NOT imported): importing pystray runs

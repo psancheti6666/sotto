@@ -11,4 +11,6 @@
 0644 linuxapp/deb/sotto-uinput.conf usr/lib/modules-load.d/sotto-uinput.conf
 0644 linuxapp/deb/io.github.psancheti6666.sotto.policy usr/share/polkit-1/actions/io.github.psancheti6666.sotto.policy
 0755 linuxapp/deb/sotto-perms usr/libexec/sotto/sotto-perms
+0755 linuxapp/deb/sotto-install-update usr/libexec/sotto/sotto-install-update
+0644 linuxapp/deb/sotto-release.pub usr/share/sotto/sotto-release.pub
 0644 linuxapp/deb/sotto.desktop usr/share/applications/sotto.desktop

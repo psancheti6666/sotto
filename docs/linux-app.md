@@ -142,15 +142,34 @@ every test round attaches `~/.sotto/sotto.log`.
    Wayland); Insights opens the dashboard; Quit fully exits (`pgrep`
    clean, ollama child gone); tray-less GNOME still dictates and logs the
    tray-unavailable line.
-9. **L8 — Updater Linux backend.** `sotto/update_linux.py` (`bundle_type()`,
-   install steps, dialog/banner/progress argv builders), `update.py` grows
-   pure `asset_suffix()` + suffix-based `evaluate()` + Linux dispatchers
-   (today `_offer`/`_ask` import AppKit unconditionally and `evaluate()`
-   would match a `-intel.dmg` on Linux — this milestone is what makes any
-   Linux update path real); tray gains "Check for Updates…";
-   `SOTTO_RELEASES_API` test seam. Units: `test_update` (new signature),
-   `test_update_linux`. Friend: deb vN → test release vN+1 → Check for
-   Updates → Update Now → polkit prompt → relaunches as vN+1. (AppImage
+9. **L8 — Updater Linux backend.** ✅ code done (PR #57, issue #56).
+   **Signature gate (the L5-sweep constraint, honored):** a SECOND
+   single-purpose root helper `sotto-install-update` behind its own polkit
+   action `…sotto.install` (fresh auth_admin every time, no _keep) — NOT a
+   verb on sotto-perms. It re-copies the caller's .deb+.sig into a
+   root-owned 0700 workdir (TOCTOU), verifies RSA-SHA256 against the
+   pinned pubkey the deb installs at `/usr/share/sotto/sotto-release.pub`,
+   asserts Package=sotto and strictly-newer version (no downgrade/replay),
+   THEN `apt-get install --yes`. Worst case for a hostile local caller:
+   installing an authentic newer Sotto. All six gate scenarios (install /
+   reinstall-refused / tamper-refused / wrong-package-refused / upgrade /
+   workdir cleanup) proven in an ubuntu:22.04 container pre-push; CI
+   re-proves tamper + downgrade-refusal on every build against the real
+   deb. Release workflow signs with secret `SOTTO_DEB_SIGN_KEY` (private
+   key held by Pratik; pubkey committed at linuxapp/deb/sotto-release.pub)
+   and publishes the .sig beside the .deb; a deb release without a .sig is
+   never offered by `evaluate()`. Python side: `sotto/update_linux.py`
+   (`bundle_type()` from SOTTO_BUNDLE, zenity→kdialog ask + zenity
+   --progress builders — all pure/injectable, pkexec install step,
+   detached relaunch + SIGINT self-shutdown); `update.py` grew pure
+   `asset_suffix()` (None on unsupported arches keeps the updater silent)
+   + suffix-based `evaluate()` (fixes the match-a-DMG-on-Linux latent bug)
+   + IS_LINUX dispatch in enabled/_ask/_progress_*/download_and_install
+   (macOS paths untouched); tray "Check for Updates…" now armed;
+   `SOTTO_RELEASES_API` env seam. Units: `test_update` (new signature),
+   `test_update_linux`, layout/policy pins in `test_deb_layout`. Friend
+   test (PENDING): deb vN → test release vN+1 → Check for Updates →
+   Update Now → polkit prompt → relaunches as vN+1. (AppImage
    self-replace is verified in L9, once that artifact exists.)
 10. **L9 — AppImage.** `make_appimage.sh` + AppRun + static runtime + embedded
     setup payload + bundled wtype/ydotool (+ licenses) + pkexec `bootstrap`

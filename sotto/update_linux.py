@@ -1,0 +1,199 @@
+# Created by Pratik Sancheti / https://github.com/psancheti6666
+"""Linux backends for the updater (docs/linux-app.md, L8).
+
+update.py owns the flow (scheduled loop, single-flight lock, offer/consent);
+this module supplies the platform pieces: bundle detection, zenity dialogs
+and progress (child processes, same reasoning as platform.alert() — no
+main-thread choreography, works with the indicator off), and the install
+step.
+
+SECURITY: the install hands the downloaded .deb + detached .sig to
+/usr/libexec/sotto/sotto-install-update via pkexec. That helper — root-side,
+behind its own polkit action — re-copies both files to a root-owned workdir,
+verifies the signature against the pinned key in /usr/share/sotto, and
+refuses non-sotto packages and downgrades BEFORE apt-get sees anything.
+Nothing on this (user-side) path is trusted by the privileged side; this
+module's only security job is honest UX. (See the L5/L8 notes in
+docs/linux-app.md for why the helper is separate from sotto-perms.)
+"""
+
+import logging
+import os
+import shutil
+import signal
+import subprocess
+import tempfile
+import threading
+
+log = logging.getLogger("sotto")
+
+HELPER = "/usr/libexec/sotto/sotto-install-update"
+
+_progress = None          # {"proc": Popen} — zenity --progress child
+_progress_lock = threading.Lock()
+
+
+def bundle_type():
+    """"deb" inside the installed package (the /usr/bin/sotto launcher
+    exports SOTTO_BUNDLE=deb), None from a checkout/tarball — None keeps
+    the updater silent there (run.sh already git-pulls). L9 adds
+    "appimage"."""
+    if os.environ.get("SOTTO_BUNDLE") == "deb":
+        return "deb"
+    return None
+
+
+# ------------------------------------------------- pure argv builders (unit-tested)
+
+def _ask_argv(title: str, text: str):
+    return ["zenity", "--question", f"--title={title}", f"--text={text}",
+            "--ok-label=Update Now", "--cancel-label=Later",
+            "--width=360", "--no-markup"]
+
+
+def _ask_argv_kdialog(title: str, text: str):
+    return ["kdialog", f"--title={title}", "--yesno", text,
+            "--yes-label", "Update Now", "--no-label", "Later"]
+
+
+def _progress_argv(title: str):
+    # --auto-close exits when 100 lands; percentage/text stream in on stdin
+    return ["zenity", "--progress", f"--title={title}", "--text=Starting…",
+            "--width=360", "--auto-close", "--no-cancel"]
+
+
+def _install_argv(deb_path: str, sig_path: str):
+    return ["pkexec", HELPER, deb_path, sig_path]
+
+
+def _relaunch_argv():
+    # detached shell: wait for this process to exit, then start the (just
+    # replaced) installed launcher; systemd-run would tie it to our scope
+    return ["/bin/sh", "-c", "sleep 2; exec /usr/bin/sotto"]
+
+
+# ----------------------------------------------------------------- dialogs
+
+def ask(title: str, text: str) -> bool:
+    """True = Update Now. zenity → kdialog → give up quietly (the scheduled
+    check will re-offer; a lost dialog must never block the app)."""
+    for argv in (_ask_argv(title, text), _ask_argv_kdialog(title, text)):
+        if shutil.which(argv[0]):
+            try:
+                return subprocess.run(
+                    argv, capture_output=True, timeout=600).returncode == 0
+            except (OSError, subprocess.TimeoutExpired) as e:
+                log.warning("update dialog failed (%s)", e)
+                return False
+    log.info("no dialog tool for the update offer — skipping")
+    return False
+
+
+def progress_show(text: str):
+    global _progress
+    with _progress_lock:
+        progress_hide_locked()
+        if not shutil.which("zenity"):
+            log.info("update progress: %s (no zenity)", text)
+            return
+        try:
+            proc = subprocess.Popen(
+                _progress_argv("Updating Sotto"), stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                text=True)
+            _progress = {"proc": proc}
+        except OSError as e:
+            log.warning("update progress window failed (%s)", e)
+            _progress = None
+    progress_set(text, None)
+
+
+def progress_set(text: str, fraction=None):
+    with _progress_lock:
+        if _progress is None:
+            return
+        proc = _progress["proc"]
+        try:
+            # zenity --progress protocol: "N\n" sets the bar, "# text\n" the
+            # label. No fraction → pulse by leaving the bar where it is.
+            if fraction is not None:
+                proc.stdin.write(f"{min(99, int(fraction * 100))}\n")
+            proc.stdin.write(f"# {text}\n")
+            proc.stdin.flush()
+        except (OSError, ValueError):
+            pass  # window closed — progress is best-effort
+
+
+def progress_hide():
+    with _progress_lock:
+        progress_hide_locked()
+
+
+def progress_hide_locked():
+    global _progress
+    if _progress is None:
+        return
+    proc = _progress["proc"]
+    try:
+        proc.stdin.close()
+    except (OSError, ValueError):
+        pass
+    proc.terminate()
+    _progress = None
+
+
+# ----------------------------------------------------------------- install
+
+def download_and_install(info, progress_set_cb, runner=subprocess.run,
+                         popen=subprocess.Popen):
+    """Download the .deb + .sig, hand both to the signature-gated root
+    helper via pkexec (the polkit prompt is the user's consent to install),
+    then relaunch. Runs on update.py's worker thread under its single-flight
+    lock. runner/popen are injectable for the unit tier."""
+    if bundle_type() != "deb":
+        raise RuntimeError("not running from an installed .deb")
+    if not os.path.exists(HELPER):
+        raise RuntimeError(f"{HELPER} is missing — reinstall Sotto")
+
+    import requests
+    workdir = tempfile.mkdtemp(prefix="sotto-update-")
+    try:
+        deb = os.path.join(workdir, info["name"])
+        sig = deb + ".sig"
+        for url, path, label in ((info["sig_url"], sig, "signature"),
+                                 (info["url"], deb, info["name"])):
+            log.info("downloading %s", url)
+            with requests.get(url, stream=True, timeout=60) as r:
+                r.raise_for_status()
+                total = int(r.headers.get("content-length") or 0)
+                got = 0
+                with open(path, "wb") as f:
+                    for chunk in r.iter_content(1 << 20):
+                        f.write(chunk)
+                        got += len(chunk)
+                        if total and label != "signature":
+                            progress_set_cb(
+                                f"Downloading Sotto {info['version']}… "
+                                f"{got >> 20} of {total >> 20} MB",
+                                got / total)
+
+        progress_set_cb("Waiting for authorization… (Sotto verifies the "
+                        "download's signature before installing)")
+        r = runner(_install_argv(deb, sig), capture_output=True, text=True,
+                   timeout=600)
+        if r.returncode == 126:      # user dismissed the polkit prompt
+            log.info("update cancelled at the authorization prompt")
+            return
+        if r.returncode != 0:
+            detail = (r.stderr or r.stdout or "").strip()
+            raise RuntimeError(
+                f"install helper failed (exit {r.returncode}): {detail[-500:]}")
+
+        log.info("update installed — relaunching as %s", info["version"])
+        progress_set_cb("Installed — Sotto is relaunching…")
+        popen(_relaunch_argv(), start_new_session=True)
+        # same designed-shutdown path as the tray's Quit: SIGINT → tk root
+        # destroyed (or KeyboardInterrupt headless) → atexit stops ollama
+        os.kill(os.getpid(), signal.SIGINT)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)

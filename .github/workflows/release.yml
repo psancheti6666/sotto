@@ -170,6 +170,28 @@ jobs:
         run: |
           sudo apt-get install -y imagemagick
           ./linuxapp/make_deb.sh
+      # Detached signature over the .deb — what sotto-install-update verifies
+      # against the pinned pubkey before any self-update installs (L8). The
+      # key stays scoped to this step; the verify line proves the secret and
+      # the committed pubkey are the same pair. Forks without the secret
+      # still build (their releases just can't feed the self-updater).
+      - name: Sign the .deb
+        env:
+          SOTTO_DEB_SIGN_KEY: ${{ secrets.SOTTO_DEB_SIGN_KEY }}
+        run: |
+          if [ -z "$SOTTO_DEB_SIGN_KEY" ]; then
+            echo "WARNING: SOTTO_DEB_SIGN_KEY not set — .deb will be unsigned" >&2
+            exit 0
+          fi
+          umask 077
+          printf '%s\n' "$SOTTO_DEB_SIGN_KEY" > "$RUNNER_TEMP/deb-sign.pem"
+          for deb in dist/Sotto-*-amd64.deb; do
+            openssl dgst -sha256 -sign "$RUNNER_TEMP/deb-sign.pem" \
+              -out "$deb.sig" "$deb"
+            openssl dgst -sha256 -verify linuxapp/deb/sotto-release.pub \
+              -signature "$deb.sig" "$deb"
+          done
+          rm -f "$RUNNER_TEMP/deb-sign.pem"
       - name: Install the .deb and smoke the installed launcher
         run: |
           sudo apt-get install -y ./dist/Sotto-*-amd64.deb
@@ -209,6 +231,27 @@ jobs:
           out=$(xvfb-run -a /usr/bin/sotto --smoke)
           echo "$out"
           grep -q "bundle=deb" <<<"$out"
+      # The self-update gate, exercised root-side exactly as pkexec would run
+      # it (sudo stands in for pkexec — no polkit agent on a runner). Both
+      # cases must REFUSE: a tampered .deb fails signature verification, and
+      # a genuine .deb of the already-installed version trips the downgrade
+      # guard — which also proves its signature check PASSED first.
+      - name: Verify the install-update signature gate
+        run: |
+          sig=(dist/Sotto-*-amd64.deb.sig)
+          if [ ! -f "${sig[0]}" ]; then
+            echo "no .sig (fork build without the key) — skipping gate test"
+            exit 0
+          fi
+          deb=(dist/Sotto-*-amd64.deb)
+          cp "${deb[0]}" /tmp/tampered.deb
+          printf x >> /tmp/tampered.deb
+          if sudo /usr/libexec/sotto/sotto-install-update /tmp/tampered.deb "${sig[0]}"; then
+            echo "FAIL: tampered .deb was accepted"; exit 1
+          fi
+          out=$(sudo /usr/libexec/sotto/sotto-install-update "${deb[0]}" "${sig[0]}" 2>&1) \
+            && { echo "FAIL: same-version reinstall was accepted"; exit 1; }
+          grep -q "not newer than installed" <<<"$out"
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -216,6 +259,7 @@ jobs:
           path: |
             dist/sotto-linux-x86_64-onedir.tar.gz
             dist/Sotto-*-amd64.deb
+            dist/Sotto-*-amd64.deb.sig
           if-no-files-found: error
 
   # Tag builds gather both DMGs into one draft release. A single job (rather
@@ -246,10 +290,10 @@ jobs:
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" \
-              assets/*.dmg assets/*.deb --clobber
+              assets/*.dmg assets/*.deb assets/*.deb.sig --clobber
           else
             gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
               --title "$GITHUB_REF_NAME" \
               --notes "Draft — release notes to be written before publishing." \
-              assets/*.dmg assets/*.deb
+              assets/*.dmg assets/*.deb assets/*.deb.sig
           fi

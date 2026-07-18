@@ -25,4 +25,22 @@
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/sotto/sotto-perms</annotate>
   </action>
+
+  <!-- Fronts sotto-install-update (L8). Safe behind a pinned path despite
+       polkit's argv blindness because the helper trusts NOTHING from the
+       caller: it re-copies the .deb to a root-owned dir, verifies the
+       release signature against the pinned key in /usr/share/sotto, and
+       refuses non-sotto packages and downgrades before apt runs. A fresh
+       auth on every update (no _keep): installing software should always
+       cost a prompt. -->
+  <action id="io.github.psancheti6666.sotto.install">
+    <description>Install a Sotto update</description>
+    <message>Sotto needs your password to install a verified update</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/sotto/sotto-install-update</annotate>
+  </action>
 </policyconfig>

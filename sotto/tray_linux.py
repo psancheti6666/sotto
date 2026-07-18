@@ -95,7 +95,7 @@ def _tray_thread(dashboard_port):
 
         actions = {
             "insights": lambda *_: dashboard.open_in_browser(dashboard_port),
-            "updates": lambda *_: None,  # armed by L8
+            "updates": lambda *_: update.check_from_menu(),
             "quit": _quit,
         }
         menu = [
