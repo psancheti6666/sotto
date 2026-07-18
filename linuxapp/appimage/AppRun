@@ -1,0 +1,12 @@
+#!/bin/sh
+# Created by Pratik Sancheti / https://github.com/psancheti6666
+# AppImage entry point. The runtime mounts the squashfs and execs this with
+# APPDIR/APPIMAGE exported. SOTTO_BUNDLE=appimage is exported here as well
+# (mirroring the deb's /usr/bin/sotto launcher) so the bundle gate works
+# even under --appimage-extract style manual runs where APPIMAGE is absent.
+HERE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+export SOTTO_BUNDLE=appimage
+# extract-mode runs have no runtime to set APPDIR — the bootstrap staging
+# and the embedded-pubkey lookup both need it
+[ -n "${APPDIR:-}" ] || export APPDIR="$HERE"
+exec "$HERE/opt/sotto/sotto" "$@"

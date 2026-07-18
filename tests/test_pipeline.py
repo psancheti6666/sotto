@@ -549,9 +549,13 @@ def test_update():
 
     check("suffix: mac arm64", update.asset_suffix("darwin", "arm64") == AS)
     check("suffix: mac intel", update.asset_suffix("darwin", "x86_64") == INTEL)
-    check("suffix: linux amd64", update.asset_suffix("linux", "x86_64") == DEB)
+    check("suffix: linux amd64 deb bundle",
+          update.asset_suffix("linux", "x86_64", bundle="deb") == DEB)
+    check("suffix: linux amd64 appimage bundle",
+          update.asset_suffix("linux", "x86_64", bundle="appimage")
+          == "-x86_64.AppImage")
     check("suffix: linux arm64 → None (updater stays silent)",
-          update.asset_suffix("linux", "aarch64") is None)
+          update.asset_suffix("linux", "aarch64", bundle="deb") is None)
     check("suffix: windows → None",
           update.asset_suffix("windows", "AMD64") is None)
 
@@ -610,13 +614,21 @@ def test_update_linux():
 
     from sotto import update_linux as ul
 
-    # bundle gate: SOTTO_BUNDLE decides, nothing else
+    # bundle gate: frozen + SOTTO_BUNDLE decide (delegates to firstrun_linux)
     old = os.environ.pop("SOTTO_BUNDLE", None)
+    orig_frozen = getattr(sys, "frozen", None)
     try:
         check("checkout → bundle_type None", ul.bundle_type() is None)
         os.environ["SOTTO_BUNDLE"] = "deb"
+        check("unfrozen checkout stays None even with the env set",
+              ul.bundle_type() is None)
+        sys.frozen = True
         check("deb launcher env → bundle_type 'deb'", ul.bundle_type() == "deb")
     finally:
+        if orig_frozen is None:
+            del sys.frozen
+        else:
+            sys.frozen = orig_frozen
         os.environ.pop("SOTTO_BUNDLE", None)
         if old is not None:
             os.environ["SOTTO_BUNDLE"] = old
@@ -655,6 +667,8 @@ def test_update_linux():
                 "url": "u", "sig_url": "s"}
         saved_bundle = os.environ.get("SOTTO_BUNDLE")
         os.environ["SOTTO_BUNDLE"] = "deb"
+        saved_frozen = getattr(sys, "frozen", None)
+        sys.frozen = True
         orig_exists, orig_kill = os.path.exists, os.kill
         # narrow patch: only the helper-presence probe is faked
         os.path.exists = (lambda p: True if p == ul.HELPER
@@ -681,6 +695,10 @@ def test_update_linux():
         finally:
             requests.get = orig_get
             os.path.exists, os.kill = orig_exists, orig_kill
+            if saved_frozen is None:
+                del sys.frozen
+            else:
+                sys.frozen = saved_frozen
             if saved_bundle is None:
                 os.environ.pop("SOTTO_BUNDLE", None)
             else:
@@ -711,6 +729,196 @@ def test_update_linux():
               ul.ask("T", "B") is False)
     finally:
         _sh.which = orig_which
+
+
+def test_appimage_bootstrap():
+    print("AppImage (L9): bootstrap routing, payload pins, self-replace:")
+    import signal
+
+    from sotto import firstrun_linux as fl
+    from sotto import update, update_linux as ul
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    # --- fix routing: first run (no pinned helper) → generic-pkexec on a
+    # STAGED copy (root can't read the FUSE mount — L9 security sweep)
+    with tempfile.TemporaryDirectory() as td:
+        bootstrap = os.path.join(td, "bootstrap")
+        open(bootstrap, "w").write("#!/bin/sh\n")
+        os.makedirs(os.path.join(td, "setup"))
+        open(os.path.join(td, "setup", "sotto-perms"), "w").write("payload")
+        saved = {k: os.environ.get(k) for k in ("APPIMAGE", "APPDIR",
+                                                "SOTTO_BUNDLE")}
+        orig_helper, orig_frozen = fl.HELPER, getattr(sys, "frozen", None)
+        os.environ["APPIMAGE"] = "/x/Sotto.AppImage"
+        os.environ["APPDIR"] = td
+        sys.frozen = True
+        fl.HELPER = os.path.join(td, "no-such-helper")
+        try:
+            check("appimage bundle detected", fl.bundle_type() == "appimage")
+            check("update_linux delegates to the same detection",
+                  ul.bundle_type() == "appimage")
+            argv = fl.fix_input_argv()
+            staged = argv[1] if len(argv) == 2 else ""
+            check("no pinned helper → pkexec on a bootstrap copy "
+                  "(generic prompt — the L5/L9 constraint)",
+                  argv[0] == "pkexec" and staged.endswith("/bootstrap"),
+                  str(argv))
+            check("bootstrap is STAGED off the FUSE mount, executable, "
+                  "with the setup payload beside it",
+                  not staged.startswith(td)
+                  and os.access(staged, os.X_OK)
+                  and open(os.path.join(os.path.dirname(staged), "setup",
+                                        "sotto-perms")).read() == "payload",
+                  staged)
+            fl.HELPER = bootstrap  # any existing file stands in for the helper
+            argv = fl.fix_input_argv()
+            check("pinned helper present → pinned action, bootstrap never again",
+                  argv == ["pkexec", bootstrap, "apply"], str(argv))
+        finally:
+            fl.HELPER = orig_helper
+            if orig_frozen is None:
+                del sys.frozen
+            else:
+                sys.frozen = orig_frozen
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+            if fl._staged_bootstrap_dir:
+                import shutil as _sh
+                _sh.rmtree(fl._staged_bootstrap_dir, ignore_errors=True)
+                fl._staged_bootstrap_dir = None
+
+    # --- bootstrap script pins (byte-identical payload, no apt helper)
+    boot = open(os.path.join(root, "linuxapp", "appimage", "bootstrap")).read()
+    for dest in ("/usr/lib/udev/rules.d/60-sotto-input.rules",
+                 "/usr/lib/modules-load.d/sotto-uinput.conf",
+                 "/usr/share/polkit-1/actions/io.github.psancheti6666.sotto.policy",
+                 "/usr/libexec/sotto/sotto-perms"):
+        check(f"bootstrap installs {dest.split('/')[-1]}", dest in boot)
+    check("bootstrap does NOT install the apt-based updater helper",
+          not any("sotto-install-update" in line
+                  for line in boot.splitlines()
+                  if not line.strip().startswith("#")))
+    check("bootstrap grants via PKEXEC_UID, fixed install modes",
+          "PKEXEC_UID" in boot and "install -D -m 755" in boot)
+    apprun = open(os.path.join(root, "linuxapp", "appimage", "AppRun")).read()
+    check("AppRun exports SOTTO_BUNDLE=appimage",
+          "SOTTO_BUNDLE=appimage" in apprun)
+    mk = open(os.path.join(root, "linuxapp", "make_appimage.sh")).read()
+    for f in ("60-sotto-input.rules", "sotto-uinput.conf",
+              "io.github.psancheti6666.sotto.policy", "sotto-perms",
+              "sotto-release.pub"):
+        check(f"make_appimage embeds {f} from linuxapp/deb (byte-identical)",
+              f in mk and "linuxapp/deb/$f" in mk)
+    check("make_appimage pins the vendored runtime hash",
+          "RUNTIME_SHA256=" in mk and "sha256sum -c" in mk)
+    # and the pin must match the actual vendored bytes AND PROVENANCE.md —
+    # drift is otherwise invisible until the Linux CI build runs
+    import hashlib
+    import re as _re
+    pinned = _re.search(r"RUNTIME_SHA256=([0-9a-f]{64})", mk).group(1)
+    actual = hashlib.sha256(open(os.path.join(
+        root, "linuxapp", "appimage", "runtime-x86_64"), "rb").read()).hexdigest()
+    prov = open(os.path.join(root, "linuxapp", "appimage", "PROVENANCE.md")).read()
+    check("pinned hash == vendored runtime bytes == PROVENANCE.md",
+          pinned == actual and pinned in prov,
+          f"pin={pinned[:12]} actual={actual[:12]}")
+
+    # --- evaluate: AppImage assets need their signature too
+    AI = "-x86_64.AppImage"
+    rel = {"tag_name": "v9.9.9", "assets": [
+        {"name": f"Sotto-9.9.9{AI}", "browser_download_url": "https://x/a"},
+        {"name": f"Sotto-9.9.9{AI}.sig", "browser_download_url": "https://x/s"}]}
+    info = update.evaluate(rel, "0.1.0", AI)
+    check("AppImage asset picked with its signature",
+          bool(info) and info["sig_url"] == "https://x/s", repr(info))
+    rel["assets"].pop()
+    check("AppImage without a .sig is not offered",
+          update.evaluate(rel, "0.1.0", AI) is None)
+
+    # --- self-replace flow (all I/O injected)
+    def replace_flow(verify_rc):
+        with tempfile.TemporaryDirectory() as td:
+            target = os.path.join(td, "Sotto.AppImage")
+            open(target, "w").write("OLD")
+            setup = os.path.join(td, "appdir", "setup")
+            os.makedirs(setup)
+            open(os.path.join(setup, "sotto-release.pub"), "w").write("PUB")
+            saved = {k: os.environ.get(k) for k in ("APPIMAGE", "APPDIR")}
+            os.environ["APPIMAGE"] = target
+            os.environ["APPDIR"] = os.path.join(td, "appdir")
+            calls = {"popen": [], "kill": [], "runner": []}
+            orig_kill = os.kill
+            os.kill = lambda pid, sig: calls["kill"].append((pid, sig))
+
+            def fake_get(url, stream=True, timeout=0):
+                class Resp:
+                    headers = {}
+                    def raise_for_status(self): pass
+                    def iter_content(self, n): return iter([b"NEW"])
+                    def __enter__(self): return self
+                    def __exit__(self, *a): pass
+                return Resp()
+
+            import requests
+            orig_get = requests.get
+
+            class R:
+                returncode = verify_rc
+                stderr = stdout = ""
+
+            requests.get = fake_get
+            err = None
+            try:
+                ul._self_replace(
+                    {"version": "9.9.9", "name": "Sotto-9.9.9-x86_64.AppImage",
+                     "url": "u", "sig_url": "s"},
+                    lambda *a: None,
+                    runner=lambda *a, **k: (calls["runner"].append(a[0]),
+                                            R())[1],
+                    popen=lambda *a, **k: calls["popen"].append(a))
+            except RuntimeError as e:
+                err = e
+            finally:
+                requests.get = orig_get
+                os.kill = orig_kill
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            leftovers = [p for p in os.listdir(td)
+                         if p.startswith("Sotto.AppImage.sotto-new")]
+            expected_pub = os.path.join(td, "appdir", "setup",
+                                        "sotto-release.pub")
+            return (open(target).read(), calls, err, leftovers,
+                    expected_pub)
+
+    content, calls, err, leftovers, expected_pub = replace_flow(0)
+    check("verified update replaces $APPIMAGE atomically",
+          content == "NEW" and err is None, repr((content, err)))
+    check("verification uses the pubkey EMBEDDED in the running AppImage "
+          "(the milestone's key invariant)",
+          len(calls["runner"]) == 1 and calls["runner"][0][:5] ==
+          ["openssl", "dgst", "-sha256", "-verify", expected_pub],
+          str(calls["runner"]))
+    check("relaunch waits for our pid then execs the new AppImage",
+          len(calls["popen"]) == 1 and "Sotto.AppImage" in calls["popen"][0][0][-1],
+          str(calls["popen"]))
+    check("self-replace exits via the designed SIGINT path",
+          calls["kill"] == [(os.getpid(), signal.SIGINT)])
+    check("no temp files left beside the AppImage", leftovers == [],
+          str(leftovers))
+    content, calls, err, leftovers, _ = replace_flow(1)
+    check("failed verification NEVER touches $APPIMAGE",
+          content == "OLD" and err is not None
+          and "signature verification FAILED" in str(err),
+          repr((content, err)))
+    check("failed verification leaves no temp files and no relaunch",
+          leftovers == [] and calls["popen"] == [] and calls["kill"] == [])
 
 
 ASR_CASES = [
@@ -1706,6 +1914,7 @@ if __name__ == "__main__":
     test_firstrun_notifications()
     test_update()
     test_update_linux()
+    test_appimage_bootstrap()
     if run_all or "--llm" in args:
         test_llm()
     if run_all or "--asr" in args:

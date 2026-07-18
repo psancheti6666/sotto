@@ -19,6 +19,7 @@ docs/linux-app.md for why the helper is separate from sotto-perms.)
 
 import logging
 import os
+import shlex
 import shutil
 import signal
 import subprocess
@@ -34,13 +35,11 @@ _progress_lock = threading.Lock()
 
 
 def bundle_type():
-    """"deb" inside the installed package (the /usr/bin/sotto launcher
-    exports SOTTO_BUNDLE=deb), None from a checkout/tarball — None keeps
-    the updater silent there (run.sh already git-pulls). L9 adds
-    "appimage"."""
-    if os.environ.get("SOTTO_BUNDLE") == "deb":
-        return "deb"
-    return None
+    """"deb" | "appimage" | None — delegates to firstrun_linux (one source
+    of truth for bundle detection; None keeps the updater silent on
+    checkouts, where run.sh already git-pulls)."""
+    from . import firstrun_linux
+    return firstrun_linux.bundle_type()
 
 
 # ------------------------------------------------- pure argv builders (unit-tested)
@@ -153,40 +152,41 @@ def _progress_hide_locked():
 
 # ----------------------------------------------------------------- install
 
+def _appimage_pubkey() -> str | None:
+    """The release pubkey embedded in the RUNNING AppImage — self-replace
+    verifies the download against it before touching $APPIMAGE. None when
+    APPDIR is unset (never degrade to a cwd-relative path)."""
+    appdir = os.environ.get("APPDIR")
+    if not appdir:
+        return None
+    return os.path.join(appdir, "setup", "sotto-release.pub")
+
+
+def _verify_argv(pubkey: str, sig: str, path: str):
+    return ["openssl", "dgst", "-sha256", "-verify", pubkey,
+            "-signature", sig, path]
+
+
 def download_and_install(info, progress_set_cb, runner=subprocess.run,
                          popen=subprocess.Popen):
-    """Download the .deb + .sig, hand both to the signature-gated root
-    helper via pkexec (the polkit prompt is the user's consent to install),
-    then relaunch. Runs on update.py's worker thread under its single-flight
-    lock. runner/popen are injectable for the unit tier."""
-    if bundle_type() != "deb":
-        raise RuntimeError("not running from an installed .deb")
+    """Route per bundle. Runs on update.py's worker thread under its
+    single-flight lock. runner/popen are injectable for the unit tier."""
+    bundle = bundle_type()
+    if bundle == "appimage":
+        return _self_replace(info, progress_set_cb, runner, popen)
+    if bundle != "deb":
+        raise RuntimeError("not running from an installed bundle")
     if not os.path.exists(HELPER):
         raise RuntimeError(f"{HELPER} is missing — reinstall Sotto")
 
-    import requests
     workdir = tempfile.mkdtemp(prefix="sotto-update-")
     try:
         # basename: the asset name comes from the release JSON — never let
         # it path-traverse out of the workdir
         deb = os.path.join(workdir, os.path.basename(info["name"]))
         sig = deb + ".sig"
-        for url, path, label in ((info["sig_url"], sig, "signature"),
-                                 (info["url"], deb, info["name"])):
-            log.info("downloading %s", url)
-            with requests.get(url, stream=True, timeout=60) as r:
-                r.raise_for_status()
-                total = int(r.headers.get("content-length") or 0)
-                got = 0
-                with open(path, "wb") as f:
-                    for chunk in r.iter_content(1 << 20):
-                        f.write(chunk)
-                        got += len(chunk)
-                        if total and label != "signature":
-                            progress_set_cb(
-                                f"Downloading Sotto {info['version']}… "
-                                f"{got >> 20} of {total >> 20} MB",
-                                got / total)
+        _download(info["sig_url"], sig, progress_set_cb, info["version"], False)
+        _download(info["url"], deb, progress_set_cb, info["version"], True)
 
         progress_set_cb("Waiting for authorization… (Sotto verifies the "
                         "download's signature before installing)")
@@ -219,3 +219,72 @@ def download_and_install(info, progress_set_cb, runner=subprocess.run,
         os.kill(os.getpid(), signal.SIGINT)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
+
+
+def _download(url, path, progress_set_cb, version, show_progress):
+    import requests
+    log.info("downloading %s", url)
+    with requests.get(url, stream=True, timeout=60) as r:
+        r.raise_for_status()
+        total = int(r.headers.get("content-length") or 0)
+        got = 0
+        with open(path, "wb") as f:
+            for chunk in r.iter_content(1 << 20):
+                f.write(chunk)
+                got += len(chunk)
+                if total and show_progress:
+                    progress_set_cb(
+                        f"Downloading Sotto {version}… "
+                        f"{got >> 20} of {total >> 20} MB", got / total)
+
+
+def _self_replace(info, progress_set_cb, runner, popen):
+    """AppImage update: no root, no prompt (docs/linux-app.md decision
+    table). Download the new AppImage + .sig, verify against the pubkey
+    EMBEDDED in the running AppImage (same signature bar as the deb path —
+    a tampered download must never replace $APPIMAGE), atomic-rename over
+    $APPIMAGE, relaunch. The temp file lives NEXT TO the target: os.replace
+    must stay on one filesystem, and ~/Downloads vs /tmp usually isn't."""
+    target = os.environ.get("APPIMAGE")
+    if not target:
+        raise RuntimeError("$APPIMAGE not set — not running from an AppImage")
+    if not os.path.exists(target):
+        # docs invite deleting the file (permissions persist) — say what
+        # actually happened rather than a wrong "not an AppImage"
+        raise RuntimeError(f"the AppImage file is gone ({target}) — "
+                           "download the new version manually")
+    pubkey = _appimage_pubkey()
+    if not pubkey or not os.path.exists(pubkey):
+        raise RuntimeError("embedded release key missing from this AppImage")
+    if not shutil.which("openssl"):
+        raise RuntimeError("openssl is required to verify the update — "
+                           "install it and try again")
+
+    new = target + ".sotto-new"
+    sig = new + ".sig"
+    try:
+        _download(info["sig_url"], sig, progress_set_cb, info["version"], False)
+        _download(info["url"], new, progress_set_cb, info["version"], True)
+        progress_set_cb("Verifying signature…")
+        r = runner(_verify_argv(pubkey, sig, new), capture_output=True,
+                   text=True, timeout=120)
+        if r.returncode != 0:
+            detail = (r.stderr or r.stdout or "").strip()
+            log.warning("AppImage verify failed: %s", detail)  # diagnosable
+            raise RuntimeError("signature verification FAILED — the download "
+                               "was not accepted (it may be corrupt or not a "
+                               "Sotto release)")
+        os.chmod(new, 0o755)
+        os.replace(new, target)  # atomic: old file vanishes, new one is live
+        log.info("AppImage replaced — relaunching as %s", info["version"])
+        progress_hide()
+        popen(["/bin/sh", "-c",
+               f"while kill -0 {os.getpid()} 2>/dev/null; do sleep 0.5; done; "
+               f"exec {shlex.quote(target)}"], start_new_session=True)
+        os.kill(os.getpid(), signal.SIGINT)
+    finally:
+        for p in (new, sig):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass

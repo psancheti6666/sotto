@@ -61,16 +61,24 @@ def _parse(version: str) -> tuple:
     return tuple(int(p) for p in re.findall(r"\d+", version)[:3])
 
 
-def asset_suffix(system: str = None, machine: str = None):
-    """The release-asset suffix this machine updates from, or None where no
-    artifact exists (arm64 Linux, Windows) — None keeps the updater silent.
-    Naming convention: Sotto-<ver>-apple-silicon.dmg / -intel.dmg / -amd64.deb."""
+def asset_suffix(system: str = None, machine: str = None, bundle: str = None):
+    """The release-asset suffix this install updates from, or None where no
+    artifact exists (arm64 Linux, Windows, unbundled checkouts) — None keeps
+    the updater silent. On Linux the BUNDLE decides (a deb must never be
+    offered to an AppImage user or vice versa). Naming convention:
+    Sotto-<ver>-apple-silicon.dmg / -intel.dmg / -amd64.deb / -x86_64.AppImage."""
     system = system if system is not None else platform.system().lower()
     machine = machine if machine is not None else platform.machine()
     if system == "darwin":
         return "-apple-silicon.dmg" if machine == "arm64" else "-intel.dmg"
     if system == "linux" and machine in ("x86_64", "amd64"):
-        return "-amd64.deb"
+        if bundle is None and IS_LINUX:
+            from . import update_linux
+            bundle = update_linux.bundle_type()
+        if bundle == "deb":
+            return "-amd64.deb"
+        if bundle == "appimage":
+            return "-x86_64.AppImage"
     return None
 
 
@@ -78,8 +86,9 @@ def evaluate(release: dict, current: str, suffix: str):
     """Given the /releases/latest JSON, return {version, url, name} when it
     is a real newer release with an asset for this platform (matched by
     asset_suffix — a bare machine string would happily match a DMG on Linux)
-    — else None. For .deb assets the detached signature must be published
-    alongside (sig_url); a release without one is not offered."""
+    — else None. Linux assets (.deb/.AppImage) must publish their detached
+    signature alongside (sig_url); a release without one is not offered.
+    (DMGs carry their own codesign identity instead.)"""
     tag = (release.get("tag_name") or "").lstrip("v")
     if not tag or not suffix or release.get("draft") or release.get("prerelease"):
         return None
@@ -91,7 +100,7 @@ def evaluate(release: dict, current: str, suffix: str):
         if name.endswith(suffix) and asset.get("browser_download_url"):
             info = {"version": tag, "url": asset["browser_download_url"],
                     "name": name}
-            if suffix.endswith(".deb"):
+            if not suffix.endswith(".dmg"):
                 sig = next((a for a in assets
                             if a.get("name") == name + ".sig"
                             and a.get("browser_download_url")), None)
@@ -222,11 +231,19 @@ def _run_update(info):
         except Exception as e:
             _progress_hide()
             log.error("update failed: %s", e)
-            manual = ("download the .deb from github.com/psancheti6666/"
-                      "sotto/releases and open it to install"
-                      if IS_LINUX else
-                      "download the DMG from github.com/psancheti6666/"
-                      "sotto/releases and drag Sotto to Applications")
+            if IS_LINUX:
+                from . import update_linux
+                if update_linux.bundle_type() == "appimage":
+                    manual = ("download the new AppImage from github.com/"
+                              "psancheti6666/sotto/releases and replace "
+                              "your current file with it")
+                else:
+                    manual = ("download the .deb from github.com/"
+                              "psancheti6666/sotto/releases and open it "
+                              "to install")
+            else:
+                manual = ("download the DMG from github.com/psancheti6666/"
+                          "sotto/releases and drag Sotto to Applications")
             alert("Update failed", f"{e}\n\nYou can install manually: {manual}.")
     finally:
         _update_lock.release()

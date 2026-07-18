@@ -27,10 +27,12 @@ YDOTOOLD_UNIT = os.path.expanduser(
 
 
 def bundle_type() -> str | None:
-    """"deb" | "appimage" | None (source checkout / bare onedir)."""
+    """"deb" | "appimage" | None (source checkout / bare onedir). The
+    SOTTO_BUNDLE check covers --appimage-extract style manual runs where
+    the runtime's APPIMAGE env is absent (AppRun exports it either way)."""
     if not getattr(sys, "frozen", False):
         return None
-    if os.environ.get("APPIMAGE"):
+    if os.environ.get("APPIMAGE") or os.environ.get("SOTTO_BUNDLE") == "appimage":
         return "appimage"
     if os.environ.get("SOTTO_BUNDLE") == "deb":
         return "deb"
@@ -130,12 +132,60 @@ def engine_missing(cfg) -> bool:
 
 # ------------------------------------------------------------- fix actions --
 
+_staged_bootstrap_dir = None  # previous staging, replaced on each Fix click
+
+
+def _stage_bootstrap() -> str | None:
+    """Copy the embedded bootstrap + setup payload out of the mounted
+    AppImage into a fresh 0700 tempdir and return the staged bootstrap
+    path (None outside an AppImage run).
+
+    Staging is REQUIRED, not an optimization: the runtime's FUSE mount is
+    unprivileged and without allow_other, so every other uid — including
+    root, including the setuid pkexec — gets EACCES on the mounted path
+    (L9 security sweep). A real-filesystem copy is readable by root as
+    usual. The window where a same-user process could swap the staged
+    files during the auth prompt is within the consent model (that
+    process could equally invoke pkexec on its own script); mkdtemp's
+    0700 keeps other USERS out."""
+    global _staged_bootstrap_dir
+    appdir = os.environ.get("APPDIR")
+    if not appdir:
+        return None
+    src = os.path.join(appdir, "bootstrap")
+    setup = os.path.join(appdir, "setup")
+    if not (os.path.exists(src) and os.path.isdir(setup)):
+        return None
+    import shutil as _shutil
+    import tempfile
+    old, _staged_bootstrap_dir = _staged_bootstrap_dir, None
+    if old:
+        _shutil.rmtree(old, ignore_errors=True)
+    td = tempfile.mkdtemp(prefix="sotto-bootstrap-")
+    dst = os.path.join(td, "bootstrap")
+    _shutil.copy(src, dst)
+    os.chmod(dst, 0o755)
+    _shutil.copytree(setup, os.path.join(td, "setup"))
+    _staged_bootstrap_dir = td
+    return dst
+
+
 def fix_input_argv() -> list:
     """pkexec invocation for the Keyboard-access Fix button. The .deb install
     lays the helper + polkit policy down; the helper derives the target user
-    from pkexec's PKEXEC_UID, so no username is passed here. (The AppImage's
-    first-run bootstrap — installing those files with no pre-existing policy —
-    lands with the AppImage itself in L9.)"""
+    from pkexec's PKEXEC_UID, so no username is passed here.
+
+    AppImage first run: the pinned helper doesn't exist yet, so the ONE-TIME
+    bootstrap runs via pkexec on an unpinned STAGED copy (staged because
+    root can't read the FUSE mount — see _stage_bootstrap) → polkit's
+    GENERIC prompt. Deliberate and honest (docs/linux-app.md L9): the user
+    consents to running a downloaded file as root, once; the bootstrap
+    installs the pinned policy + helper, so every later Fix — and every
+    other machine state — uses the pinned prompt below."""
+    if not os.path.exists(HELPER) and bundle_type() == "appimage":
+        bootstrap = _stage_bootstrap()
+        if bootstrap:
+            return ["pkexec", bootstrap]
     return ["pkexec", HELPER, "apply"]
 
 
@@ -146,7 +196,7 @@ def fix_input():
     log.info("fix input: %s", " ".join(argv))
     try:
         r = subprocess.run(argv, capture_output=True, text=True, timeout=180)
-        log.info("sotto-perms exited %d: %s", r.returncode,
+        log.info("%s exited %d: %s", os.path.basename(argv[1]), r.returncode,
                  (r.stdout + r.stderr).strip())
         # pkexec: 126 = user dismissed the auth dialog, 127 = no polkit agent /
         # not authorized. Tell the user rather than leaving the row silently
@@ -202,12 +252,15 @@ def fix_injection():
     ydotoold = shutil.which("ydotoold")
     if not ydotoold:
         # a silent dead button is worse than the problem — tell the user how
-        # to get the typing helper (the .deb Depends on it; AppImage bundles
-        # it; a source checkout may not have it yet)
+        # to get the typing helper. The .deb Depends on it; the AppImage
+        # deliberately does NOT bundle it (AGPL ydotool bundling deferred,
+        # 2026-07-18 — this honest red row is the chosen alternative), so
+        # non-deb GNOME-Wayland users install it once from their distro.
         from .platform import alert
         alert("Sotto needs a typing helper",
               "To type on Wayland, install ydotool:\n\n"
-              "    sudo apt install ydotool\n\n"
+              "    Ubuntu/Debian:  sudo apt install ydotool\n"
+              "    Fedora:         sudo dnf install ydotool\n\n"
               "then click Fix again.")
         log.warning("fix injection: ydotoold not installed")
         return

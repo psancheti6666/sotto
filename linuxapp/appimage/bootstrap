@@ -1,0 +1,60 @@
+#!/bin/sh
+# Created by Pratik Sancheti / https://github.com/psancheti6666
+# AppImage first-run permission bootstrap (docs/linux-app.md, L9).
+#
+# Runs ONCE, as root, via `pkexec <mounted-appimage-path>/bootstrap` — an
+# UNPINNED path, so polkit shows its generic "authenticate to run this
+# program as root" prompt. That is deliberate and honest (L5 sweep): the
+# user is consenting to run a script from a file they downloaded, and the
+# prompt says exactly that. This script installs the same payload the .deb
+# ships — byte-identical files from setup/ (test-pinned against
+# deb/manifest.txt) — after which the PINNED polkit action + root-owned
+# sotto-perms exist on disk, so every later Fix click uses the pinned
+# prompt and this generic path is never needed again. Permissions persist
+# if the AppImage is deleted (they live in /usr, not the AppImage).
+#
+# Deliberately NOT installed here: sotto-install-update + its pubkey (the
+# apt-based deb self-update path — meaningless without dpkg; the policy's
+# second action stays inert pointing at a path that never exists here).
+set -eu
+# install -m forces file modes, but install -D's CREATED parent dirs (e.g.
+# /usr/libexec/sotto on a fresh machine) inherit the umask — keep them 755,
+# matching the deb layout (same convention as make_deb.sh)
+umask 022
+
+HERE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+SETUP="$HERE/setup"
+
+fail() { echo "sotto bootstrap: $1" >&2; exit 1; }
+[ "$(id -u)" = "0" ] || fail "must run as root (via pkexec)"
+[ -d "$SETUP" ] || fail "payload missing at $SETUP"
+
+# fixed modes via install(1) — never trust the modes on a user-owned mount
+install -D -m 644 "$SETUP/60-sotto-input.rules" \
+    /usr/lib/udev/rules.d/60-sotto-input.rules
+install -D -m 644 "$SETUP/sotto-uinput.conf" \
+    /usr/lib/modules-load.d/sotto-uinput.conf
+install -D -m 644 "$SETUP/io.github.psancheti6666.sotto.policy" \
+    /usr/share/polkit-1/actions/io.github.psancheti6666.sotto.policy
+install -D -m 755 "$SETUP/sotto-perms" /usr/libexec/sotto/sotto-perms
+
+# same immediate grant sotto-perms apply performs (the udev rule owns
+# persistence; setfacl covers the current session without a re-login)
+modprobe uinput 2>/dev/null || true
+if command -v udevadm >/dev/null 2>&1; then
+    udevadm control --reload || true
+    udevadm trigger --subsystem-match=input || true
+    udevadm trigger --sysname-match=uinput || true
+fi
+uid="${PKEXEC_UID:-}"
+if [ -n "$uid" ] && command -v setfacl >/dev/null 2>&1; then
+    user="$(getent passwd "$uid" | cut -d: -f1)"
+    if [ -n "$user" ]; then
+        for dev in /dev/input/event* /dev/uinput; do
+            [ -e "$dev" ] || continue
+            setfacl -m "u:$user:rw" "$dev" 2>/dev/null || true
+        done
+    fi
+fi
+
+echo "sotto: permission setup installed"
