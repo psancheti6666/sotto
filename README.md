@@ -117,7 +117,7 @@ users, tinkerers, and contributors.
 |---|---|
 | macOS, Apple Silicon (M1+) | ✅ Developed and tested on real hardware |
 | macOS, Intel | 🤝 Community-tested — same code except the speech engine (ONNX instead of MLX), which is exercised in CI-style tests |
-| Linux, X11 (Ubuntu/Fedora…) | 🤝 Community-tested — dictation verified on a real Ubuntu desktop by a community tester; the packaged app (.deb/AppImage) is in its validation round |
+| Linux, X11 (Ubuntu/Fedora…) | 🤝 Community-tested — all Linux logic is unit-tested and a community tester exercised the permission setup on a real Ubuntu desktop; end-to-end dictation and the packaged app (.deb/AppImage) are in their validation round |
 | Linux, Wayland | 🤝 Community-tested — works via wtype (KDE/wlroots) or ydotool (GNOME); see Linux notes |
 | Windows | ❌ Not supported |
 
