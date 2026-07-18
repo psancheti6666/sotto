@@ -36,7 +36,9 @@ cp -a dist/sotto "$PKG/opt/sotto"
 # cp -a preserved whatever modes the wheels shipped, and a writable root-owned
 # file under /opt/sotto would let a local user swap code the seat user runs.
 # PyInstaller doesn't emit either, but a dependency wheel theoretically could
-# — belt and braces. CI asserts both on the installed tree.
+# — belt and braces. CI asserts both on the installed tree. (Symlinks are
+# exempt on both sides: chmod -R skips them and their own modes are
+# meaningless — CI instead checks their TARGETS stay inside the tree.)
 chmod -R u-s,g-s,go-w "$PKG/opt/sotto"
 
 # discrete files + exact modes, from the manifest the unit test also reads
