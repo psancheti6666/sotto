@@ -27,6 +27,17 @@ fi
 .venv/bin/python -m pip install --quiet -r requirements.txt
 # build-only dependency; major pinned so hook behavior doesn't drift
 .venv/bin/python -m pip install --quiet "pyinstaller>=6.11,<7"
+# PyGObject feeds pystray's appindicator backend — the only tray protocol
+# GNOME renders (docs/linux-app.md, L7). Best-effort: it compiles against
+# system gir headers (libgirepository1.0-dev, libcairo2-dev; CI installs
+# them), and a build without it still works — the tray just falls back to
+# pystray's xorg backend or the tray-less log line. <3.51 pin: newer
+# PyGObject needs girepository-2.0 (glib ≥ 2.80), beyond the ubuntu-22.04
+# glibc-baseline builder.
+if ! .venv/bin/python -m pip install --quiet "PyGObject<3.51"; then
+  echo "WARNING: PyGObject install failed — tray will lack the appindicator" >&2
+  echo "         backend (invisible on stock GNOME); xorg fallback only." >&2
+fi
 
 rm -rf build dist/sotto
 .venv/bin/pyinstaller --noconfirm --distpath dist --workpath build \
@@ -39,6 +50,14 @@ if [[ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]] && command -v xvfb-run >/dev/null
   xvfb-run -a dist/sotto/sotto --smoke
 else
   dist/sotto/sotto --smoke
+fi
+
+# informational: did the appindicator stack make it into the bundle?
+# (tray is best-effort — this is for reading CI logs, not a gate)
+if [[ -d dist/sotto/_internal/gi ]]; then
+  echo "tray: gi bundled — appindicator backend available"
+else
+  echo "tray: gi NOT bundled — pystray xorg fallback only"
 fi
 
 echo "OK: dist/sotto/ ($(du -sh dist/sotto | cut -f1))"

@@ -123,11 +123,24 @@ every test round attaches `~/.sotto/sotto.log`.
    balks on dependencies, fall back to GNOME Software / gdebi and record
    which path worked; a Depends hiccup is a finding to design around, not a
    milestone failure.
-8. **L7 — Tray (best-effort).** `sotto/tray_linux.py` via pystray: Insights
-   + Quit (full clean shutdown incl. `llm_server.shutdown`); the "Check for
-   Updates…" item appears only once L8's backend lands (`update.enabled()`
-   stays false on Linux until then). Unit: `test_tray_menu`. Friend: tray
-   visible on Ubuntu; Quit exits; tray-less GNOME still works.
+8. **L7 — Tray (best-effort).** ✅ code done (PR #55, issue #54).
+   `sotto/tray_linux.py` via pystray: Insights (opens the dashboard in the
+   browser — the Linux Insights surface) + Quit (SIGINT to self → the
+   existing Ctrl+C path → tk root destroyed / headless KeyboardInterrupt →
+   `llm_server.shutdown` via its atexit hook); the "Check for Updates…"
+   item appears only once L8's backend lands (`update.enabled()` stays
+   false on Linux until then — pinned in the unit). Visibility on GNOME
+   needs the StatusNotifierItem protocol (XEmbed is dead there), so the
+   bundle carries PyGObject (installed best-effort by build_app.sh; needs
+   gir headers, so it is NOT in requirements.txt — checkouts get pystray's
+   gtk/xorg fallback) and the deb Depends gains
+   `gir1.2-ayatanaappindicator3-0.1`; every tray failure collapses to one
+   "tray unavailable" log line and the app runs tray-less. Icon: installed
+   hicolor PNG, else the wordmark cropped at runtime (same fractions as
+   make_deb.sh). Unit: `test_tray_menu`. Friend: tray visible on Ubuntu
+   24.04 (X11 + Wayland); Insights opens the dashboard; Quit fully exits
+   (`pgrep` clean, ollama child gone); tray-less GNOME still dictates with
+   the log line present.
 9. **L8 — Updater Linux backend.** `sotto/update_linux.py` (`bundle_type()`,
    install steps, dialog/banner/progress argv builders), `update.py` grows
    pure `asset_suffix()` + suffix-based `evaluate()` + Linux dispatchers

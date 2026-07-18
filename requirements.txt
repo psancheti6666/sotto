@@ -6,6 +6,12 @@ pyobjc-framework-WebKit ; sys_platform == "darwin"
 pyobjc-framework-UserNotifications ; sys_platform == "darwin"
 evdev ; sys_platform == "linux"
 zstandard ; sys_platform == "linux"
+# tray icon (best-effort; docs/linux-app.md L7). PyGObject — needed for the
+# appindicator backend GNOME requires — is NOT here: it compiles against
+# system gir headers, which would break `pip install -r` on a bare checkout.
+# build_app.sh installs it (best-effort) for the bundle; checkouts get
+# pystray's gtk/xorg fallback or the tray-less log line.
+pystray ; sys_platform == "linux"
 sounddevice
 requests
 pyperclip

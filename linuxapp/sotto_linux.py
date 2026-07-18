@@ -42,7 +42,12 @@ SMOKE_IMPORTS = [
     "sotto.ollama_runtime",
     "sotto.overlay_tk",
     "sotto.platform.linux",
+    "sotto.tray_linux",
     "sotto.update",
+    # pystray itself must be in the bundle (tray_linux imports it lazily);
+    # importing it selects a backend — in a bare container that resolves to
+    # the pure-python xorg backend via the bundled python-xlib
+    "pystray",
 ]
 
 
