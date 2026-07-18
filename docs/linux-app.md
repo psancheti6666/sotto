@@ -82,24 +82,37 @@ every test round attaches `~/.sotto/sotto.log`.
    reachable URL → `which ollama` → `~/.sotto/runtime/ollama` → None;
    download pinned+sha256 with progress) wired into
    `llm_server.bundled_binary()`. Unit: `test_ollama_runtime`.
-6. **L5 — Linux first-run: checks + root helper + Tk windows.**
-   `sotto/firstrun_linux.py` (rows: Keyboard access / Typing / Models info /
-   Start-at-login optional; checks actually open devices and run the
-   injection probes), `sotto/firstrun_tk.py` (walkthrough + download screen,
-   same 1 s tick and Start-click re-verify rules as AppKit, `os.execv`
-   relaunch), `linuxapp/deb/{60-sotto-input.rules, polkit policy,
+6. **L5 — Linux first-run: checks + root helper + Tk windows.** ✅ code done
+   (PR #49, issue #48). `sotto/firstrun_linux.py` (rows: Keyboard access /
+   Typing / Models info / Start-at-login optional; checks actually open
+   devices and run the injection probes), `sotto/firstrun_tk.py` (walkthrough
+   + download screen; walkthrough re-verifies on a 1 s tick, the download
+   screen polls its queue at 100 ms; Start-click re-verify as AppKit,
+   `os.execv` relaunch), `linuxapp/deb/{60-sotto-input.rules, polkit policy,
    sotto-perms, sotto-uinput.conf}`, app.py Linux gate, bundle-aware
-   `PERMISSION_HELP`. Units: `test_firstrun_linux_checks`,
-   `test_firstrun_linux_gating`, `test_perm_fix_argv`, `test_linux_relaunch`,
-   `test_tk_walkthrough`; shellcheck on `deb/*` in CI. Friend:
-   `SOTTO_FIRSTRUN=1` walkthrough → Fix → polkit prompt → **paste
-   `getfacl /dev/input/event0 /dev/uinput`** (the uaccess-lands-without-
-   logout verification) → row greens live → Start → download screen.
+   `PERMISSION_HELP`. **Security (sweep):** the root helper exposes only
+   `apply` (grants the PKEXEC_UID user — never an argv-supplied name — access
+   to their own seat) and `verify` (read-only); polkit pins exec.path but
+   can't constrain argv, so `install-update` moved to **L8** (signature-gated)
+   and `bootstrap` to **L9**. Units: `test_firstrun_linux`,
+   `test_tk_firstrun_windows`; shellcheck on `deb/*` a CI merge gate. Friend
+   (**UI preview only** — the helper + udev rule aren't installed until the
+   .deb, so a checkout can't grant real access): `SOTTO_FIRSTRUN=1` →
+   walkthrough renders, rows reflect the honest checks, gating enables/
+   disables Start → screenshot. The decisive **uaccess-lands-without-logout**
+   check (Fix → polkit → `getfacl`) needs the real .deb → it lives in L6.
 7. **L6 — .deb + release pipeline** (the big one). `make_deb.sh` + packaging
-   payload + icons; CI **installs the deb and smokes `/usr/bin/sotto`**;
-   release job glob gains `linux-*`. Unit: `test_deb_layout`. Friend, fresh
-   state: double-click → App Center → ONE password prompt → launch from app
-   grid → **Keyboard row expected already green** → walkthrough → downloads
+   payload + icons; **the `/usr/bin/sotto` launcher MUST export
+   `SOTTO_BUNDLE=deb`** (the entire L5 first-run gate + bundle-aware
+   `PERMISSION_HELP` are dormant without it); **the postinst MUST install
+   `/usr/libexec/sotto/sotto-perms` as `0755 root:root`** — if it's ever
+   group/world-writable the pinned polkit action becomes a local root
+   escalation (flagged by L5's security sweep; assert it in `test_deb_layout`
+   / `dpkg-deb --contents`); CI **installs the deb and smokes `/usr/bin/sotto`**;
+   release job glob gains `linux-*`. Unit: `test_deb_layout`. Friend, fresh state: double-click → App Center → ONE
+   password prompt → launch from app grid → **Keyboard row expected already
+   green**; if gray, Fix → polkit → **paste `getfacl /dev/input/event0
+   /dev/uinput`** (the uaccess verification) → walkthrough → downloads
    → ready alert → dictate into gedit (Wayland) and a terminal (paste path);
    send timing lines, `getfacl`, `groups` (proves no input-group needed),
    ydotoold user-unit status if GNOME-Wayland. Hedge: App Center's local-deb

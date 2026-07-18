@@ -823,6 +823,271 @@ def test_evdev_permission_detection():
         check("ConnectionResetError swallowed", False, "raised")
 
 
+def test_firstrun_linux():
+    print("Linux first-run: checks, gating, fix argv, relaunch:")
+    from types import SimpleNamespace
+    import sotto.hotkey_evdev as he
+    from sotto import firstrun, firstrun_linux as fl
+    from sotto.config import Config
+
+    RC, A = he.KEY_CODES["ctrl_r"], 30
+
+    class FakeDev:
+        def __init__(self, keys): self._keys = keys
+        def capabilities(self): return {1: self._keys}
+        def close(self): pass
+
+    def fake_evdev(caps):
+        return SimpleNamespace(
+            ecodes=SimpleNamespace(EV_KEY=1),
+            InputDevice=lambda path: FakeDev(caps[path])
+            if path in caps else (_ for _ in ()).throw(PermissionError(path)))
+
+    orig_raw = he._list_raw
+    try:
+        he._list_raw = lambda: ["/dev/input/event0", "/dev/input/event1"]
+        check("keyboard readable → input_ok",
+              fl.input_ok("ctrl_r", fake_evdev(
+                  {"/dev/input/event1": [RC, A]})))
+        check("nothing readable → not input_ok",
+              not fl.input_ok("ctrl_r", fake_evdev({})))
+        check("mouse only → not input_ok",
+              not fl.input_ok("ctrl_r", fake_evdev(
+                  {"/dev/input/event0": [272]})))
+    finally:
+        he._list_raw = orig_raw
+
+    def failing_open(path, flags):
+        raise OSError("denied")
+    check("uinput denied → False", not fl.uinput_ok(opener=failing_open))
+
+    from sotto import inject_linux as il
+
+    class FakeChain:
+        def __init__(self, name): self._injectors = [type(name, (), {})()]
+    orig_build = il.build_injector
+    try:
+        il.build_injector = lambda: FakeChain("_XdotoolInjector")
+        check("typing injector → injection_ok", fl.injection_ok())
+        il.build_injector = lambda: FakeChain("_ClipboardNotifyInjector")
+        check("clipboard fallback → not injection_ok", not fl.injection_ok())
+    finally:
+        il.build_injector = orig_build
+    # pin the real attribute name injection_ok reaches for (_injectors) so a
+    # rename of _Chain's field can't leave injection_ok silently False
+    check("real _Chain exposes _injectors",
+          hasattr(il._Chain([object()]), "_injectors"))
+
+    # gating: models/engine never gate; SOTTO_FIRSTRUN forces both ways
+    cfg = Config()
+    orig_in, orig_inj = fl.input_ok, fl.injection_ok
+    had = os.environ.pop("SOTTO_FIRSTRUN", None)
+    try:
+        fl.input_ok = lambda *a, **k: True
+        fl.injection_ok = lambda: True
+        check("both green → not needed", not fl.needed(cfg))
+        fl.injection_ok = lambda: False
+        check("injection missing → needed", fl.needed(cfg))
+        os.environ["SOTTO_FIRSTRUN"] = "0"
+        check("SOTTO_FIRSTRUN=0 suppresses", not fl.needed(cfg))
+        os.environ["SOTTO_FIRSTRUN"] = "1"
+        fl.injection_ok = lambda: True
+        check("SOTTO_FIRSTRUN=1 forces", fl.needed(cfg))
+    finally:
+        fl.input_ok, fl.injection_ok = orig_in, orig_inj
+        os.environ.pop("SOTTO_FIRSTRUN", None)
+        if had is not None:
+            os.environ["SOTTO_FIRSTRUN"] = had
+
+    # setup_missing: engine adoptable / resolvable / absent
+    from sotto import llm_server, ollama_runtime
+    orig_mm = firstrun.models_missing
+    orig_reach, orig_res = llm_server._reachable, ollama_runtime.resolve
+    try:
+        firstrun.models_missing = lambda c: False
+        llm_server._reachable = lambda url: True
+        check("reachable server → nothing missing", not fl.setup_missing(cfg))
+        llm_server._reachable = lambda url: False
+        ollama_runtime.resolve = lambda: "/usr/bin/ollama"
+        check("resolvable binary → nothing missing", not fl.setup_missing(cfg))
+        ollama_runtime.resolve = lambda: None
+        check("no engine anywhere → missing", fl.setup_missing(cfg))
+        firstrun.models_missing = lambda c: True
+        check("models missing → missing", fl.setup_missing(cfg))
+    finally:
+        firstrun.models_missing = orig_mm
+        llm_server._reachable, ollama_runtime.resolve = orig_reach, orig_res
+
+    # fix argv is always the benign pkexec apply — the helper derives the
+    # target user from PKEXEC_UID, so no username is passed (security review)
+    check("fix input → pkexec apply, no user arg",
+          fl.fix_input_argv() == ["pkexec", fl.HELPER, "apply"])
+
+    # bundle_type + relaunch argv under bundle-env permutations
+    saved = {k: os.environ.get(k) for k in ("APPIMAGE", "APPDIR", "SOTTO_BUNDLE")}
+    for k in saved:
+        os.environ.pop(k, None)
+    orig_frozen = getattr(sys, "frozen", None)
+    try:
+        sys.frozen = True
+        os.environ["SOTTO_BUNDLE"] = "deb"
+        check("deb bundle_type", fl.bundle_type() == "deb")
+        del os.environ["SOTTO_BUNDLE"]
+        os.environ["APPIMAGE"] = "/home/u/Sotto.AppImage"
+        check("appimage bundle_type", fl.bundle_type() == "appimage")
+        check("appimage relaunch = $APPIMAGE",
+              fl.relaunch_argv() == ["/home/u/Sotto.AppImage"])
+        del os.environ["APPIMAGE"]
+        check("frozen relaunch = executable",
+              fl.relaunch_argv() == [sys.executable])
+        del sys.frozen
+        check("checkout bundle_type None", fl.bundle_type() is None)
+        check("checkout relaunch = -m sotto",
+              fl.relaunch_argv() == [sys.executable, "-m", "sotto"])
+    finally:
+        if orig_frozen is not None:
+            sys.frozen = orig_frozen
+        elif hasattr(sys, "frozen"):
+            del sys.frozen
+        # restore deterministically regardless of where an exception landed
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    # ydotoold unit: socket path must match the injector client's socket, or
+    # daemon + client start fine yet never connect (Typing row stuck red)
+    from sotto import inject_linux as il2
+    unit = fl._ydotoold_unit("/usr/bin/ydotoold")
+    check("unit starts ydotoold at %t/.ydotool_socket",
+          "ExecStart=/usr/bin/ydotoold --socket-path=%t/.ydotool_socket" in unit,
+          unit)
+    check("unit has RestartSec (avoids start-limit wedge)", "RestartSec=2" in unit)
+    check("injector client socket is XDG_RUNTIME_DIR/.ydotool_socket "
+          "(matches %t)", il2.YDOTOOL_SOCKET.endswith("/.ydotool_socket")
+          and il2._ydotool_env()["YDOTOOL_SOCKET"] == il2.YDOTOOL_SOCKET,
+          il2.YDOTOOL_SOCKET)
+    check("systemctl setup does reset-failed before enable",
+          [a[2] for a in fl._YDOTOOLD_SETUP]
+          == ["daemon-reload", "reset-failed", "enable"],
+          str(fl._YDOTOOLD_SETUP))
+
+    # fix_injection with no ydotoold → user-visible alert (not a silent dead
+    # button). fix_injection does `from .platform import alert`, so patch there.
+    from sotto import platform as spkg
+    alerts = []
+    orig_which2, orig_alert2 = fl.shutil.which, spkg.alert
+    fl.shutil.which = lambda c: None
+    spkg.alert = lambda t, x: alerts.append((t, x))
+    try:
+        fl.fix_injection()
+        check("no ydotoold → alert, not silent",
+              len(alerts) == 1 and "ydotool" in alerts[0][1], str(alerts))
+    finally:
+        fl.shutil.which, spkg.alert = orig_which2, orig_alert2
+
+    # autostart writer
+    orig_auto = fl.AUTOSTART_PATH
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            fl.AUTOSTART_PATH = os.path.join(td, "autostart", "sotto.desktop")
+            check("no autostart file → False", not fl.autostart_ok())
+            fl.fix_autostart()
+            check("fix_autostart writes a desktop entry",
+                  fl.autostart_ok()
+                  and "Exec=" in open(fl.AUTOSTART_PATH).read())
+    finally:
+        fl.AUTOSTART_PATH = orig_auto
+
+
+def test_tk_firstrun_windows():
+    print("Linux first-run Tk windows (headless instantiate):")
+    import tkinter as tk
+    from sotto import firstrun_linux as fl, firstrun_tk as ft
+    from sotto.config import Config
+    try:
+        probe = tk.Tk()
+    except tk.TclError:
+        print("  (no display — Tk window test runs where one exists)")
+        return
+    probe.destroy()
+
+    cfg = Config()
+    orig = (fl.input_ok, fl.injection_ok, fl.setup_missing, fl.autostart_ok)
+    fl.input_ok = lambda *a, **k: True
+    fl.injection_ok = lambda: False
+    fl.setup_missing = lambda c: True
+    fl.autostart_ok = lambda: False
+    try:
+        w = ft._Walkthrough(cfg)
+        st = w.tick(loop=False)
+        check("tick reports the stubbed states",
+              st["input"] and not st["injection"], str(st))
+        check("Start disabled while a gating row is red",
+              str(w.start_btn["state"]) == "disabled")
+        fl.injection_ok = lambda: True
+        w.tick(loop=False)
+        check("Start enables when gating rows green",
+              str(w.start_btn["state"]) == "normal")
+        w.close()
+
+        s = ft._DownloadScreen(cfg)
+        s.q.put(("cleanup engine: 40%", 0.4))
+        cont = s.drain()
+        check("progress line lands in the bar",
+              abs(float(s.bar["value"]) - 0.4) < 1e-6 and cont, str(s.bar["value"]))
+        s.q.put(("__done__", None))
+        stop = s.drain()  # setup still "missing" → must show Retry, stop polling
+        check("incomplete download shows Retry and stops polling",
+              s.retry.winfo_manager() != "" and stop is False)
+        # Retry must re-arm: a subsequent successful run reaches relaunch.
+        # relaunch is stubbed to a recorder — the REAL relaunch execv's into a
+        # live Sotto, so it must never run under test.
+        relaunched = []
+        orig_re = fl.relaunch
+        fl.relaunch = lambda: relaunched.append(True)
+        try:
+            fl.setup_missing = lambda c: False
+            s.q.put(("__done__", None))
+            s.drain()
+            check("completed download relaunches", relaunched == [True])
+
+            # engine-download-failure branch of begin().work(): the except
+            # posts a failure line + exactly one __done__ (screen doesn't
+            # hang), and finish() shows Retry — never relaunch. setup_missing
+            # forced True so even if drain reaches finish, no relaunch fires.
+            fl.setup_missing = lambda c: True
+            from sotto import ollama_runtime as orr
+            orig_em, orig_dl = fl.engine_missing, orr.download
+            fl.engine_missing = lambda c: True
+            def boom(cb=None): raise RuntimeError("network down")
+            orr.download = boom
+            s2 = ft._DownloadScreen(cfg)
+            try:
+                s2.begin()  # spawns worker; no mainloop, so pump manually below
+                import time as _t
+                for _ in range(150):  # drain until the worker's __done__ lands
+                    if not s2._busy:   # __done__ consumed → finish() has run
+                        break
+                    s2.drain()
+                    _t.sleep(0.02)
+                check("engine failure lands on Retry (no hang), status shows the "
+                      "failure, and no relaunch fires",
+                      s2.retry.winfo_manager() != ""
+                      and "failed" in str(s2.status.cget("text"))
+                      and relaunched == [True],
+                      f"busy={s2._busy} retry={s2.retry.winfo_manager()!r} "
+                      f"status={s2.status.cget('text')!r} relaunched={relaunched}")
+            finally:
+                fl.engine_missing, orr.download = orig_em, orig_dl
+                s2.root.destroy()
+        finally:
+            fl.relaunch = orig_re
+    finally:
+        (fl.input_ok, fl.injection_ok, fl.setup_missing, fl.autostart_ok) = orig
+
+
 def test_platform_detection():
     print("platform detection and Linux config defaults:")
     import sotto.platform as sp
@@ -876,7 +1141,7 @@ def test_linux_injector_selection():
     try:
         il.session_type = lambda: "x11"
         il.shutil.which = which_of({"xdotool", "xclip"})
-        il._probe = lambda cmd: True
+        il._probe = lambda cmd, env=None: True
         names = [i.name for i in il.build_injector()._injectors]
         check("X11 → xdotool, clipboard fallback", names == ["xdotool", "clipboard"], str(names))
 
@@ -889,7 +1154,7 @@ def test_linux_injector_selection():
         names = [i.name for i in il.build_injector()._injectors]
         check("Wayland without wtype → ydotool", names == ["ydotool", "clipboard"], str(names))
 
-        il._probe = lambda cmd: False  # wtype present but compositor rejects it
+        il._probe = lambda cmd, env=None: False  # wtype present but compositor rejects it
         il.shutil.which = which_of({"wtype", "wl-copy"})
         names = [i.name for i in il.build_injector()._injectors]
         check("failed probe skips the tool", names == ["clipboard"], str(names))
@@ -927,7 +1192,8 @@ def test_smoke_imports():
         "sotto.app", "sotto.asr", "sotto.asr_onnx", "sotto.audio",
         "sotto.hotkey_evdev", "sotto.inject", "sotto.inject_linux",
         "sotto.overlay_tk", "sotto.platform.linux",
-        "sotto.firstrun", "sotto.llm_server", "sotto.ollama_runtime",
+        "sotto.firstrun", "sotto.firstrun_linux", "sotto.firstrun_tk",
+        "sotto.llm_server", "sotto.ollama_runtime",
         "sotto.update", "sotto.dashboard", "zstandard",
     }
     missing = required - set(mod.SMOKE_IMPORTS)
@@ -1138,6 +1404,8 @@ if __name__ == "__main__":
     test_force_stop()
     test_evdev_gestures()
     test_evdev_permission_detection()
+    test_firstrun_linux()
+    test_tk_firstrun_windows()
     test_platform_detection()
     test_linux_injector_selection()
     test_linux_alert()

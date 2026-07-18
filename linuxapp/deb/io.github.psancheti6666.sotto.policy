@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<!-- Created by Pratik Sancheti / https://github.com/psancheti6666 -->
+<policyconfig>
+  <vendor>Sotto</vendor>
+  <vendor_url>https://github.com/psancheti6666/sotto</vendor_url>
+
+  <!-- Fronts the sotto-perms helper, whose only verbs are `apply` (grant the
+       AUTHENTICATING user — from PKEXEC_UID, never argv — access to their own
+       seat's input devices) and `verify` (read-only). Both are deliberately
+       benign: polkit pins exec.path but cannot constrain argv, so nothing
+       reachable here may run arbitrary code as root. Self-update installs
+       (L8, signature-gated) and the AppImage bootstrap (L9, generic prompt)
+       are intentionally NOT reachable through this pinned action.
+       auth_admin_keep is safe given both verbs only ever affect the caller. -->
+  <action id="io.github.psancheti6666.sotto.perms">
+    <description>Sotto dictation setup</description>
+    <message>Sotto needs your password to set up dictation permissions</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/sotto/sotto-perms</annotate>
+  </action>
+</policyconfig>

@@ -1,0 +1,66 @@
+#!/bin/sh
+# Created by Pratik Sancheti / https://github.com/psancheti6666
+# Sotto's root helper — the ONLY code Sotto runs with privileges, authorized
+# via the polkit action io.github.psancheti6666.sotto.perms (graphical prompt).
+#
+#   sotto-perms apply     make /dev/input + /dev/uinput accessible to the
+#                         INVOKING user (udev reload+trigger; setfacl grants
+#                         this session immediately, the rule owns persistence)
+#   sotto-perms verify    print current device ACL state (read-only)
+#
+# SECURITY: polkit's exec.path pins this path but CANNOT constrain argv, so
+# every verb reachable here is callable by any local user after one admin
+# auth. Both verbs are therefore deliberately benign — `apply` can only grant
+# the *calling* user (derived from pkexec's PKEXEC_UID, never from argv) access
+# to their own seat's devices; `verify` only reads. Anything that could run
+# arbitrary code as root (installing files/packages from caller-supplied
+# paths) must NOT live behind this pinned policy: self-update installs land in
+# milestone L8 with signature verification; the AppImage's first-run bootstrap
+# lands in L9 through the generic (unpinned) admin prompt.
+set -eu
+
+apply_perms() {
+    modprobe uinput 2>/dev/null || true
+    if command -v udevadm >/dev/null 2>&1; then
+        udevadm control --reload || true
+        udevadm trigger --subsystem-match=input || true
+        udevadm trigger --sysname-match=uinput || true
+    fi
+    # uaccess ACLs are applied by logind via udev; reports differ on whether
+    # that lands without a re-login, so also grant this session directly.
+    # The target is pkexec's PKEXEC_UID (the user who authenticated) — NEVER a
+    # caller argument, so this can't hand another account keylogging access.
+    uid="${PKEXEC_UID:-}"
+    if [ -n "$uid" ] && command -v setfacl >/dev/null 2>&1; then
+        user="$(getent passwd "$uid" | cut -d: -f1)"
+        if [ -n "$user" ]; then
+            for dev in /dev/input/event* /dev/uinput; do
+                [ -e "$dev" ] || continue
+                setfacl -m "u:$user:rw" "$dev" 2>/dev/null || true
+            done
+        fi
+    fi
+}
+
+case "${1:-}" in
+    apply)
+        apply_perms
+        ;;
+    verify)
+        for dev in /dev/input/event0 /dev/uinput; do
+            if [ -e "$dev" ]; then
+                if command -v getfacl >/dev/null 2>&1; then
+                    getfacl -p "$dev" 2>&1
+                else
+                    ls -l "$dev"
+                fi
+            else
+                echo "$dev: absent"
+            fi
+        done
+        ;;
+    *)
+        echo "usage: sotto-perms {apply|verify}" >&2
+        exit 2
+        ;;
+esac

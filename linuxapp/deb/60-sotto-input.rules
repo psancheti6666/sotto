@@ -1,0 +1,11 @@
+# Created by Pratik Sancheti / https://github.com/psancheti6666
+# Sotto (io.github.psancheti6666.sotto): dictation hotkey + text injection.
+#
+# uaccess tags make systemd-logind grant the ACTIVE SEATED USER an ACL on the
+# device (applied by 73-seat-late.rules — this file must sort before it).
+# Security note (documented in the README): this is the same keylogging-
+# exposure class as `usermod -aG input`, scoped to the seated user instead of
+# a group; Sotto itself reads keys only while the hotkey is held.
+KERNEL=="event*", SUBSYSTEM=="input", TAG+="uaccess"
+# /dev/uinput lets ydotool type the dictated text on Wayland.
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"

@@ -48,8 +48,8 @@ hiddenimports += [
     # sotto modules reached only through lazy/platform-selected imports
     "sotto.asr_onnx", "sotto.hotkey_evdev", "sotto.inject_linux",
     "sotto.overlay_tk", "sotto.platform.linux",
-    "sotto.firstrun", "sotto.llm_server", "sotto.ollama_runtime",
-    "sotto.update",
+    "sotto.firstrun", "sotto.firstrun_linux", "sotto.firstrun_tk",
+    "sotto.llm_server", "sotto.ollama_runtime", "sotto.update",
 ]
 
 a = Analysis(
