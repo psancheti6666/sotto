@@ -213,9 +213,13 @@ every test round attaches `~/.sotto/sotto.log`.
     the one-prompt story, AppImage + generic-bootstrap explanation, the
     honest uaccess note, ydotool-on-GNOME-Wayland caveat, complete Linux
     network-calls list); platform table updated. Release-pipeline dry run
-    fired via workflow_dispatch on merged main (all four artifacts + REAL-
-    key signatures, artifact-only — proves tag day before tag day; result
-    recorded here when it lands). Remaining, Pratik-driven: version bump +
+    ✅ PASSED (workflow_dispatch on merged main, run 29654010763,
+    2026-07-18): all three build jobs green — both DMGs (apple-silicon
+    218 MB, intel 131 MB), deb + AppImage with REAL-key signatures (two
+    "Verified OK" against the committed pubkey; the real key's first
+    outing, dispatch branch taken correctly), AppImage smoked in the bare
+    container (bundle=appimage), release job correctly skipped
+    (tag-gated). Tag day is proven mechanical. Remaining, Pratik-driven: version bump +
     tag (v0.4.0 recommended) → draft release (2 DMGs + deb + .sig +
     AppImage + .sig) → friend rounds: L6 deb grant, L7 tray, L9 AppImage
     (incl. the FUSE-mount bootstrap — first thing to confirm), L8 update
