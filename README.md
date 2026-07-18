@@ -42,13 +42,51 @@ carry over. There's also a **Check for Updates…** item in the menu-bar menu,
 and `update_check_days = 0` in `~/.sotto/config.toml` turns the scheduled
 check off entirely.
 
-## Download (Linux) — in progress
+## Download (Linux)
 
-A native Linux app is being built: a `.deb` for Ubuntu (double-click install,
-no terminal ever) and an AppImage for other distros, with the same guided
-setup, overlay, and self-update as the Mac app. Plan and progress:
-[docs/linux-app.md](docs/linux-app.md). Until it ships, Linux runs from
-source — see below.
+**[⬇ Get the latest release](https://github.com/psancheti6666/sotto/releases/latest)** —
+two packages, X11 and Wayland both supported:
+
+- `Sotto-…-amd64.deb` — **Ubuntu 22.04+ / Debian 12+ (recommended).**
+  Double-click → install through App Center. The install's one password
+  prompt also grants Sotto keyboard access (details below), so dictation
+  should work at first launch — no terminal, no re-login; if your system
+  needs a nudge, the setup screen's one-click **Fix** covers it. Launch
+  Sotto from the app grid; it takes you through whatever remains (a
+  one-time ~3–4 GB model download; on GNOME Wayland also a typing-helper
+  check).
+- `Sotto-…-x86_64.AppImage` — other distros (Fedora 36+ etc.;
+  community-tested). Make it executable (right-click → Properties →
+  Executable as Program on GNOME) and run it. On first run, the setup
+  screen's **Fix** button asks for your password with a generic system
+  prompt — that's your one-time consent to install the same permission
+  files the .deb ships (they stay even if you later delete the AppImage).
+  On GNOME Wayland you'll also be asked to install `ydotool` from your
+  distro's packages — the one step that needs a terminal there.
+
+**What that password prompt actually does — and the honest trade-off.**
+Sotto reads the keyboard *device* to see its hotkey anywhere on X11 and
+Wayland. The install grants your desktop session access to input devices
+(a udev `uaccess` rule — the standard seat-based mechanism). Any program
+running as you could then technically read keystrokes too; this is the
+same exposure class as the common `usermod -aG input` setup that tools
+like ydotool document, made visible here instead of buried. Sotto itself
+records nothing until you hold the hotkey. If that trade-off isn't right
+for you, don't install — or run from source and audit first; everything
+that ever runs with root privileges is plain readable shell in
+[`linuxapp/`](linuxapp/).
+
+Self-updates work like the Mac app's (scheduled check → **Update Now /
+Later**, or the tray's **Check for Updates…**): the .deb path verifies
+the download's signature against a key pinned at install before anything
+installs (one password prompt per update); the AppImage verifies against
+its embedded key and replaces its own file — no password. Release `.sig`
+files published alongside the packages are those signatures.
+
+Network calls, complete list (Linux): the once-a-day release check (one
+GitHub API call, `update_check_days = 0` disables), first-run downloads
+(models; the Ollama runtime if none is installed), and the update
+download when you say yes. Nothing else, ever.
 
 Everything below this point is for running Sotto **from source** — Linux
 users, tinkerers, and contributors.
@@ -79,7 +117,7 @@ users, tinkerers, and contributors.
 |---|---|
 | macOS, Apple Silicon (M1+) | ✅ Developed and tested on real hardware |
 | macOS, Intel | 🤝 Community-tested — same code except the speech engine (ONNX instead of MLX), which is exercised in CI-style tests |
-| Linux, X11 (Ubuntu/Fedora…) | 🤝 Community-tested — all Linux logic is unit-tested, but not yet verified on real desktops |
+| Linux, X11 (Ubuntu/Fedora…) | 🤝 Community-tested — dictation verified on a real Ubuntu desktop by a community tester; the packaged app (.deb/AppImage) is in its validation round |
 | Linux, Wayland | 🤝 Community-tested — works via wtype (KDE/wlroots) or ydotool (GNOME); see Linux notes |
 | Windows | ❌ Not supported |
 
