@@ -1260,23 +1260,32 @@ def test_tray_menu():
     check("tray Quit delivers SIGINT to our own pid",
           sent == [(os.getpid(), signal.SIGINT)], str(sent))
 
-    # best-effort contract: pystray missing (true on macOS) must mean a
-    # clean thread exit and one log line — never a raise, never a hang
+    # best-effort contract: an unavailable pystray stack must mean a clean
+    # thread exit and one log line — never a raise, never a hang. Pin the
+    # unavailable branch deterministically: a real pystray import would
+    # START a live tray (blocking X/AppKit loop, visible icon) on any
+    # machine where the stack works — a checkout with a display, or a mac
+    # venv with pystray pip-installed — so block the import outright.
     records = []
     handler = logging.Handler()
     handler.emit = lambda r: records.append(r.getMessage())
     tl.log.addHandler(handler)
     orig_level = tl.log.level
     tl.log.setLevel(logging.INFO)  # the fallback line is INFO; root sits at WARNING
+    orig_pystray = sys.modules.get("pystray")
+    sys.modules["pystray"] = None  # import pystray → ImportError
     try:
         t = tl.start(dashboard_port=8377)
         t.join(timeout=10)
         check("tray thread exits cleanly when the stack is unavailable",
               not t.is_alive())
         check("tray-less fallback logs the 'tray unavailable' line",
-              any("tray unavailable" in m or "tray icon starting" in m
-                  for m in records), str(records))
+              any("tray unavailable" in m for m in records), str(records))
     finally:
+        if orig_pystray is None:
+            sys.modules.pop("pystray", None)
+        else:
+            sys.modules["pystray"] = orig_pystray
         tl.log.setLevel(orig_level)
         tl.log.removeHandler(handler)
 

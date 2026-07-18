@@ -15,6 +15,11 @@ SIGINT → overlay_tk's handler destroys the tk root (or KeyboardInterrupt
 unwinds a headless listener.run() on the main thread) → the process exits →
 llm_server's atexit hook stops any ollama Sotto spawned. The tk tick keeps
 rescheduling while hidden, so the signal is handled within one TICK_MS.
+
+INVARIANT: icon.run() must stay OFF the main thread. pystray's gtk-family
+backends reset the SIGINT handler to SIG_DFL during init — off-main that
+raises and is swallowed inside pystray, but on the main thread it would
+silently clobber overlay_tk's Ctrl+C handler and break quit entirely.
 """
 
 import logging
@@ -103,6 +108,18 @@ def _tray_thread(dashboard_port):
         ]
         icon = pystray.Icon("sotto", _icon_image(), "Sotto",
                             pystray.Menu(*menu))
+        if not icon.HAS_MENU:
+            # pystray's xorg fallback renders the icon but NO menu at all —
+            # Quit would silently not exist. With a dashboard the left-click
+            # default action still opens Insights, so the icon earns its
+            # place; without one it would be a dead pixel — skip it, honestly.
+            if dashboard_port is None:
+                log.info("tray backend has no menu support and no dashboard "
+                         "to open — running without a tray icon")
+                return
+            log.warning("tray backend has no menu support — left-click opens "
+                        "Insights; quit Sotto with Ctrl+C or by ending the "
+                        "process")
         log.info("tray icon starting (backend %s)", pystray.Icon.__module__)
         icon.run()  # owns this thread until the process exits
     except Exception as e:

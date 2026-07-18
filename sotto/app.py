@@ -364,6 +364,12 @@ class Sotto:
         else:
             try:
                 listener.run()
+            except KeyboardInterrupt:
+                # Ctrl+C or the tray's Quit (SIGINT to self) — a designed
+                # shutdown, not a crash; without this the excepthook would
+                # log it as CRITICAL and log-based triage reads a quit as
+                # a failure.
+                log.info("interrupt — shutting down")
             finally:
                 self.recorder.close()
 
