@@ -137,10 +137,11 @@ every test round attaches `~/.sotto/sotto.log`.
    `gir1.2-ayatanaappindicator3-0.1`; every tray failure collapses to one
    "tray unavailable" log line and the app runs tray-less. Icon: installed
    hicolor PNG, else the wordmark cropped at runtime (same fractions as
-   make_deb.sh). Unit: `test_tray_menu`. Friend: tray visible on Ubuntu
-   24.04 (X11 + Wayland); Insights opens the dashboard; Quit fully exits
-   (`pgrep` clean, ollama child gone); tray-less GNOME still dictates with
-   the log line present.
+   make_deb.sh). Unit: `test_tray_menu`. Friend test (PENDING — none of
+   this is live-verified yet): check tray visible on Ubuntu 24.04 (X11 +
+   Wayland); Insights opens the dashboard; Quit fully exits (`pgrep`
+   clean, ollama child gone); tray-less GNOME still dictates and logs the
+   tray-unavailable line.
 9. **L8 — Updater Linux backend.** `sotto/update_linux.py` (`bundle_type()`,
    install steps, dialog/banner/progress argv builders), `update.py` grows
    pure `asset_suffix()` + suffix-based `evaluate()` + Linux dispatchers

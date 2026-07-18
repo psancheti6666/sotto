@@ -1301,11 +1301,16 @@ def test_smoke_imports():
         "sotto.firstrun", "sotto.firstrun_linux", "sotto.firstrun_tk",
         "sotto.llm_server", "sotto.ollama_runtime",
         "sotto.update", "sotto.dashboard", "zstandard",
-        "sotto.tray_linux", "pystray",
+        "sotto.tray_linux",
     }
     missing = required - set(mod.SMOKE_IMPORTS)
     check("smoke list covers every runtime-selected module", not missing,
           f"missing: {sorted(missing)}")
+    # pystray is presence-checked, not imported: its import runs backend
+    # auto-selection into gi/Gtk, which legitimately fails without the deb's
+    # gir/gtk packages (tray_linux catches that at runtime — best-effort)
+    check("pystray is presence-checked in the bundle",
+          "pystray" in mod.SMOKE_FIND)
     check("smoke() reports a recognizable OK line",
           "smoke OK" in open(path).read(), "")
 
