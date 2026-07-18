@@ -171,25 +171,34 @@ jobs:
           sudo apt-get install -y imagemagick
           ./linuxapp/make_deb.sh
       # Detached signature over the .deb — what sotto-install-update verifies
-      # against the pinned pubkey before any self-update installs (L8). The
-      # key stays scoped to this step; the verify line proves the secret and
-      # the committed pubkey are the same pair. Forks without the secret
-      # still build (their releases just can't feed the self-updater).
+      # against the pinned pubkey before any self-update installs (L8).
+      # Release/dispatch runs use the real key (step-scoped, wiped after;
+      # verify-after-sign proves secret and committed pubkey are one pair).
+      # PR runs (and forks) sign with an EPHEMERAL run-local key instead —
+      # the gate test still exercises the full sign→verify machinery, but
+      # the real private key never materializes outside tag/dispatch runs
+      # (L8 security sweep). The ephemeral pubkey's presence in RUNNER_TEMP
+      # tells the gate-test step to override the installed pin.
       - name: Sign the .deb
         env:
           SOTTO_DEB_SIGN_KEY: ${{ secrets.SOTTO_DEB_SIGN_KEY }}
+          EVENT: ${{ github.event_name }}
         run: |
-          if [ -z "$SOTTO_DEB_SIGN_KEY" ]; then
-            echo "WARNING: SOTTO_DEB_SIGN_KEY not set — .deb will be unsigned" >&2
-            exit 0
-          fi
           umask 077
-          printf '%s\n' "$SOTTO_DEB_SIGN_KEY" > "$RUNNER_TEMP/deb-sign.pem"
+          if [ "$EVENT" = "pull_request" ] || [ -z "$SOTTO_DEB_SIGN_KEY" ]; then
+            echo "PR/keyless run — signing with an ephemeral key"
+            openssl genrsa -out "$RUNNER_TEMP/deb-sign.pem" 4096 2>/dev/null
+            openssl rsa -in "$RUNNER_TEMP/deb-sign.pem" -pubout \
+              -out "$RUNNER_TEMP/deb-sign.pub" 2>/dev/null
+            pub="$RUNNER_TEMP/deb-sign.pub"
+          else
+            printf '%s\n' "$SOTTO_DEB_SIGN_KEY" > "$RUNNER_TEMP/deb-sign.pem"
+            pub=linuxapp/deb/sotto-release.pub
+          fi
           for deb in dist/Sotto-*-amd64.deb; do
             openssl dgst -sha256 -sign "$RUNNER_TEMP/deb-sign.pem" \
               -out "$deb.sig" "$deb"
-            openssl dgst -sha256 -verify linuxapp/deb/sotto-release.pub \
-              -signature "$deb.sig" "$deb"
+            openssl dgst -sha256 -verify "$pub" -signature "$deb.sig" "$deb"
           done
           rm -f "$RUNNER_TEMP/deb-sign.pem"
       - name: Install the .deb and smoke the installed launcher
@@ -239,11 +248,13 @@ jobs:
       - name: Verify the install-update signature gate
         run: |
           sig=(dist/Sotto-*-amd64.deb.sig)
-          if [ ! -f "${sig[0]}" ]; then
-            echo "no .sig (fork build without the key) — skipping gate test"
-            exit 0
-          fi
           deb=(dist/Sotto-*-amd64.deb)
+          if [ -f "$RUNNER_TEMP/deb-sign.pub" ]; then
+            # PR run: the .sig is from the ephemeral key — repoint the
+            # installed pin at it (runner-only mutation) so the gate test
+            # exercises the helper exactly as a real update would
+            sudo cp "$RUNNER_TEMP/deb-sign.pub" /usr/share/sotto/sotto-release.pub
+          fi
           cp "${deb[0]}" /tmp/tampered.deb
           printf x >> /tmp/tampered.deb
           if sudo /usr/libexec/sotto/sotto-install-update /tmp/tampered.deb "${sig[0]}"; then

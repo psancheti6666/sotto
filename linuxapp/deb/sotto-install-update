@@ -30,6 +30,11 @@ fail() { echo "sotto-install-update: $1" >&2; exit 1; }
 [ -f "$1" ] || fail "no such file: $1"
 [ -f "$2" ] || fail "no such file: $2"
 [ -f "$PUBKEY" ] || fail "$PUBKEY is missing — reinstall sotto"
+# bound the root-owned copy below: without this, any authed caller can make
+# root fill /var/tmp before the signature check can reject. Real debs are
+# ~100-150 MB; 1 GB leaves an order-of-magnitude headroom.
+SIZE=$(wc -c < "$1") || fail "cannot stat $1"
+[ "$SIZE" -le 1073741824 ] || fail "file exceeds 1 GB — not a Sotto release"
 
 # fixed template, not $TMPDIR: pkexec scrubs the env, but never trust a
 # caller-influenced tempdir for the files apt will read as root
