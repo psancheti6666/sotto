@@ -42,15 +42,30 @@ SMOKE_IMPORTS = [
     "sotto.ollama_runtime",
     "sotto.overlay_tk",
     "sotto.platform.linux",
+    "sotto.tray_linux",
     "sotto.update",
+]
+
+# Bundled-presence checks (find_spec, NOT imported): importing pystray runs
+# its backend auto-selection, which walks into gi/Gtk — and that legitimately
+# fails wherever the deb's gir/gtk Depends aren't installed (CI's bare
+# container). At app runtime that same failure is caught by tray_linux and
+# becomes the "tray unavailable" log line; the smoke only asserts the module
+# made it into the bundle at all.
+SMOKE_FIND = [
+    "pystray",
 ]
 
 
 def smoke() -> int:
     import importlib
+    import importlib.util
     import os
     for name in SMOKE_IMPORTS:
         importlib.import_module(name)
+    for name in SMOKE_FIND:
+        if importlib.util.find_spec(name) is None:
+            raise ImportError(f"{name} missing from the bundle")
     from sotto import __version__
     # bundle= lets CI verify the /usr/bin/sotto launcher's SOTTO_BUNDLE=deb
     # export actually reaches the app (the deb smoke greps for bundle=deb)

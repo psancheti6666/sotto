@@ -6,7 +6,7 @@ Section: utils
 Priority: optional
 Homepage: https://github.com/psancheti6666/sotto
 Depends: acl, pkexec | policykit-1, zenity | kdialog, libnotify-bin, pulseaudio-utils, xdotool, x11-utils, xclip, wl-clipboard, ydotool
-Recommends: wtype
+Recommends: wtype, gir1.2-ayatanaappindicator3-0.1
 Description: Private, local-first dictation
  Hold a key, speak naturally, release — cleaned, punctuated text is typed at
  your cursor in any app. Speech recognition and cleanup run entirely on your

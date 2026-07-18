@@ -1222,6 +1222,74 @@ def test_deb_layout():
           "acl" in control and ("pkexec" in control or "policykit" in control))
 
 
+def test_tray_menu():
+    print("Linux tray (pystray, best-effort) — menu gating + quit path:")
+    import logging
+    import signal
+
+    from sotto import tray_linux as tl
+
+    items = tl._menu_items(True, False)
+    check("dashboard up, no updater: Insights then Quit",
+          items == [("Insights", "insights"), ("Quit Sotto", "quit")],
+          str(items))
+    items = tl._menu_items(False, False)
+    check("no dashboard: Quit only",
+          items == [("Quit Sotto", "quit")], str(items))
+    items = tl._menu_items(True, True)
+    check("updater armed (L8): Check for Updates… appears before Quit",
+          [label for label, _ in items] ==
+          ["Insights", "Check for Updates…", "Quit Sotto"], str(items))
+    check("Quit is always last",
+          all(tl._menu_items(i, u)[-1] == ("Quit Sotto", "quit")
+              for i in (False, True) for u in (False, True)))
+
+    # pins the L7 spec: no updates item until L8's Linux backend flips this
+    from sotto import update
+    check("update.enabled() is False outside the mac release bundle",
+          update.enabled() is False)
+
+    # Quit = SIGINT to self — the existing Ctrl+C shutdown path
+    sent = []
+    orig_kill = tl.os.kill
+    tl.os.kill = lambda pid, sig: sent.append((pid, sig))
+    try:
+        tl._quit()
+    finally:
+        tl.os.kill = orig_kill
+    check("tray Quit delivers SIGINT to our own pid",
+          sent == [(os.getpid(), signal.SIGINT)], str(sent))
+
+    # best-effort contract: an unavailable pystray stack must mean a clean
+    # thread exit and one log line — never a raise, never a hang. Pin the
+    # unavailable branch deterministically: a real pystray import would
+    # START a live tray (blocking X/AppKit loop, visible icon) on any
+    # machine where the stack works — a checkout with a display, or a mac
+    # venv with pystray pip-installed — so block the import outright.
+    records = []
+    handler = logging.Handler()
+    handler.emit = lambda r: records.append(r.getMessage())
+    tl.log.addHandler(handler)
+    orig_level = tl.log.level
+    tl.log.setLevel(logging.INFO)  # the fallback line is INFO; root sits at WARNING
+    orig_pystray = sys.modules.get("pystray")
+    sys.modules["pystray"] = None  # import pystray → ImportError
+    try:
+        t = tl.start(dashboard_port=8377)
+        t.join(timeout=10)
+        check("tray thread exits cleanly when the stack is unavailable",
+              not t.is_alive())
+        check("tray-less fallback logs the 'tray unavailable' line",
+              any("tray unavailable" in m for m in records), str(records))
+    finally:
+        if orig_pystray is None:
+            sys.modules.pop("pystray", None)
+        else:
+            sys.modules["pystray"] = orig_pystray
+        tl.log.setLevel(orig_level)
+        tl.log.removeHandler(handler)
+
+
 def test_smoke_imports():
     print("Linux build smoke list stays in sync with the runtime selectors:")
     import importlib.util
@@ -1242,10 +1310,16 @@ def test_smoke_imports():
         "sotto.firstrun", "sotto.firstrun_linux", "sotto.firstrun_tk",
         "sotto.llm_server", "sotto.ollama_runtime",
         "sotto.update", "sotto.dashboard", "zstandard",
+        "sotto.tray_linux",
     }
     missing = required - set(mod.SMOKE_IMPORTS)
     check("smoke list covers every runtime-selected module", not missing,
           f"missing: {sorted(missing)}")
+    # pystray is presence-checked, not imported: its import runs backend
+    # auto-selection into gi/Gtk, which legitimately fails without the deb's
+    # gir/gtk packages (tray_linux catches that at runtime — best-effort)
+    check("pystray is presence-checked in the bundle",
+          "pystray" in mod.SMOKE_FIND)
     check("smoke() reports a recognizable OK line",
           "smoke OK" in open(path).read(), "")
 
@@ -1457,6 +1531,7 @@ if __name__ == "__main__":
     test_linux_injector_selection()
     test_linux_alert()
     test_deb_layout()
+    test_tray_menu()
     test_smoke_imports()
     test_history()
     test_stats()

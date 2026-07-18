@@ -28,6 +28,10 @@ for pkg in ("onnx_asr", "huggingface_hub"):
 # the dashboard page is read from the package directory at runtime
 datas.append((os.path.join(REPO, "sotto", "dashboard.html"), "sotto"))
 
+# tray_linux crops its icon from the wordmark when no hicolor icon is
+# installed (tarball/checkout runs)
+datas.append((os.path.join(REPO, "logo", "sottoLogo.png"), "logo"))
+
 # sounddevice loads the SYSTEM libportaudio via ctypes on Linux (its wheels
 # only bundle PortAudio for mac/windows) — ctypes loads are invisible to
 # PyInstaller, so bundle the library explicitly. Missing at build time is a
@@ -50,6 +54,14 @@ hiddenimports += [
     "sotto.overlay_tk", "sotto.platform.linux",
     "sotto.firstrun", "sotto.firstrun_linux", "sotto.firstrun_tk",
     "sotto.llm_server", "sotto.ollama_runtime", "sotto.update",
+    # tray (L7): pystray picks a backend at import time; gi + the
+    # gi.repository modules ride the contrib hooks, which also collect the
+    # typelibs. All best-effort — PyInstaller warns (not fails) on hidden
+    # imports missing from the build venv, and tray_linux degrades at
+    # runtime to a "tray unavailable" log line.
+    "sotto.tray_linux", "pystray", "pystray._appindicator", "pystray._xorg",
+    "gi", "gi.repository.Gtk", "gi.repository.GLib", "gi.repository.GObject",
+    "gi.repository.AyatanaAppIndicator3",
 ]
 
 a = Analysis(

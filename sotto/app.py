@@ -316,6 +316,7 @@ class Sotto:
         listener = self._make_listener()
         self.listener = listener
         threading.Thread(target=self._watchdog, daemon=True).start()
+        server = None
         if self.cfg.dashboard:
             # Serves from its own daemon thread — the AppKit/tk run loop below
             # and the ASR worker are untouched.
@@ -334,6 +335,11 @@ class Sotto:
                     insights.show_soon()  # native window, not a browser tab
                 else:
                     dashboard.open_in_browser(self.cfg.dashboard_port)
+        if IS_LINUX:
+            # Best-effort tray (docs/linux-app.md, L7): daemon thread, any
+            # failure logs one line and the app runs tray-less.
+            from . import tray_linux
+            tray_linux.start(self.cfg.dashboard_port if server else None)
         overlay_mod = self._overlay_module() if self.cfg.indicator else None
         if overlay_mod:
             # The UI run loop (AppKit or tk) owns the main thread; the hotkey
@@ -358,6 +364,12 @@ class Sotto:
         else:
             try:
                 listener.run()
+            except KeyboardInterrupt:
+                # Ctrl+C or the tray's Quit (SIGINT to self) — a designed
+                # shutdown, not a crash; without this the excepthook would
+                # log it as CRITICAL and log-based triage reads a quit as
+                # a failure.
+                log.info("interrupt — shutting down")
             finally:
                 self.recorder.close()
 
