@@ -140,6 +140,13 @@ def start(port: int, history_path: str = None, dictionary_path: str = None,
 
 
 def open_in_browser(port: int):
-    # webbrowser resolves to `open` on macOS and xdg-open on Linux.
-    threading.Thread(target=webbrowser.open,
-                     args=(f"http://127.0.0.1:{port}",), daemon=True).start()
+    url = f"http://127.0.0.1:{port}"
+    from .platform import IS_LINUX
+    if IS_LINUX:
+        # xdg-open with the sanitized env — webbrowser inherits the frozen
+        # bundle's LD_LIBRARY_PATH and the browser dies against bundled libs
+        # (VM round: tray Insights opened nothing)
+        from .platform.linux import open_url
+        threading.Thread(target=open_url, args=(url,), daemon=True).start()
+        return
+    threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()

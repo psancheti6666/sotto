@@ -1368,7 +1368,12 @@ def test_tk_firstrun_windows():
               str(w.start_btn["state"]) == "disabled")
         fl.injection_ok = lambda: True
         w.tick(loop=False)
-        check("Start enables when gating rows green",
+        check("Start stays disabled until the 3-4 GB download is OK'd "
+              "(VM-round product decision)",
+              str(w.start_btn["state"]) == "disabled")
+        w.models_ok.set(True)
+        w.tick(loop=False)
+        check("Start enables when gating rows green + download acknowledged",
               str(w.start_btn["state"]) == "normal")
         w.close()
 
@@ -1655,6 +1660,146 @@ def test_tray_menu():
         tl.log.removeHandler(handler)
 
 
+def test_vm_round_fixes():
+    print("VM-validation-round fixes (issue #63):")
+    import logging
+
+    # --- clean_env: restore PyInstaller's *_ORIG, drop the overrides
+    from sotto.platform import linux as pl
+    saved = {k: os.environ.get(k) for k in
+             ("LD_LIBRARY_PATH", "LD_LIBRARY_PATH_ORIG", "LD_PRELOAD")}
+    try:
+        os.environ["LD_LIBRARY_PATH"] = "/bundle/_internal"
+        os.environ["LD_LIBRARY_PATH_ORIG"] = "/usr/lib/custom"
+        os.environ.pop("LD_PRELOAD", None)
+        env = pl.clean_env()
+        check("clean_env restores the pre-bundle LD_LIBRARY_PATH",
+              env.get("LD_LIBRARY_PATH") == "/usr/lib/custom"
+              and "LD_LIBRARY_PATH_ORIG" not in env, str(env.get("LD_LIBRARY_PATH")))
+        del os.environ["LD_LIBRARY_PATH_ORIG"]
+        env = pl.clean_env()
+        check("clean_env drops the override when no _ORIG exists",
+              "LD_LIBRARY_PATH" not in env)
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    # --- open_url: xdg-open with the sanitized env
+    calls = []
+    orig_which, orig_popen = pl.shutil.which, pl.subprocess.Popen
+    pl.shutil.which = lambda n: "/usr/bin/xdg-open" if n == "xdg-open" else None
+    pl.subprocess.Popen = lambda argv, **kw: calls.append((argv, kw)) or None
+    try:
+        pl.open_url("http://127.0.0.1:1")
+        check("open_url uses xdg-open with a cleaned env",
+              calls and calls[0][0][0] == "xdg-open"
+              and "env" in calls[0][1], str(calls))
+    finally:
+        pl.shutil.which, pl.subprocess.Popen = orig_which, orig_popen
+
+    # --- injection chain logs once, not once per probe tick
+    from sotto import inject_linux as il
+    records = []
+    handler = logging.Handler()
+    handler.emit = lambda r: records.append(r.getMessage())
+    il.log.addHandler(handler)
+    orig_level = il.log.level
+    il.log.setLevel(logging.INFO)
+    il._last_chain = None
+    orig_ilwhich, orig_session = il.shutil.which, il.session_type
+    il.shutil.which = lambda n: None
+    il.session_type = lambda: "x11"
+    try:
+        il.build_injector()
+        il.build_injector()
+        chain_logs = [m for m in records if "injection chain" in m]
+        check("identical chain logged exactly once across repeated probes",
+              len(chain_logs) == 1, str(chain_logs))
+        il.shutil.which = lambda n: "/usr/bin/" + n if n == "xdotool" else None
+        il.build_injector()
+        chain_logs = [m for m in records if "injection chain" in m]
+        check("a CHANGED chain is logged again",
+              len(chain_logs) == 2, str(chain_logs))
+    finally:
+        il.shutil.which, il.session_type = orig_ilwhich, orig_session
+        il.log.setLevel(orig_level)
+        il.log.removeHandler(handler)
+        il._last_chain = None
+
+    # --- offline-first ASR load
+    from sotto import asr_onnx
+
+    class FakeHub:
+        def __init__(self, offline_fails):
+            self.offline_fails = offline_fails
+            self.calls = []
+        def load_model(self, mid, **kw):
+            offline = os.environ.get("HF_HUB_OFFLINE")
+            self.calls.append(offline)
+            if offline == "1" and self.offline_fails:
+                raise RuntimeError("not in cache")
+            return "MODEL"
+
+    saved_off = os.environ.pop("HF_HUB_OFFLINE", None)
+    try:
+        hub = FakeHub(offline_fails=False)
+        m = asr_onnx._load_offline_first(hub, "m", "")
+        check("cached model loads OFFLINE (no hub round-trip)",
+              m == "MODEL" and hub.calls == ["1"]
+              and os.environ.get("HF_HUB_OFFLINE") == "1", str(hub.calls))
+        os.environ.pop("HF_HUB_OFFLINE", None)
+        hub = FakeHub(offline_fails=True)
+        m = asr_onnx._load_offline_first(hub, "m", "")
+        check("cache miss falls back to an ONLINE load",
+              m == "MODEL" and hub.calls == ["1", None], str(hub.calls))
+        os.environ["HF_HUB_OFFLINE"] = "0"
+        hub = FakeHub(offline_fails=False)
+        asr_onnx._load_offline_first(hub, "m", "")
+        check("user-set HF_HUB_OFFLINE is respected, not overridden",
+              hub.calls == ["0"], str(hub.calls))
+    finally:
+        os.environ.pop("HF_HUB_OFFLINE", None)
+        if saved_off is not None:
+            os.environ["HF_HUB_OFFLINE"] = saved_off
+
+    # --- single-instance lock
+    from sotto import app as app_mod
+
+    class FakeSock:
+        def __init__(self, taken):
+            self.taken, self.closed = taken, False
+        def bind(self, name):
+            if self.taken:
+                raise OSError(98, "address in use")
+        def close(self):
+            self.closed = True
+
+    class FakeSocketMod:
+        AF_UNIX = SOCK_STREAM = 0
+        def __init__(self, taken):
+            self.taken = taken
+            self.socks = []
+        def socket(self, *a):
+            s = FakeSock(self.taken)
+            self.socks.append(s)
+            return s
+
+    free = FakeSocketMod(taken=False)
+    lock = app_mod._acquire_instance_lock(free)
+    check("first instance acquires the lock (socket held, not closed)",
+          lock is free.socks[0] and not free.socks[0].closed)
+    busy = FakeSocketMod(taken=True)
+    lock = app_mod._acquire_instance_lock(busy)
+    check("second instance is refused (None) and its socket closed",
+          lock is None and busy.socks[0].closed)
+    check("non-Linux platforms get a no-op token",
+          app_mod._acquire_instance_lock() is True
+          or sys.platform.startswith("linux"))
+
+
 def test_smoke_imports():
     print("Linux build smoke list stays in sync with the runtime selectors:")
     import importlib.util
@@ -1896,6 +2041,7 @@ if __name__ == "__main__":
     test_linux_injector_selection()
     test_linux_alert()
     test_deb_layout()
+    test_vm_round_fixes()
     test_tray_menu()
     test_smoke_imports()
     test_history()

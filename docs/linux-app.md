@@ -227,6 +227,41 @@ every test round attaches `~/.sotto/sotto.log`.
     published v0.4.0 → publish → fresh-machine zero-terminal test from
     the published URL, timed, every prompt counted.
 
+### Validation round 1 — 2026-07-19, Pratik (VirtualBox on a 2019 Intel MBP;
+### stock Ubuntu 24.04 GNOME Wayland; AppImage path)
+
+**VERIFIED LIVE, first time for each:** AppImage boots on stock Ubuntu
+(static runtime, real FUSE mount); walkthrough honest on a pristine
+machine; **Keyboard Fix end-to-end: FUSE mount → staged bootstrap →
+GENERIC polkit prompt → password → green immediately, NO logout** (the
+L9 headline); Typing Fix after `apt install ydotool` (user unit started,
+chain live-upgraded); L4 live (no engine → pinned ollama downloaded →
+spawned on localhost:11434 → qwen3 pulled with UI progress); download
+screen → self-relaunch → transient "ready" notification; tray on stock
+GNOME picked **pystray._appindicator** (L7 gi bundling validated), menu
+correct, Quit clean; `config.toml` override honored (hotkey=alt_r);
+**end-to-end dictation works** (10 words ≈13 s in the VM), history +
+dashboard live. Hardware notes: t2linux bare-metal boot on the 2019 MBP
+was defeated by T2-firmware USB enumeration (drive invisible in Startup
+Manager; flash byte-verified) — VirtualBox route used instead; VM slowness
+attributed to VM.
+
+**Findings → issue #63, fixed in the same round's PR:** no single-instance
+guard (two instances = double-typed text, port race — worst find); ASR
+load hit the HF Hub every launch and could hang startup (offline-first fix;
+`HF_HUB_OFFLINE=1` confirmed live as workaround); frozen-app subprocesses
+inherited PyInstaller's LD_LIBRARY_PATH (suspected cause: tray Insights
+opening nothing, alert fallthrough) — env sanitized for all host-binary
+launches; injection-chain log spam → log-on-change; AppImage banner said
+"source checkout"; models row now gates Start on an explicit "OK,
+download" acknowledgment (product decision; macOS parity is a follow-up).
+
+**Still needing real hardware (friend round, after release):** the .deb
+path end-to-end (App Center, ONE prompt, getfacl proof), X11 session,
+update cycle (0.3.9 test deb → v0.4.0 + AppImage self-replace), AppImage
+on real FUSE (mount path — the VM used it too, but confirm), delete-file→
+permissions-persist, zero-terminal timing run.
+
 ## Constraints that apply to every milestone
 
 - All of Sotto's ground rules: 100% local at runtime (the GitHub releases

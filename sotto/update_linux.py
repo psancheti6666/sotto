@@ -80,11 +80,13 @@ def _relaunch_argv(pid: int):
 def ask(title: str, text: str) -> bool:
     """True = Update Now. zenity → kdialog → give up quietly (the scheduled
     check will re-offer; a lost dialog must never block the app)."""
+    from .platform.linux import clean_env
     for argv in (_ask_argv(title, text), _ask_argv_kdialog(title, text)):
         if shutil.which(argv[0]):
             try:
                 return subprocess.run(
-                    argv, capture_output=True, timeout=600).returncode == 0
+                    argv, env=clean_env(), capture_output=True,
+                    timeout=600).returncode == 0
             except (OSError, subprocess.TimeoutExpired) as e:
                 log.warning("update dialog failed (%s)", e)
                 return False
@@ -99,11 +101,12 @@ def progress_show(text: str):
         if not shutil.which("zenity"):
             log.info("update progress: %s (no zenity)", text)
             return
+        from .platform.linux import clean_env
         try:
             proc = subprocess.Popen(
                 _progress_argv("Updating Sotto"), stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                text=True)
+                env=clean_env(), stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, text=True)
             _progress = {"proc": proc}
         except OSError as e:
             log.warning("update progress window failed (%s)", e)

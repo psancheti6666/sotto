@@ -483,17 +483,53 @@ def setup_logging(path: str = None):
         exc_info=(a.exc_type, a.exc_value, a.exc_traceback))
 
 
+_instance_lock = None  # held socket — must outlive main()
+
+
+def _acquire_instance_lock(socket_mod=None):
+    """Linux: bind an abstract unix socket as a per-uid single-instance
+    lock — kernel-owned, vanishes with the process, no stale files. Returns
+    a truthy token elsewhere (macOS bundles are single-instance via
+    LaunchServices) and None when another instance holds the name."""
+    if not IS_LINUX and socket_mod is None:
+        return True
+    import socket as _socket
+    socket_mod = socket_mod or _socket
+    s = socket_mod.socket(socket_mod.AF_UNIX, socket_mod.SOCK_STREAM)
+    try:
+        s.bind(f"\0sotto-instance-{os.getuid()}")
+        return s
+    except OSError:
+        s.close()
+        return None
+
+
 def main():
     import platform as plat
     import sys
 
     setup_logging()
     from . import __version__
-    frozen = getattr(sys, "frozen", None) == "macosx_app"
+    if IS_LINUX:
+        from .firstrun_linux import bundle_type
+        kind = {"deb": ".deb install", "appimage": "AppImage"}.get(bundle_type())
+    else:
+        kind = ("app bundle"
+                if getattr(sys, "frozen", None) == "macosx_app" else None)
     log.info("sotto %s starting — %s %s, python %s, %s",
              __version__, plat.platform(), plat.machine(),
-             plat.python_version(),
-             "app bundle" if frozen else "source checkout")
+             plat.python_version(), kind or "source checkout")
+    # One Sotto per user: a second instance would double-type every
+    # dictation and race for the dashboard port (both observed in the VM
+    # round). The lock must be held for the process lifetime.
+    global _instance_lock
+    _instance_lock = _acquire_instance_lock()
+    if _instance_lock is None:
+        log.error("another Sotto instance is already running — exiting")
+        alert("Sotto is already running",
+              "Another Sotto is active (check the tray/menu bar). "
+              "Running two would type every dictation twice.")
+        return
     cfg = load_config()
     log.info("config: hotkey=%s asr=%s llm=%s dashboard=%s indicator=%s "
              "inject=%s", cfg.hotkey, cfg.asr_backend, cfg.ollama_model,
