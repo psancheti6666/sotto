@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Sotto
+GenericName=Dictation
+Comment=Private, local dictation — hold a key, speak, release
+Exec=/usr/bin/sotto
+Icon=sotto
+Terminal=false
+Categories=Utility;Accessibility;AudioVideo;
+Keywords=dictation;speech;voice;transcription;

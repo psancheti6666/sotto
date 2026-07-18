@@ -1175,6 +1175,53 @@ def test_linux_injector_selection():
         il.shutil.which, il._probe, il.session_type = orig_which, orig_probe, orig_session
 
 
+def test_deb_layout():
+    print("Linux .deb manifest (FHS paths + modes, macOS-checkable):")
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    manifest = os.path.join(root, "linuxapp", "deb", "manifest.txt")
+    rows = []
+    for line in open(manifest):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        mode, src, dest = line.split()
+        rows.append((mode, src, dest))
+    by_dest = {d: (m, s) for m, s, d in rows}
+
+    check("every manifest source file exists",
+          all(os.path.exists(os.path.join(root, s)) for _, s, _ in rows),
+          str([s for _, s, _ in rows if not os.path.exists(os.path.join(root, s))]))
+    # the security-critical one: the root helper must be 0755 (world-writable
+    # would turn the pinned polkit action into a local root escalation)
+    helper = by_dest.get("usr/libexec/sotto/sotto-perms")
+    check("sotto-perms installs at usr/libexec/sotto/sotto-perms mode 0755",
+          helper is not None and helper[0] == "0755", str(helper))
+    check("launcher installs at usr/bin/sotto mode 0755",
+          by_dest.get("usr/bin/sotto", ("",))[0] == "0755")
+    for dest in ("usr/lib/udev/rules.d/60-sotto-input.rules",
+                 "usr/share/polkit-1/actions/io.github.psancheti6666.sotto.policy",
+                 "usr/lib/modules-load.d/sotto-uinput.conf",
+                 "usr/share/applications/sotto.desktop"):
+        check(f"manifest includes {dest}", dest in by_dest)
+
+    # the launcher MUST export SOTTO_BUNDLE=deb or the whole L5 gate is dormant
+    launcher = open(os.path.join(root, "linuxapp", "deb", "sotto-launcher")).read()
+    check("launcher exports SOTTO_BUNDLE=deb",
+          "SOTTO_BUNDLE=deb" in launcher and "exec /opt/sotto/sotto" in launcher)
+    # the polkit exec.path must point at where the manifest installs the helper
+    policy = open(os.path.join(root, "linuxapp", "deb",
+                               "io.github.psancheti6666.sotto.policy")).read()
+    check("polkit exec.path matches the helper's install dest",
+          "/usr/libexec/sotto/sotto-perms" in policy)
+    # control.in has the version placeholder make_deb.sh substitutes
+    control = open(os.path.join(root, "linuxapp", "deb", "control.in")).read()
+    check("control.in carries @VERSION@ and Package: sotto",
+          "@VERSION@" in control and "Package: sotto" in control
+          and "Architecture: amd64" in control)
+    check("control Depends includes acl (setfacl/getfacl) and a polkit provider",
+          "acl" in control and ("pkexec" in control or "policykit" in control))
+
+
 def test_smoke_imports():
     print("Linux build smoke list stays in sync with the runtime selectors:")
     import importlib.util
@@ -1409,6 +1456,7 @@ if __name__ == "__main__":
     test_platform_detection()
     test_linux_injector_selection()
     test_linux_alert()
+    test_deb_layout()
     test_smoke_imports()
     test_history()
     test_stats()

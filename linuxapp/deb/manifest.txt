@@ -1,0 +1,14 @@
+# Created by Pratik Sancheti / https://github.com/psancheti6666
+# Single source of truth for the .deb's individual-file layout: read by
+# linuxapp/make_deb.sh to stage the package AND by tests/test_pipeline.py
+# (test_deb_layout) to verify paths/modes on macOS. Columns: mode source dest.
+# The onedir payload (opt/sotto/) and generated icons are handled separately
+# in make_deb.sh; this file covers the discrete files that must land with
+# exact modes — notably sotto-perms 0755 (world-writable would turn the pinned
+# polkit action into a local root escalation — L5 security sweep).
+0755 linuxapp/deb/sotto-launcher usr/bin/sotto
+0644 linuxapp/deb/60-sotto-input.rules usr/lib/udev/rules.d/60-sotto-input.rules
+0644 linuxapp/deb/sotto-uinput.conf usr/lib/modules-load.d/sotto-uinput.conf
+0644 linuxapp/deb/io.github.psancheti6666.sotto.policy usr/share/polkit-1/actions/io.github.psancheti6666.sotto.policy
+0755 linuxapp/deb/sotto-perms usr/libexec/sotto/sotto-perms
+0644 linuxapp/deb/sotto.desktop usr/share/applications/sotto.desktop

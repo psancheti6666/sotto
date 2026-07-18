@@ -149,11 +149,32 @@ jobs:
               xvfb xauth libxft2 libxext6 libasound2
             tar -C /tmp -xzf /dist/sotto-linux-x86_64-onedir.tar.gz
             timeout -k 10 180 xvfb-run -a /tmp/sotto/sotto --smoke'
-      - name: Upload onedir artifact
+      # Build the .deb, then INSTALL it (runs the postinst as root, resolves
+      # Depends) and smoke the installed launcher — proving the package is
+      # actually installable and /usr/bin/sotto works with SOTTO_BUNDLE=deb.
+      # imagemagick renders the hicolor icons.
+      - name: Build .deb
+        run: |
+          sudo apt-get install -y imagemagick
+          ./linuxapp/make_deb.sh
+      - name: Install the .deb and smoke the installed launcher
+        run: |
+          sudo apt-get install -y ./dist/Sotto-*-amd64.deb
+          dpkg-deb --contents dist/Sotto-*-amd64.deb | grep -E ' \./usr/libexec/sotto/sotto-perms$'
+          # the postinst's udev calls are no-ops on the runner (no udev) but
+          # must not fail the install; verify the helper is root:root 0755
+          test "$(stat -c '%U:%G %a' /usr/libexec/sotto/sotto-perms)" = "root:root 755"
+          # no setuid/setgid anywhere in the installed tree (a setuid-root file
+          # would be a privilege-escalation surface)
+          test -z "$(find /opt/sotto /usr/libexec/sotto -perm /6000 -print -quit)"
+          SOTTO_BUNDLE=deb xvfb-run -a /usr/bin/sotto --smoke
+      - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: linux-onedir
-          path: dist/sotto-linux-x86_64-onedir.tar.gz
+          name: linux-deb
+          path: |
+            dist/sotto-linux-x86_64-onedir.tar.gz
+            dist/Sotto-*-amd64.deb
           if-no-files-found: error
 
   # Tag builds gather both DMGs into one draft release. A single job (rather
@@ -161,30 +182,33 @@ jobs:
   # don't enforce tag-name uniqueness, so two concurrent `gh release create`
   # calls could each make their own draft.
   release:
-    needs: dmg
+    needs: [dmg, linux]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
-      contents: write # create the draft release and upload the DMGs
+      contents: write # create the draft release and upload the assets
     steps:
-      - name: Download DMG artifacts
+      - name: Download release artifacts (DMGs + .deb)
         uses: actions/download-artifact@v4
         with:
-          pattern: dmg-*
+          pattern: "{dmg-*,linux-deb}"
           merge-multiple: true
-          path: dmgs
+          path: assets
       # $GITHUB_REF_NAME is runner-provided — no event-data interpolation.
-      # Re-runs land in the `view` branch and just refresh the assets.
-      - name: Create draft release with both DMGs
+      # Re-runs land in the `view` branch and just refresh the assets. The
+      # onedir tarball is a CI/friend-test artifact, not a release asset —
+      # only the DMGs and the .deb go on the release.
+      - name: Create draft release with the DMGs and .deb
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" dmgs/*.dmg --clobber
+            gh release upload "$GITHUB_REF_NAME" \
+              assets/*.dmg assets/*.deb --clobber
           else
             gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
               --title "$GITHUB_REF_NAME" \
               --notes "Draft — release notes to be written before publishing." \
-              dmgs/*.dmg
+              assets/*.dmg assets/*.deb
           fi

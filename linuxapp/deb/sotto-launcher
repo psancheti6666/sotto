@@ -1,0 +1,7 @@
+#!/bin/sh
+# Created by Pratik Sancheti / https://github.com/psancheti6666
+# Installed as /usr/bin/sotto. SOTTO_BUNDLE=deb is what tells the app it is a
+# packaged build — the entire first-run gate and the bundle-aware permission
+# help are dormant without it (docs/linux-app.md, L5/L6).
+export SOTTO_BUNDLE=deb
+exec /opt/sotto/sotto "$@"
