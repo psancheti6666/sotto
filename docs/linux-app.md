@@ -208,11 +208,20 @@ every test round attaches `~/.sotto/sotto.log`.
     generic polkit bootstrap prompt (expected, once), full setup,
     dictation; delete the AppImage → permissions persist; updater
     self-replace against a test release (deferred here from L8).
-11. **L10 — Docs + release dry run.** This file's milestones marked done with
-    live-test outcomes; README "Download for Linux" (incl. the uaccess
-    security note); tag → draft release carries 2 DMGs + deb + AppImage →
-    publish. Friend: fresh-machine end-to-end from the published URL, timed,
-    counting every prompt — the true zero-terminal test.
+11. **L10 — Docs + release dry run.** 🔄 in progress (PR #61, issue #60).
+    Shipped in the PR: README "Download (Linux)" section (deb primary with
+    the one-prompt story, AppImage + generic-bootstrap explanation, the
+    honest uaccess note, ydotool-on-GNOME-Wayland caveat, complete Linux
+    network-calls list); platform table updated. Release-pipeline dry run
+    fired via workflow_dispatch on merged main (all four artifacts + REAL-
+    key signatures, artifact-only — proves tag day before tag day; result
+    recorded here when it lands). Remaining, Pratik-driven: version bump +
+    tag (v0.4.0 recommended) → draft release (2 DMGs + deb + .sig +
+    AppImage + .sig) → friend rounds: L6 deb grant, L7 tray, L9 AppImage
+    (incl. the FUSE-mount bootstrap — first thing to confirm), L8 update
+    cycle via a 0.3.9-versioned dispatch-built test deb updating to the
+    published v0.4.0 → publish → fresh-machine zero-terminal test from
+    the published URL, timed, every prompt counted.
 
 ## Constraints that apply to every milestone
 
