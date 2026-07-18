@@ -11,11 +11,22 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
-  # PRs touching the Linux build run ONLY the linux job (the dmg jobs skip
-  # below) — with no Linux dev hardware, the real build must run pre-merge,
-  # not at tag time.
+  # PRs touching anything the Linux build consumes run ONLY the linux job
+  # (the dmg jobs skip below) — with no Linux dev hardware, the real build
+  # must run pre-merge, not at tag time. sotto/** is included because the
+  # bundle freezes the package: a source-only PR can break a hidden import
+  # or the smoke and would otherwise only surface on the NEXT linuxapp PR.
+  # The job costs ~3 min. logo/** feeds the deb icons; the workflow file
+  # itself is listed so edits to these gates are exercised by their own PR.
   pull_request:
-    paths: ["linuxapp/**", "requirements.txt"]
+    paths:
+      [
+        "linuxapp/**",
+        "requirements.txt",
+        "sotto/**",
+        "logo/**",
+        ".github/workflows/release.yml",
+      ]
 
 permissions:
   contents: read
@@ -164,10 +175,38 @@ jobs:
           # the postinst's udev calls are no-ops on the runner (no udev) but
           # must not fail the install; verify the helper is root:root 0755
           test "$(stat -c '%U:%G %a' /usr/libexec/sotto/sotto-perms)" = "root:root 755"
-          # no setuid/setgid anywhere in the installed tree (a setuid-root file
-          # would be a privilege-escalation surface)
-          test -z "$(find /opt/sotto /usr/libexec/sotto -perm /6000 -print -quit)"
-          SOTTO_BUNDLE=deb xvfb-run -a /usr/bin/sotto --smoke
+          # every path the package installs must be free of setuid/setgid and
+          # group/world-write (a setuid-root file is a privilege-escalation
+          # surface; a writable root-owned file — worst of all the udev rule
+          # or polkit policy — hands a local user root or the seat user's
+          # execution; make_deb.sh strips/controls all of these modes).
+          # Symlinks are excluded — their lstat mode is always 0777 — and get
+          # their own containment check below.
+          shopt -s nullglob
+          roots=(/opt/sotto /usr/libexec/sotto /usr/bin/sotto
+                 /usr/lib/udev/rules.d/60-sotto-input.rules
+                 /usr/lib/modules-load.d/sotto-uinput.conf
+                 /usr/share/polkit-1/actions/io.github.psancheti6666.sotto.policy
+                 /usr/share/applications/sotto.desktop
+                 /usr/share/icons/hicolor/*/apps/sotto.png)
+          bad=$(find "${roots[@]}" \( -type f -o -type d \) \( -perm /6000 -o -perm /022 \) -print)
+          [ -z "$bad" ] || { echo "FILES WITH BAD MODES:"; echo "$bad"; exit 1; }
+          # payload symlinks (PyInstaller emits relative lib links) must
+          # resolve inside the installed tree — one pointing at /tmp or a
+          # home dir would let a local user swap code the seat user runs
+          while IFS= read -r l; do
+            t=$(readlink -f "$l" || true)
+            case "$t" in
+              /opt/sotto/*|/usr/libexec/sotto/*) ;;
+              *) echo "SYMLINK ESCAPES TREE: $l -> $t"; exit 1 ;;
+            esac
+          done < <(find /opt/sotto /usr/libexec/sotto -type l)
+          # no SOTTO_BUNDLE in the env — the smoke line's bundle= value can
+          # only come from the launcher's own export, so grepping it proves
+          # the export actually reaches the app
+          out=$(xvfb-run -a /usr/bin/sotto --smoke)
+          echo "$out"
+          grep -q "bundle=deb" <<<"$out"
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
