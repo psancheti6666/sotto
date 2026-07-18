@@ -30,11 +30,19 @@ import time
 
 from . import __version__
 from .config import CONFIG_DIR
-from .platform import alert
+from .platform import IS_LINUX, IS_MACOS, alert
 
 log = logging.getLogger("sotto")
 
-RELEASES_API = "https://api.github.com/repos/psancheti6666/sotto/releases/latest"
+_RELEASES_API_DEFAULT = \
+    "https://api.github.com/repos/psancheti6666/sotto/releases/latest"
+
+
+def _releases_api() -> str:
+    """SOTTO_RELEASES_API: test seam — lets the friend-test round point the
+    whole flow at a localhost fixture without code edits. Read at call time
+    (an import-time read would freeze before a test can set it)."""
+    return os.environ.get("SOTTO_RELEASES_API", _RELEASES_API_DEFAULT)
 RELEASE_BUNDLE_ID = "io.github.psancheti6666.sotto"
 STATE_PATH = os.path.join(CONFIG_DIR, "update-state.json")
 INITIAL_DELAY_S = 30.0    # let launch (and any first-run alert) settle first
@@ -53,20 +61,46 @@ def _parse(version: str) -> tuple:
     return tuple(int(p) for p in re.findall(r"\d+", version)[:3])
 
 
-def evaluate(release: dict, current: str, machine: str):
-    """Given the /releases/latest JSON, return {version, url, name} when it is
-    a real newer release with a DMG for this chip — else None."""
+def asset_suffix(system: str = None, machine: str = None):
+    """The release-asset suffix this machine updates from, or None where no
+    artifact exists (arm64 Linux, Windows) — None keeps the updater silent.
+    Naming convention: Sotto-<ver>-apple-silicon.dmg / -intel.dmg / -amd64.deb."""
+    system = system if system is not None else platform.system().lower()
+    machine = machine if machine is not None else platform.machine()
+    if system == "darwin":
+        return "-apple-silicon.dmg" if machine == "arm64" else "-intel.dmg"
+    if system == "linux" and machine in ("x86_64", "amd64"):
+        return "-amd64.deb"
+    return None
+
+
+def evaluate(release: dict, current: str, suffix: str):
+    """Given the /releases/latest JSON, return {version, url, name} when it
+    is a real newer release with an asset for this platform (matched by
+    asset_suffix — a bare machine string would happily match a DMG on Linux)
+    — else None. For .deb assets the detached signature must be published
+    alongside (sig_url); a release without one is not offered."""
     tag = (release.get("tag_name") or "").lstrip("v")
-    if not tag or release.get("draft") or release.get("prerelease"):
+    if not tag or not suffix or release.get("draft") or release.get("prerelease"):
         return None
     if _parse(tag) <= _parse(current):
         return None
-    arch = "apple-silicon" if machine == "arm64" else "intel"
-    for asset in release.get("assets") or []:
+    assets = release.get("assets") or []
+    for asset in assets:
         name = asset.get("name") or ""
-        if name.endswith(f"-{arch}.dmg") and asset.get("browser_download_url"):
-            return {"version": tag, "url": asset["browser_download_url"],
+        if name.endswith(suffix) and asset.get("browser_download_url"):
+            info = {"version": tag, "url": asset["browser_download_url"],
                     "name": name}
+            if suffix.endswith(".deb"):
+                sig = next((a for a in assets
+                            if a.get("name") == name + ".sig"
+                            and a.get("browser_download_url")), None)
+                if sig is None:
+                    log.warning("release %s has %s but no .sig — skipping",
+                                tag, name)
+                    return None
+                info["sig_url"] = sig["browser_download_url"]
+            return info
     return None
 
 
@@ -88,7 +122,12 @@ def mark_checked(state_path: str, now: float = None):
 # ------------------------------------------------------------------- plumbing
 
 def enabled() -> bool:
-    """True only in the released Sotto.app — never Sotto Dev or a checkout."""
+    """True only in a released bundle — never a checkout (run.sh git-pulls).
+    macOS: the released Sotto.app (not Sotto Dev). Linux: an installed
+    package (SOTTO_BUNDLE set by the deb's /usr/bin/sotto launcher)."""
+    if IS_LINUX:
+        from . import update_linux
+        return update_linux.bundle_type() is not None
     from . import menubar
     if not menubar.running_in_bundle():
         return False
@@ -98,11 +137,14 @@ def enabled() -> bool:
 
 def check():
     """One API call. Returns evaluate()'s verdict; raises on network trouble."""
+    suffix = asset_suffix()
+    if suffix is None:
+        return None
     import requests
-    r = requests.get(RELEASES_API, timeout=10,
+    r = requests.get(_releases_api(), timeout=10,
                      headers={"Accept": "application/vnd.github+json"})
     r.raise_for_status()
-    return evaluate(r.json(), __version__, platform.machine())
+    return evaluate(r.json(), __version__, suffix)
 
 
 def start_scheduled(cfg):
@@ -180,10 +222,12 @@ def _run_update(info):
         except Exception as e:
             _progress_hide()
             log.error("update failed: %s", e)
-            alert("Update failed",
-                  f"{e}\n\nYou can install manually: download the DMG from "
-                  "github.com/psancheti6666/sotto/releases and drag Sotto "
-                  "to Applications.")
+            manual = ("download the .deb from github.com/psancheti6666/"
+                      "sotto/releases and open it to install"
+                      if IS_LINUX else
+                      "download the DMG from github.com/psancheti6666/"
+                      "sotto/releases and drag Sotto to Applications")
+            alert("Update failed", f"{e}\n\nYou can install manually: {manual}.")
     finally:
         _update_lock.release()
 
@@ -201,6 +245,8 @@ _nc_delegate = None      # retained; center.delegate is weak
 def _post_banner(info) -> bool:
     """Post the update notification. False → caller shows the dialog."""
     global _pending_banner, _nc_delegate
+    if not IS_MACOS:
+        return False  # Linux scheduled checks use the zenity dialog directly
     try:
         import UserNotifications as UN
 
@@ -279,9 +325,14 @@ def _post_banner(info) -> bool:
 # A small floating "Updating Sotto" window: determinate bar while the DMG
 # downloads (we know content-length), indeterminate while installing. All
 # AppKit access is dispatched to the main thread; the download worker only
-# calls these wrappers.
+# calls these wrappers. On Linux each wrapper forwards to update_linux's
+# zenity-subprocess equivalents (child processes — no main-thread choreography
+# needed, same reasoning as platform.alert()).
 
 def _progress_show(text: str):
+    if IS_LINUX:
+        from . import update_linux
+        return update_linux.progress_show(text)
     from .platform.macos import _on_main
 
     def go():
@@ -319,6 +370,9 @@ def _progress_show(text: str):
 
 
 def _progress_set(text: str, fraction=None):
+    if IS_LINUX:
+        from . import update_linux
+        return update_linux.progress_set(text, fraction)
     from .platform.macos import _on_main
 
     def go():
@@ -338,11 +392,16 @@ def _progress_set(text: str, fraction=None):
 
 
 def _progress_hide():
+    if IS_LINUX:
+        from . import update_linux
+        return update_linux.progress_hide()
     from .platform.macos import _on_main
     _on_main(lambda: _progress and _progress["win"].orderOut_(None))
 
 
 def _progress_front():
+    if IS_LINUX:
+        return  # zenity window manages its own stacking
     from .platform.macos import _on_main
     _on_main(lambda: _progress and _progress["win"].makeKeyAndOrderFront_(None))
 
@@ -350,6 +409,9 @@ def _progress_front():
 def _ask(title: str, text: str) -> bool:
     """Two-button modal on the main thread; safe to call from any thread.
     True = Update Now."""
+    if IS_LINUX:
+        from . import update_linux
+        return update_linux.ask(title, text)
     from .platform.macos import _on_main
     done = threading.Event()
     result = {"now": False}
@@ -378,6 +440,9 @@ def download_and_install(info):
     """Download the DMG, stage Sotto.app out of it, then hand off to a
     detached shell that swaps the bundle once this process exits and reopens
     it. Runs on a worker thread; only the final terminate touches AppKit."""
+    if IS_LINUX:
+        from . import update_linux
+        return update_linux.download_and_install(info, _progress_set)
     from Foundation import NSBundle
     target = NSBundle.mainBundle().bundlePath()
     if not target.endswith(".app"):
@@ -385,7 +450,9 @@ def download_and_install(info):
 
     import requests
     workdir = tempfile.mkdtemp(prefix="sotto-update-")
-    dmg = os.path.join(workdir, info["name"])
+    # basename: the asset name comes from the release JSON — never let it
+    # path-traverse out of the workdir
+    dmg = os.path.join(workdir, os.path.basename(info["name"]))
     log.info("downloading %s", info["url"])
     with requests.get(info["url"], stream=True, timeout=60) as r:
         r.raise_for_status()

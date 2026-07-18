@@ -23,6 +23,11 @@ fi
 
 VERSION=$(sed -nE 's/^__version__ = "([^"]+)"$/\1/p' sotto/__init__.py)
 [[ -n $VERSION ]] || { echo "Could not parse __version__" >&2; exit 1; }
+# release invariant (L8 security sweep): NO epochs, ever. dpkg makes an epoch
+# dominate all comparisons — one signed "1:x" release would permanently defeat
+# the updater's strictly-newer guard for non-epoch versions, and update.py's
+# _parse and dpkg would disagree about ordering.
+[[ $VERSION != *:* ]] || { echo "ERROR: epoch in version '$VERSION'" >&2; exit 1; }
 
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
@@ -88,6 +93,9 @@ rm -f "$DEB"
 # the pinned polkit action safe.
 dpkg-deb --root-owner-group --build "$PKG" "$DEB"
 
-command -v lintian >/dev/null 2>&1 && lintian "$DEB" || true  # advisory only
+# advisory only — findings are printed, never fail the build
+if command -v lintian >/dev/null 2>&1; then
+  lintian "$DEB" || true
+fi
 
 echo "OK: $DEB ($(du -h "$DEB" | cut -f1))"

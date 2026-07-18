@@ -18,9 +18,13 @@ step "unit tests (tests.yml)"
 
 step "shellcheck — root-executed + build shell (tests.yml gate)"
 # GATING: exactly the files the CI gate checks — fail only where CI fails
-shellcheck linuxapp/deb/sotto-perms linuxapp/build_app.sh || fail=1
+GATED="linuxapp/deb/sotto-perms linuxapp/deb/sotto-install-update \
+linuxapp/deb/postinst linuxapp/deb/prerm linuxapp/deb/postrm \
+linuxapp/deb/sotto-launcher linuxapp/build_app.sh linuxapp/make_deb.sh"
+# shellcheck disable=SC2086  # word-splitting the list is the point
+shellcheck $GATED || fail=1
 # INFO ONLY: other tracked shell isn't a CI gate today; surfaced, not blocking
-extra=$(git ls-files '*.sh' | grep -vE '^(linuxapp/deb/sotto-perms|linuxapp/build_app.sh)$' || true)
+extra=$(git ls-files '*.sh' | grep -vE '^(linuxapp/(deb/[^/]+|build_app\.sh|make_deb\.sh))$' || true)
 [ -n "$extra" ] && { echo "-- other shell (informational, not a CI gate):";
                      shellcheck $extra || echo "  (pre-existing warnings above — not blocking)"; }
 

@@ -54,6 +54,7 @@ hiddenimports += [
     "sotto.overlay_tk", "sotto.platform.linux",
     "sotto.firstrun", "sotto.firstrun_linux", "sotto.firstrun_tk",
     "sotto.llm_server", "sotto.ollama_runtime", "sotto.update",
+    "sotto.update_linux",
     # tray (L7): pystray picks a backend at import time; gi + the
     # gi.repository modules ride the contrib hooks, which also collect the
     # typelibs. All best-effort — PyInstaller warns (not fails) on hidden

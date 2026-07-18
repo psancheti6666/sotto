@@ -545,31 +545,54 @@ def test_update():
     print("update check (pure logic, no network):")
     from sotto import update
 
-    def release(tag, assets=("apple-silicon", "intel"), **kw):
-        return {"tag_name": tag,
-                "assets": [{"name": f"Sotto-{tag.lstrip('v')}-{a}.dmg",
-                            "browser_download_url": f"https://x/{a}.dmg"}
-                           for a in assets], **kw}
+    AS, INTEL, DEB = "-apple-silicon.dmg", "-intel.dmg", "-amd64.deb"
 
-    info = update.evaluate(release("v0.4.0"), "0.3.0", "arm64")
+    check("suffix: mac arm64", update.asset_suffix("darwin", "arm64") == AS)
+    check("suffix: mac intel", update.asset_suffix("darwin", "x86_64") == INTEL)
+    check("suffix: linux amd64", update.asset_suffix("linux", "x86_64") == DEB)
+    check("suffix: linux arm64 → None (updater stays silent)",
+          update.asset_suffix("linux", "aarch64") is None)
+    check("suffix: windows → None",
+          update.asset_suffix("windows", "AMD64") is None)
+
+    def release(tag, exts=(AS, INTEL, DEB + ".sig", DEB), **kw):
+        v = tag.lstrip("v")
+        return {"tag_name": tag,
+                "assets": [{"name": f"Sotto-{v}{e}",
+                            "browser_download_url": f"https://x/Sotto-{v}{e}"}
+                           for e in exts], **kw}
+
+    info = update.evaluate(release("v0.4.0"), "0.3.0", AS)
     check("newer release found", bool(info) and info["version"] == "0.4.0",
           repr(info))
     check("apple-silicon asset picked",
           bool(info) and info["url"].endswith("apple-silicon.dmg"))
-    info = update.evaluate(release("v0.4.0"), "0.3.0", "x86_64")
+    info = update.evaluate(release("v0.4.0"), "0.3.0", INTEL)
     check("intel asset picked", bool(info) and info["url"].endswith("intel.dmg"))
+    info = update.evaluate(release("v0.4.0"), "0.3.0", DEB)
+    check("deb asset picked with its signature",
+          bool(info) and info["url"].endswith("amd64.deb")
+          and info.get("sig_url", "").endswith("amd64.deb.sig"), repr(info))
+    check("deb without a .sig is not offered",
+          update.evaluate(release("v0.4.0", exts=(AS, INTEL, DEB)),
+                          "0.3.0", DEB) is None)
+    check("suffix matching is exact — a DMG can't satisfy a .deb suffix",
+          update.evaluate(release("v0.4.0", exts=(AS, INTEL)),
+                          "0.3.0", DEB) is None)
+    check("None suffix → no update",
+          update.evaluate(release("v0.4.0"), "0.3.0", None) is None)
     check("same version → no update",
-          update.evaluate(release("v0.3.0"), "0.3.0", "arm64") is None)
+          update.evaluate(release("v0.3.0"), "0.3.0", AS) is None)
     check("older version → no update",
-          update.evaluate(release("v0.2.9"), "0.3.0", "arm64") is None)
+          update.evaluate(release("v0.2.9"), "0.3.0", AS) is None)
     check("0.10 beats 0.9 (numeric, not lexical)",
-          update.evaluate(release("v0.10.0"), "0.9.0", "arm64") is not None)
+          update.evaluate(release("v0.10.0"), "0.9.0", AS) is not None)
     check("draft ignored",
-          update.evaluate(release("v9.9.9", draft=True), "0.3.0", "arm64") is None)
+          update.evaluate(release("v9.9.9", draft=True), "0.3.0", AS) is None)
     check("prerelease ignored",
-          update.evaluate(release("v9.9.9", prerelease=True), "0.3.0", "arm64") is None)
+          update.evaluate(release("v9.9.9", prerelease=True), "0.3.0", AS) is None)
     check("missing arch asset → no update",
-          update.evaluate(release("v0.4.0", assets=("intel",)), "0.3.0", "arm64") is None)
+          update.evaluate(release("v0.4.0", exts=(INTEL,)), "0.3.0", AS) is None)
 
     with tempfile.TemporaryDirectory() as td:
         state = os.path.join(td, "update-state.json")
@@ -579,6 +602,115 @@ def test_update():
               not update.due(state, 1, now=1000.0 + 3600))
         check("due once the interval passes",
               update.due(state, 1, now=1000.0 + 86401))
+
+
+def test_update_linux():
+    print("Linux updater backend (pure logic + injectable install flow):")
+    import signal
+
+    from sotto import update_linux as ul
+
+    # bundle gate: SOTTO_BUNDLE decides, nothing else
+    old = os.environ.pop("SOTTO_BUNDLE", None)
+    try:
+        check("checkout → bundle_type None", ul.bundle_type() is None)
+        os.environ["SOTTO_BUNDLE"] = "deb"
+        check("deb launcher env → bundle_type 'deb'", ul.bundle_type() == "deb")
+    finally:
+        os.environ.pop("SOTTO_BUNDLE", None)
+        if old is not None:
+            os.environ["SOTTO_BUNDLE"] = old
+
+    argv = ul._ask_argv("T", "B")
+    check("ask argv is zenity --question with Update Now/Later",
+          argv[0] == "zenity" and "--question" in argv
+          and any("Update Now" in a for a in argv), str(argv))
+    argv = ul._ask_argv_kdialog("T", "B")
+    check("kdialog fallback argv is --yesno", argv[0] == "kdialog"
+          and "--yesno" in argv, str(argv))
+    argv = ul._progress_argv("T")
+    check("progress argv is zenity --progress --auto-close",
+          argv[0] == "zenity" and "--progress" in argv
+          and "--auto-close" in argv, str(argv))
+    argv = ul._install_argv("/tmp/a.deb", "/tmp/a.deb.sig")
+    check("install argv is pkexec + the pinned helper + deb + sig",
+          argv == ["pkexec", ul.HELPER, "/tmp/a.deb", "/tmp/a.deb.sig"],
+          str(argv))
+    check("helper path is the packaged one",
+          ul.HELPER == "/usr/libexec/sotto/sotto-install-update")
+    argv = ul._relaunch_argv(12345)
+    check("relaunch waits for OUR pid to vanish, then execs the launcher",
+          "kill -0 12345" in argv[-1] and "/usr/bin/sotto" in argv[-1],
+          str(argv))
+
+    # install flow: pkexec dismissal (126) is a quiet no-op, helper failure
+    # raises, success relaunches + SIGINTs self. All I/O injected.
+    class R:
+        def __init__(self, rc, err=""):
+            self.returncode, self.stderr, self.stdout = rc, err, ""
+
+    def flow(rc, err=""):
+        calls = {"popen": [], "kill": []}
+        info = {"version": "9.9.9", "name": "Sotto-9.9.9-amd64.deb",
+                "url": "u", "sig_url": "s"}
+        saved_bundle = os.environ.get("SOTTO_BUNDLE")
+        os.environ["SOTTO_BUNDLE"] = "deb"
+        orig_exists, orig_kill = os.path.exists, os.kill
+        # narrow patch: only the helper-presence probe is faked
+        os.path.exists = (lambda p: True if p == ul.HELPER
+                          else orig_exists(p))
+        os.kill = lambda pid, sig: calls["kill"].append((pid, sig))
+
+        def fake_get(url, stream=True, timeout=0):
+            class Resp:
+                headers = {}
+                def raise_for_status(self): pass
+                def iter_content(self, n): return iter([b"x"])
+                def __enter__(self): return self
+                def __exit__(self, *a): pass
+            return Resp()
+
+        import requests
+        orig_get = requests.get
+        requests.get = fake_get
+        try:
+            ul.download_and_install(
+                info, lambda *a: None,
+                runner=lambda *a, **k: R(rc, err),
+                popen=lambda *a, **k: calls["popen"].append(a))
+        finally:
+            requests.get = orig_get
+            os.path.exists, os.kill = orig_exists, orig_kill
+            if saved_bundle is None:
+                os.environ.pop("SOTTO_BUNDLE", None)
+            else:
+                os.environ["SOTTO_BUNDLE"] = saved_bundle
+        return calls
+
+    calls = flow(0)
+    check("success → detached relaunch spawned",
+          len(calls["popen"]) == 1, str(calls["popen"]))
+    check("success → SIGINT to self (the designed shutdown path)",
+          calls["kill"] == [(os.getpid(), signal.SIGINT)], str(calls["kill"]))
+    calls = flow(126)
+    check("polkit dismissal → no relaunch, no exit, no error",
+          calls["popen"] == [] and calls["kill"] == [])
+    try:
+        flow(1, "signature verification FAILED")
+        check("helper failure raises", False)
+    except RuntimeError as e:
+        check("helper failure raises with the helper's message",
+              "signature verification FAILED" in str(e), str(e))
+
+    # the offer path must never block on a missing dialog tool
+    import shutil as _sh
+    orig_which = _sh.which
+    _sh.which = lambda name: None
+    try:
+        check("no zenity/kdialog → ask returns False, never raises",
+              ul.ask("T", "B") is False)
+    finally:
+        _sh.which = orig_which
 
 
 ASR_CASES = [
@@ -1198,6 +1330,13 @@ def test_deb_layout():
           helper is not None and helper[0] == "0755", str(helper))
     check("launcher installs at usr/bin/sotto mode 0755",
           by_dest.get("usr/bin/sotto", ("",))[0] == "0755")
+    # L8: the second root helper + the release pubkey it verifies against
+    inst = by_dest.get("usr/libexec/sotto/sotto-install-update")
+    check("sotto-install-update installs 0755 (same escalation rule as sotto-perms)",
+          inst is not None and inst[0] == "0755", str(inst))
+    pub = by_dest.get("usr/share/sotto/sotto-release.pub")
+    check("release pubkey installs 0644 at usr/share/sotto",
+          pub is not None and pub[0] == "0644", str(pub))
     for dest in ("usr/lib/udev/rules.d/60-sotto-input.rules",
                  "usr/share/polkit-1/actions/io.github.psancheti6666.sotto.policy",
                  "usr/lib/modules-load.d/sotto-uinput.conf",
@@ -1213,6 +1352,24 @@ def test_deb_layout():
                                "io.github.psancheti6666.sotto.policy")).read()
     check("polkit exec.path matches the helper's install dest",
           "/usr/libexec/sotto/sotto-perms" in policy)
+    check("install action pins the install-update helper's path",
+          "/usr/libexec/sotto/sotto-install-update" in policy
+          and "io.github.psancheti6666.sotto.install" in policy)
+    check("install action requires a fresh auth every time (no _keep)",
+          "auth_admin_keep" not in policy.split("sotto.install")[1])
+    # the helper must verify against the same pubkey path the manifest installs
+    helper_src = open(os.path.join(root, "linuxapp", "deb",
+                                   "sotto-install-update")).read()
+    check("helper verifies against the packaged pubkey path",
+          "/usr/share/sotto/sotto-release.pub" in helper_src)
+    check("helper refuses non-sotto packages and downgrades",
+          '"$PKG" = "sotto"' in helper_src
+          and "compare-versions" in helper_src)
+    # and the committed pubkey must be a real RSA public key
+    pub_pem = open(os.path.join(root, "linuxapp", "deb",
+                                "sotto-release.pub")).read()
+    check("committed release pubkey is a PEM public key (no private material)",
+          "BEGIN PUBLIC KEY" in pub_pem and "PRIVATE" not in pub_pem)
     # control.in has the version placeholder make_deb.sh substitutes
     control = open(os.path.join(root, "linuxapp", "deb", "control.in")).read()
     check("control.in carries @VERSION@ and Package: sotto",
@@ -1309,7 +1466,7 @@ def test_smoke_imports():
         "sotto.overlay_tk", "sotto.platform.linux",
         "sotto.firstrun", "sotto.firstrun_linux", "sotto.firstrun_tk",
         "sotto.llm_server", "sotto.ollama_runtime",
-        "sotto.update", "sotto.dashboard", "zstandard",
+        "sotto.update", "sotto.update_linux", "sotto.dashboard", "zstandard",
         "sotto.tray_linux",
     }
     missing = required - set(mod.SMOKE_IMPORTS)
@@ -1548,6 +1705,7 @@ if __name__ == "__main__":
     test_firstrun_gating()
     test_firstrun_notifications()
     test_update()
+    test_update_linux()
     if run_all or "--llm" in args:
         test_llm()
     if run_all or "--asr" in args:

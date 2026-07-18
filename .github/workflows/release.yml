@@ -170,6 +170,39 @@ jobs:
         run: |
           sudo apt-get install -y imagemagick
           ./linuxapp/make_deb.sh
+      # Detached signature over the .deb — what sotto-install-update verifies
+      # against the pinned pubkey before any self-update installs (L8).
+      # Release/dispatch runs use the real key (step-scoped, wiped after;
+      # verify-after-sign proves secret and committed pubkey are one pair).
+      # PR runs (and forks) sign with an EPHEMERAL run-local key instead —
+      # the gate test still exercises the full sign→verify machinery, but
+      # the real private key never materializes outside tag/dispatch runs
+      # (L8 security sweep). The ephemeral pubkey's presence in RUNNER_TEMP
+      # tells the gate-test step to override the installed pin.
+      - name: Sign the .deb
+        env:
+          SOTTO_DEB_SIGN_KEY: ${{ secrets.SOTTO_DEB_SIGN_KEY }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          umask 077
+          # the key must not outlive this step even when a later line fails
+          trap 'rm -f "$RUNNER_TEMP/deb-sign.pem"' EXIT
+          if [ "$EVENT" = "pull_request" ] || [ -z "$SOTTO_DEB_SIGN_KEY" ]; then
+            echo "PR/keyless run — signing with an ephemeral key"
+            openssl genrsa -out "$RUNNER_TEMP/deb-sign.pem" 4096 2>/dev/null
+            openssl rsa -in "$RUNNER_TEMP/deb-sign.pem" -pubout \
+              -out "$RUNNER_TEMP/deb-sign.pub" 2>/dev/null
+            pub="$RUNNER_TEMP/deb-sign.pub"
+          else
+            printf '%s\n' "$SOTTO_DEB_SIGN_KEY" > "$RUNNER_TEMP/deb-sign.pem"
+            pub=linuxapp/deb/sotto-release.pub
+          fi
+          for deb in dist/Sotto-*-amd64.deb; do
+            openssl dgst -sha256 -sign "$RUNNER_TEMP/deb-sign.pem" \
+              -out "$deb.sig" "$deb"
+            openssl dgst -sha256 -verify "$pub" -signature "$deb.sig" "$deb"
+          done
+          rm -f "$RUNNER_TEMP/deb-sign.pem"
       - name: Install the .deb and smoke the installed launcher
         run: |
           sudo apt-get install -y ./dist/Sotto-*-amd64.deb
@@ -209,6 +242,29 @@ jobs:
           out=$(xvfb-run -a /usr/bin/sotto --smoke)
           echo "$out"
           grep -q "bundle=deb" <<<"$out"
+      # The self-update gate, exercised root-side exactly as pkexec would run
+      # it (sudo stands in for pkexec — no polkit agent on a runner). Both
+      # cases must REFUSE: a tampered .deb fails signature verification, and
+      # a genuine .deb of the already-installed version trips the downgrade
+      # guard — which also proves its signature check PASSED first.
+      - name: Verify the install-update signature gate
+        run: |
+          sig=(dist/Sotto-*-amd64.deb.sig)
+          deb=(dist/Sotto-*-amd64.deb)
+          if [ -f "$RUNNER_TEMP/deb-sign.pub" ]; then
+            # PR run: the .sig is from the ephemeral key — repoint the
+            # installed pin at it (runner-only mutation) so the gate test
+            # exercises the helper exactly as a real update would
+            sudo cp "$RUNNER_TEMP/deb-sign.pub" /usr/share/sotto/sotto-release.pub
+          fi
+          cp "${deb[0]}" /tmp/tampered.deb
+          printf x >> /tmp/tampered.deb
+          if sudo /usr/libexec/sotto/sotto-install-update /tmp/tampered.deb "${sig[0]}"; then
+            echo "FAIL: tampered .deb was accepted"; exit 1
+          fi
+          out=$(sudo /usr/libexec/sotto/sotto-install-update "${deb[0]}" "${sig[0]}" 2>&1) \
+            && { echo "FAIL: same-version reinstall was accepted"; exit 1; }
+          grep -q "not newer than installed" <<<"$out"
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -216,6 +272,7 @@ jobs:
           path: |
             dist/sotto-linux-x86_64-onedir.tar.gz
             dist/Sotto-*-amd64.deb
+            dist/Sotto-*-amd64.deb.sig
           if-no-files-found: error
 
   # Tag builds gather both DMGs into one draft release. A single job (rather
@@ -246,10 +303,10 @@ jobs:
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" \
-              assets/*.dmg assets/*.deb --clobber
+              assets/*.dmg assets/*.deb assets/*.deb.sig --clobber
           else
             gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
               --title "$GITHUB_REF_NAME" \
               --notes "Draft — release notes to be written before publishing." \
-              assets/*.dmg assets/*.deb
+              assets/*.dmg assets/*.deb assets/*.deb.sig
           fi

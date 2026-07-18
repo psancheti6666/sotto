@@ -1,0 +1,82 @@
+#!/bin/sh
+# Created by Pratik Sancheti / https://github.com/psancheti6666
+# Sotto's self-update installer — the ONLY other code Sotto runs as root,
+# via its own polkit action io.github.psancheti6666.sotto.install (a fresh
+# graphical prompt on every update; no auth_admin_keep).
+#
+#   sotto-install-update <deb> <sig>
+#
+# SECURITY MODEL (docs/linux-app.md, L8 — the constraint that moved this out
+# of sotto-perms in the L5 sweep): polkit pins this executable's path but
+# CANNOT constrain its arguments, so ANY local user can invoke it with ANY
+# paths after one admin auth. The caller is therefore never trusted:
+#   1. both files are COPIED into a root-owned 0700 workdir first — the
+#      caller can't swap them after checks (TOCTOU);
+#   2. the copy must carry a valid RSA-SHA256 signature from the Sotto
+#      release key pinned at /usr/share/sotto/sotto-release.pub (root-owned,
+#      installed by this package; CI verifies every release .deb against it);
+#   3. the package must literally be "sotto", and strictly NEWER than the
+#      installed version — no downgrade-to-vulnerable, no replay;
+#   4. only then does apt-get see the file.
+# Worst case for a hostile local caller: installing an authentic, newer,
+# signed Sotto — the same thing this script exists to do.
+set -eu
+
+PUBKEY=/usr/share/sotto/sotto-release.pub
+
+fail() { echo "sotto-install-update: $1" >&2; exit 1; }
+
+[ "$#" -eq 2 ] || { echo "usage: sotto-install-update <deb> <sig>" >&2; exit 2; }
+[ -f "$1" ] || fail "no such file: $1"
+[ -f "$2" ] || fail "no such file: $2"
+[ -f "$PUBKEY" ] || fail "$PUBKEY is missing — reinstall sotto"
+# bound the root-owned copy below: without this, any authed caller can make
+# root fill /var/tmp before the signature check can reject. Real debs are
+# ~100-150 MB; 1 GB leaves an order-of-magnitude headroom.
+SIZE=$(wc -c < "$1") || fail "cannot stat $1"
+[ "$SIZE" -le 1073741824 ] || fail "file exceeds 1 GB — not a Sotto release"
+
+# fixed template, not $TMPDIR: pkexec scrubs the env, but never trust a
+# caller-influenced tempdir for the files apt will read as root. Traps go
+# in BEFORE mktemp (no leak window); INT/TERM exit so the EXIT trap cleans
+# up once — a bare INT trap would resume the script against deleted files.
+WORK=""
+trap '[ -n "$WORK" ] && rm -rf "$WORK"' EXIT
+trap 'exit 130' INT TERM
+WORK=$(mktemp -d /var/tmp/sotto-update.XXXXXX)
+chmod 700 "$WORK"
+cp -- "$1" "$WORK/pkg.deb"
+cp -- "$2" "$WORK/pkg.deb.sig"
+
+# 2. signature — on the root-owned copy, never the caller's path
+openssl dgst -sha256 -verify "$PUBKEY" \
+    -signature "$WORK/pkg.deb.sig" "$WORK/pkg.deb" >/dev/null 2>&1 \
+    || fail "signature verification FAILED — not a Sotto release"
+
+# 3. right package, strictly newer
+PKG=$(dpkg-deb -f "$WORK/pkg.deb" Package) || fail "not a valid .deb"
+[ "$PKG" = "sotto" ] || fail "package is '$PKG', not sotto"
+NEW=$(dpkg-deb -f "$WORK/pkg.deb" Version)
+# Status-Status guards the removed-but-not-purged case: dpkg-query still
+# reports a Version for an "rc" package, which would wrongly refuse a
+# reinstall after apt remove
+CUR=$(dpkg-query -W -f '${db:Status-Status} ${Version}' sotto 2>/dev/null \
+      || echo "")
+case "$CUR" in
+    installed\ *) CUR="${CUR#installed }" ;;
+    *) CUR="" ;;
+esac
+if [ -n "$CUR" ] && ! dpkg --compare-versions "$NEW" gt "$CUR"; then
+    fail "refusing downgrade/reinstall: $NEW is not newer than installed $CUR"
+fi
+
+# 4. install the verified copy (resolves any new Depends). apt warns about
+# reading a local file as root ("Download is performed unsandboxed") —
+# expected for local-deb installs, harmless here: the file is root-owned.
+export DEBIAN_FRONTEND=noninteractive
+# Lock::Timeout rides out unattended-upgrades holding the dpkg lock — a
+# transient condition that would otherwise surface as a raw exit-100 alert
+apt-get -o DPkg::Lock::Timeout=120 install --yes "$WORK/pkg.deb" \
+    || fail "apt-get install failed (exit $?)"
+
+echo "sotto $NEW installed"
