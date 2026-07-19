@@ -2197,8 +2197,9 @@ def test_platform_detection():
             if v is not None:
                 os.environ[k] = v
 
-    orig_cfg_flag, orig_cfg_path = sc.IS_LINUX, sc.CONFIG_PATH
+    orig_cfg_flags = (sc.IS_LINUX, sc.IS_WINDOWS, sc.CONFIG_PATH)
     try:
+        sc.IS_WINDOWS = False  # both platform flags forced — the branch
         sc.IS_LINUX, sc.CONFIG_PATH = True, "/nonexistent/config.toml"
         cfg = sc.load_config()
         check("Linux default hotkey is ctrl_r", cfg.hotkey == "ctrl_r", cfg.hotkey)
@@ -2206,12 +2207,12 @@ def test_platform_detection():
         check("Linux haptics off", cfg.haptics is False)
         check("Linux terminals are keystroke apps", "konsole" in cfg.keystroke_apps,
               str(cfg.keystroke_apps))
-        sc.IS_LINUX = False
+        sc.IS_LINUX = False  # neither flag → macOS defaults, on any host
         cfg = sc.load_config()
         check("macOS defaults untouched", cfg.hotkey == "fn" and cfg.done_sound == "Morse",
               f"{cfg.hotkey}/{cfg.done_sound}")
     finally:
-        sc.IS_LINUX, sc.CONFIG_PATH = orig_cfg_flag, orig_cfg_path
+        sc.IS_LINUX, sc.IS_WINDOWS, sc.CONFIG_PATH = orig_cfg_flags
 
 
 def test_linux_injector_selection():
@@ -2630,7 +2631,14 @@ def test_vm_round_fixes():
         else:
             os.environ["XDG_RUNTIME_DIR"] = saved_rt
 
-    if not sys.platform.startswith("linux"):
+    if sys.platform == "win32":
+        # the real named-mutex path (W5): a genuine handle, held for the
+        # process — and this suite IS a single instance, so acquisition
+        # must succeed (refusal/fail-open covered by the fake-kernel32
+        # tests in test_firstrun_windows)
+        check("windows acquires the real mutex",
+              bool(app_mod._acquire_instance_lock()))
+    elif not sys.platform.startswith("linux"):
         check("non-Linux platforms get a no-op token",
               app_mod._acquire_instance_lock() is True)
 
