@@ -45,12 +45,17 @@ SMOKE_IMPORTS = [
     "sotto.hotkey",
     "sotto.inject",
     "sotto.inject_windows",
+    "sotto.insights_windows",
     "sotto.llm_server",
     "sotto.ollama_runtime",
     "sotto.overlay_tk",
     "sotto.platform.windows",
     "sotto.tray_linux",
     "sotto.update",
+    # pywebview defers all backend/pythonnet init to start()/create_window
+    # (verified against upstream) — the bare import is safe and a stronger
+    # check than find_spec; the real GUI init is --smoke-webview's job
+    "webview",
 ]
 
 # Bundled-presence checks (find_spec, NOT imported): importing pystray runs
@@ -88,6 +93,11 @@ def main():
     _repair_streams()
     if "--smoke" in sys.argv[1:]:
         sys.exit(smoke())
+    if "--smoke-webview" in sys.argv[1:]:
+        # CI-only: render the real dashboard in the real WebView2 inside
+        # the frozen bundle (docs/windows-app.md W8) — exit code contract.
+        from sotto import insights_windows
+        sys.exit(insights_windows.smoke(port=8399))
     from sotto.app import main as run_sotto
     run_sotto()
 

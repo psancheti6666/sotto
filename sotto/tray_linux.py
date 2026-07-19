@@ -109,18 +109,14 @@ def _tray_thread(dashboard_port):
 
         from . import update
 
+        # native window when the platform can host one (WebView2 / WebKitGTK);
+        # falls back to the browser tab inside show_soon() — the tray gains
+        # zero new failure modes from it
         if IS_WINDOWS:
-            # browser tab until W8 lands insights_windows (WebView2) with
-            # the same show_soon surface — then this branch collapses
-            from . import dashboard
-            open_insights = lambda *_: dashboard.open_in_browser(
-                dashboard_port)
+            from . import insights_windows as insights_native
         else:
-            # native WebKitGTK window when the system can host one; falls
-            # back to the browser tab inside show_soon() — the tray gains
-            # zero new failure modes from it
-            from . import insights_linux
-            open_insights = lambda *_: insights_linux.show_soon()
+            from . import insights_linux as insights_native
+        open_insights = lambda *_: insights_native.show_soon()
         actions = {
             "insights": open_insights,
             "updates": lambda *_: update.check_from_menu(),

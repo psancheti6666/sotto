@@ -38,7 +38,7 @@ Linux project's "green then next run fails" pattern must not repeat.
 | App bundling | **PyInstaller onedir** on **windows-latest**, spec checked in (`winapp/sotto_win.spec`), `--smoke` flag importing every lazily-selected Windows backend — the exact L3 pattern. | Same rationale as Linux: onefile re-extracts hundreds of MB per launch; the smoke flag is the no-hardware safety net, run by CI on every build. |
 | Distribution | **Microsoft Store MSIX is the leading path** ($0 individual registration since Sept 2025; Store-signed = no SmartScreen), **gated on ONE early live test** (probe built in W2, exercised in Round A, completed on the real app in W7) that WH_KEYBOARD_LL + SendInput work under MSIX `runFullTrust` — BEFORE any packaging milestone is built on it. Fallback, in order: unsigned Inno Setup (documented "More info → Run anyway" friction), Certum open-source cert (~€25–49). | Scouted. The runFullTrust test is cheap (a hello-world MSIX of the W2 hotkey probe) and decides the whole channel; committing first and testing later is how expensive reversals happen. |
 | Updater | **Channel-dependent, same security bar as Linux.** Store path: the Store updates the app; Sotto's updater stays disabled (`bundle_type()` → "msix" = silent). Direct path (Inno): reuse `update.py`'s pure tier + a Windows backend that downloads installer + detached `.sig`, verifies RSA-SHA256 against the pinned committed pubkey (`sotto-release.pub` — same key infra as Linux) BEFORE executing; a package-name or URL check alone is false assurance. | The L8 lesson, applied from day one. No pkexec analogue needed — the installer runs as the user (per-user install dir) or triggers one UAC prompt. |
-| Insights window | **WebView2** (preinstalled on Win11, auto-updated on Win10) hosting the unchanged dashboard — `insights_windows.py` with the SAME public surface as macOS/Linux (`configure`/`available`/`show_soon`), browser-tab fallback, sticky failure flag. Host library decided in W8 between **pywebview (leading)** and a hand-rolled WebView2 COM host, recorded here when validated. | One window-layer idea across three platforms (macOS hand-rolled WKWebView, Linux hand-rolled WebKitGTK, Windows = thinnest reliable WebView2 host). Hand-rolling WebView2 means COM + a Win32 message pump — pywebview does exactly that behind one function and runs its loop off-main on Windows; paying a dependency is honest when the alternative is ~500 lines of COM. The Linux-rejection reason (pywebview demands the main thread) is macOS/GTK-specific — verify the off-main claim in W8 before recording the final row. |
+| Insights window | **WebView2 via pywebview** (DECIDED, W8/PR #84): `insights_windows.py` with the SAME public surface as macOS/Linux (`configure`/`available`/`show_soon`), browser-tab fallback, sticky failure flag. `gui="edgechromium"` FORCED (a missing WebView2 runtime must fall back to the browser, never degrade to legacy MSHTML). **Close = hide is a hard requirement on Windows**, not just macOS parity: pywebview's loop ends when its last window is destroyed and cannot restart in-process — the closing handler cancels the close. pywebview minor-pinned (`>=5.3,<6`, win32 marker). | One window-layer idea across three platforms (macOS hand-rolled WKWebView, Linux hand-rolled WebKitGTK, Windows = thinnest reliable WebView2 host). Hand-rolling WebView2 means COM vtables + a Win32 message pump — ~500 lines of exactly the code a maintained library exists for. pywebview's main-thread requirement is macOS/Cocoa-specific; on Windows its loop runs on a daemon thread (the tk overlay owns the main thread, as everywhere). CI's `--smoke-webview` renders the real dashboard in the real WebView2 inside the frozen onedir; the live look is Round D. |
 | First run | **No permission walkthrough**, but not zero checks: Windows needs no grants for hooks/SendInput, and mic consent is an OS prompt only on the MSIX path — a classic Win32 build is governed by the global "desktop apps may access your microphone" toggle, which fails SILENTLY when off. So: welcome + explicit model/ollama download consent screen + one honest mic row (check + `ms-settings:privacy-microphone` deep link) on the non-MSIX path + optional Start-at-login (Startup-folder shortcut or MSIX StartupTask). Built in **W5** by decoupling `firstrun_tk` from its module-level `firstrun_linux` imports (rows/statuses/gating/relaunch become parameters or a `firstrun_windows` sibling); the relaunch idiom is **spawn-then-exit**, not `os.execv` (broken semantics on Windows: new pid, argv mangling, console returns early). | The Tk windows are conceptually reusable but factually Linux-coupled today — the decoupling is named work, not an assumption. Honest copy: what downloads, how big, where it lives. |
 | Windows config defaults | `load_config()` gains an `IS_WINDOWS` branch (it only has `IS_LINUX` today — Windows would inherit macOS defaults): `hotkey = "ctrl_r"` (pynput cannot map fn on Windows; the app would be dead on arrival), winsound event table, `keystroke_apps` covering terminals, `haptics = False`. Part of **W5**. | Same shape as the existing Linux branch; without it every table row above about defaults is fiction. |
 | Arch | **amd64 only** initially; arm64 Windows deferred (`asset_suffix()` returns None there → updater silent — the L8 pattern). | No test hardware; friend's box is amd64. |
@@ -176,19 +176,35 @@ cycle). Milestones in between ship on CI + units alone.
    at the root — serves Round B directly and Round C via
    Add-AppxPackage -Register). test_smoke_imports pins the Windows
    smoke list (and that no Linux-only modules leak in).
+   **HONESTY CORRECTION (found in W8):** this milestone's "smoke passed
+   first try" was a FALSE GREEN — PowerShell does not wait for
+   GUI-subsystem exes on a bare invocation, so `$LASTEXITCODE` was
+   stale from the PyInstaller command and the frozen smoke never gated
+   anything. Fixed in W8 (Start-Process -Wait -PassThru at every
+   frozen-exe call site); the first HONEST frozen smoke ran there and
+   did pass.
    **→ Round C**: sideload on the friend's box — hook + SendInput + mic
    + model download under runFullTrust = the gate completes. PASS →
    Store channel confirmed (decision table updated), submission dry
    run. FAIL → Inno fallback activated, W9's signature gate becomes
    mandatory. Zero-terminal install → dictation, every prompt counted.
-8. **W8 — Insights window on WebView2.** `insights_windows.py` mirroring
-   the macOS/Linux surface; pywebview-vs-hand-rolled resolved and
-   recorded; browser fallback sticky; CI smoke renders the real dashboard
-   in the real WebView2 (the L11 xvfb-smoke equivalent) — the CI step
-   installs the Evergreen runtime first (windows-latest ships Edge, but
-   the WebView2 runtime is a separate install on Server images; don't
-   assume it). Units: ladder/gating/dispatch with fakes (the
-   `test_insights_linux` pattern). Friend: deferred to Round D.
+8. **W8 — Insights window on WebView2.** ✅ code done (PR #84, issue
+   #83). `sotto/insights_windows.py` — pywebview on a daemon thread
+   (create-once; reshow surfaces the hidden window; closing handler
+   hides + cancels — the loop must never end; loop death lands in the
+   sticky browser fallback like every other failure), decision row
+   above updated with the full rationale. Wiring: tray + app.py
+   configure/show route through it (the W6 browser-tab branch
+   collapsed); pywebview `>=5.3,<6 ; win32` in requirements; spec
+   hidden-imports webview + edgechromium backend (the WebView2 RUNTIME
+   stays system-owned, never bundled); entry gains `--smoke-webview`.
+   CI: the windows job checks the registry for the Evergreen runtime,
+   installs the bootstrapper only when absent, then renders the real
+   dashboard in the real WebView2 inside the frozen onedir (exit-code
+   contract). Units: `test_insights_windows` (gating, sticky ladder,
+   create/reshow/close-cancel with a blocking fake loop, loop-death
+   fallback) + tray wiring pin updated. Friend: Round D (native window
+   open/close/reopen, dictionary save, dictate-while-open).
 9. **W9 — Updater backend (channel-dependent).** Store: `bundle_type()`
    "msix" → updater silent, Store handles it. Inno: Windows backend with
    the signature gate (pinned pubkey, verify BEFORE execute, no-downgrade)
