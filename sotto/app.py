@@ -524,13 +524,24 @@ def _win_instance_lock(kernel32=None):
     the OS reclaims it on ANY exit — no stale state possible. Fails OPEN:
     a mutex API problem must not block startup."""
     try:
+        get_err = None
         if kernel32 is None:
             import ctypes
-            kernel32 = ctypes.windll.kernel32
+            from ctypes import wintypes
+            # use_last_error=True + ctypes.get_last_error(): the bare
+            # GetLastError() read is NOT reliably attributable to our call
+            # (interpreter internals / AV hooks can clobber it in between)
+            # — and a clobbered read here silently defeats second-instance
+            # detection, the exact scenario this guard exists for
+            # (#78 review; the documented ctypes pattern).
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.CreateMutexW.restype = wintypes.HANDLE
+            get_err = ctypes.get_last_error
         handle = kernel32.CreateMutexW(None, False, "Local\\sotto-instance")
         if not handle:
             return True
-        if kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+        err = get_err() if get_err else kernel32.GetLastError()
+        if err == 183:  # ERROR_ALREADY_EXISTS
             return None
         return handle
     except Exception:

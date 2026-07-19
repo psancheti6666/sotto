@@ -766,6 +766,12 @@ def test_firstrun_windows():
           argv[0] == "powershell" and "-NonInteractive" in argv
           and "CreateShortcut" in argv[-1]
           and "C:\\Apps\\Sotto\\sotto.exe" in argv[-1], str(argv[-1]))
+    # Windows allows apostrophes in usernames (O'Brien) — a raw ' would
+    # break the powershell string open mid-statement (#78 review)
+    argv = fw.autostart_argv("C:\\Users\\O'Brien\\sotto.exe")
+    check("apostrophes in paths are powershell-escaped ('')",
+          "O''Brien" in argv[-1] and "O'Brien\\sotto" not in argv[-1],
+          str(argv[-1]))
 
     # --- firstrun_tk selects the backend by platform
     from sotto import firstrun_tk as ft
@@ -2056,7 +2062,10 @@ def test_tk_firstrun_windows():
     fl.setup_missing = lambda c: True
     fl.autostart_ok = lambda: False
     try:
-        w = ft._Walkthrough(cfg)
+        # backend passed EXPLICITLY: these blocks exercise the Linux flow,
+        # and _backend()'s platform pick would hand windows-latest (which
+        # has a real display) the Windows rows instead
+        w = ft._Walkthrough(cfg, backend=fl)
         st = w.tick(loop=False)
         check("tick reports the stubbed states",
               st["input"] and not st["injection"], str(st))
@@ -2073,7 +2082,7 @@ def test_tk_firstrun_windows():
               str(w.start_btn["state"]) == "normal")
         w.close()
 
-        s = ft._DownloadScreen(cfg)
+        s = ft._DownloadScreen(cfg, backend=fl)
         s.q.put(("cleanup engine: 40%", 0.4))
         cont = s.drain()
         check("progress line lands in the bar",
@@ -2104,7 +2113,7 @@ def test_tk_firstrun_windows():
             fl.engine_missing = lambda c: True
             def boom(cb=None): raise RuntimeError("network down")
             orr.download = boom
-            s2 = ft._DownloadScreen(cfg)
+            s2 = ft._DownloadScreen(cfg, backend=fl)
             try:
                 s2.begin()  # spawns worker; no mainloop, so pump manually below
                 import time as _t

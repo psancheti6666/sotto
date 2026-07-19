@@ -138,14 +138,22 @@ def fix_mic():
     os.startfile("ms-settings:privacy-microphone")
 
 
+def _ps_quote(s: str) -> str:
+    """Escape for a PowerShell single-quoted string ('' is the only escape).
+    Paths here contain the username — and Windows genuinely allows
+    apostrophes in usernames (O'Brien), which would otherwise break the
+    string open mid-statement (#78 review)."""
+    return s.replace("'", "''")
+
+
 def autostart_argv(target: str) -> list:
     """Pure argv builder for the Startup-folder shortcut (unit-tested;
     .lnk creation needs COM, which powershell wraps in one line)."""
     script = ("$ws = New-Object -ComObject WScript.Shell; "
-              f"$s = $ws.CreateShortcut('{AUTOSTART_PATH}'); "
-              f"$s.TargetPath = '{target}'; "
+              f"$s = $ws.CreateShortcut('{_ps_quote(AUTOSTART_PATH)}'); "
+              f"$s.TargetPath = '{_ps_quote(target)}'; "
               "$s.WorkingDirectory = "
-              f"'{os.path.dirname(target) or '.'}'; "
+              f"'{_ps_quote(os.path.dirname(target) or '.')}'; "
               "$s.Save()")
     return ["powershell", "-NoProfile", "-NonInteractive", "-Command", script]
 
