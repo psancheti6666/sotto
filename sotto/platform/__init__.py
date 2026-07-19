@@ -37,6 +37,9 @@ def play_sound(name: str):
     elif IS_LINUX:
         from . import linux
         linux.play_sound(name)
+    elif IS_WINDOWS:
+        from . import windows
+        windows.play_sound(name)
 
 
 def haptic():
@@ -47,13 +50,17 @@ def haptic():
 
 def active_app_id() -> str:
     """Identifier of the focused app: a bundle id on macOS, a lowercased
-    WM_CLASS on Linux/X11, "" when unknown (e.g. Wayland)."""
+    WM_CLASS on Linux/X11, a lowercased exe name on Windows, "" when unknown
+    (e.g. Wayland)."""
     if IS_MACOS:
         from . import macos
         return macos.active_app_id()
     if IS_LINUX:
         from . import linux
         return linux.active_app_id()
+    if IS_WINDOWS:
+        from . import windows
+        return windows.active_app_id()
     return ""
 
 
@@ -67,6 +74,9 @@ def alert(title: str, text: str):
     elif IS_LINUX:
         from . import linux
         linux.alert(title, text)
+    elif IS_WINDOWS:
+        from . import windows
+        windows.alert(title, text)
 
 
 def prevent_app_nap():
