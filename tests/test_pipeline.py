@@ -345,7 +345,8 @@ def test_firstrun():
             check("LLM model found in sotto store",
                   firstrun.llm_model_ok(cfg.ollama_model))
             check("manifest path uses name/tag split",
-                  manifest.endswith("library/qwen3/4b-instruct"), manifest)
+                  manifest.replace(os.sep, "/")
+                  .endswith("library/qwen3/4b-instruct"), manifest)
 
             firstrun.consolidate_model_stores(cfg)
             check("HF_HOME untouched when model already cached",
@@ -997,7 +998,8 @@ def test_appimage_bootstrap():
             staged = argv[1] if len(argv) == 2 else ""
             check("no pinned helper → pkexec on a bootstrap copy "
                   "(generic prompt — the L5/L9 constraint)",
-                  argv[0] == "pkexec" and staged.endswith("/bootstrap"),
+                  argv[0] == "pkexec"
+                  and staged.replace(os.sep, "/").endswith("/bootstrap"),
                   str(argv))
             check("bootstrap is STAGED off the FUSE mount, executable, "
                   "with the setup payload beside it",
