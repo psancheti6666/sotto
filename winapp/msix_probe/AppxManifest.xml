@@ -1,0 +1,37 @@
+<!-- Created by Pratik Sancheti / https://github.com/psancheti6666 -->
+<!-- Loose-layout MSIX manifest for the hotkey probe (docs/windows-app.md W2).
+     Registered with Add-AppxPackage -Register (Developer Mode) so the probe
+     runs under runFullTrust exactly as a Store-submitted package would -
+     the one live test that decides the MSIX/Store channel. -->
+<Package
+    xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+    xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+    xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
+  <Identity Name="SottoHotkeyProbe" Publisher="CN=SottoDev"
+            Version="1.0.0.0" ProcessorArchitecture="x64" />
+  <Properties>
+    <DisplayName>Sotto Hotkey Probe</DisplayName>
+    <PublisherDisplayName>Sotto Dev</PublisherDisplayName>
+    <Logo>Assets\logo.png</Logo>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0"
+                        MaxVersionTested="10.0.22621.0" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+  <Applications>
+    <Application Id="Probe" Executable="hotkey_probe.exe"
+                 EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="Sotto Hotkey Probe"
+                          Description="WH_KEYBOARD_LL + SendInput under runFullTrust"
+                          BackgroundColor="transparent"
+                          Square150x150Logo="Assets\logo.png"
+                          Square44x44Logo="Assets\logo.png" />
+    </Application>
+  </Applications>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

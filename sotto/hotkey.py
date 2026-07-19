@@ -10,6 +10,11 @@ Behavior:
 
 `fn` cannot be intercepted by pynput on macOS, so pick a modifier (alt_r, cmd_r,
 ctrl) or an F-key ("f5", "f13", …) in config.
+
+Windows (docs/windows-app.md W2): pynput's listener is a WH_KEYBOARD_LL hook
+there, and its win32_event_filter gives the same selective swallowing that
+darwin_intercept gives on macOS — _win32_filter below mirrors
+_darwin_intercept event for event, so the full macOS gesture set carries over.
 """
 
 import sys
@@ -19,6 +24,13 @@ _SPACE_KEYCODE = 49          # macOS virtual keycode for space
 _ESCAPE_KEYCODE = 53         # macOS virtual keycode for escape
 _KEY_DOWN, _KEY_UP = 10, 11  # kCGEventKeyDown / kCGEventKeyUp
 
+# Windows: WH_KEYBOARD_LL message ids + virtual-key codes (Alt-modified keys
+# arrive as WM_SYSKEY*)
+_WM_KEYDOWN, _WM_SYSKEYDOWN = 0x0100, 0x0104
+_WM_KEYUP, _WM_SYSKEYUP = 0x0101, 0x0105
+_VK_SPACE, _VK_ESCAPE = 0x20, 0x1B
+_LLKHF_INJECTED = 0x10       # KBDLLHOOKSTRUCT.flags: event came from SendInput
+
 
 class HotkeyListener:
     def __init__(self, key_name: str, on_start, on_stop,
@@ -27,7 +39,7 @@ class HotkeyListener:
         if key_name == "fn":
             self._key, self._vk = None, 63  # handled by FnHotkeyListener
         else:
-            from pynput import keyboard  # lazy: pynput exists only on macOS
+            from pynput import keyboard  # lazy: pynput only on macOS/Windows
             self._key = getattr(keyboard.Key, key_name, None) or keyboard.KeyCode.from_char(key_name)
             self._vk = getattr(self._key, "value", self._key).vk
         self._on_start = on_start
@@ -168,13 +180,57 @@ class HotkeyListener:
         except Exception:
             return event
 
+    def _win32_filter(self, msg, data):
+        """Runs inside the WH_KEYBOARD_LL hook (pynput win32_event_filter) —
+        the Windows mirror of _darwin_intercept. suppress_event() RAISES to
+        block an event system-wide (pynput then also skips its callbacks for
+        it, matching the intercept returning None), so it must never sit
+        inside a try/except; any OTHER exception escaping the filter kills
+        the listener, so everything else is guarded."""
+        try:
+            down = msg in (_WM_KEYDOWN, _WM_SYSKEYDOWN)
+            up = msg in (_WM_KEYUP, _WM_SYSKEYUP)
+            if not (down or up):
+                return
+            if data.flags & _LLKHF_INJECTED:
+                return  # our own SendInput typing — never feed it back
+            vk = data.vkCode
+            swallow = False
+            if vk == _VK_ESCAPE:
+                if self._swallow_esc_up and up:
+                    self._swallow_esc_up = False
+                    swallow = True
+                elif down and self._active:
+                    self._swallow_esc_up = True
+                    self.cancel()
+                    swallow = True
+            elif vk == _VK_SPACE:
+                if self._swallow_space_up and up:
+                    self._swallow_space_up = False
+                    swallow = True
+                elif (down and self._down and self._active
+                        and not self._toggle):
+                    self._swallow_space_up = True
+                    self._enter_handsfree()
+                    swallow = True
+            elif (down and self._down and self._active and not self._toggle
+                    and vk != self._vk):
+                self._cancel_combo()  # hotkey used as a modifier — passes through
+        except Exception:
+            return
+        if swallow:
+            self._listener.suppress_event()
+
     def run(self):
         from pynput import keyboard
         kwargs = {}
         if sys.platform == "darwin":
             kwargs["darwin_intercept"] = self._darwin_intercept
-        with keyboard.Listener(on_press=self._on_press, on_release=self._on_release,
-                               **kwargs) as listener:
+        elif sys.platform == "win32":
+            kwargs["win32_event_filter"] = self._win32_filter
+        self._listener = keyboard.Listener(
+            on_press=self._on_press, on_release=self._on_release, **kwargs)
+        with self._listener as listener:
             listener.join()
 
 

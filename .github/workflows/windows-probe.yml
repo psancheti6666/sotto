@@ -1,0 +1,42 @@
+# Created by Pratik Sancheti / https://github.com/psancheti6666
+# Builds the Round-A hotkey-probe artifact (docs/windows-app.md W2): a
+# PyInstaller onefile probe.exe + the loose-layout MSIX manifest + the friend
+# instructions. Dispatch it before a friend round; PRs touching winapp/**
+# build it too so the probe never rots unbuilt.
+name: windows-probe
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ["winapp/**", ".github/workflows/windows-probe.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build probe.exe
+        run: |
+          python -m pip install pynput pyinstaller
+          pyinstaller --onefile --name hotkey_probe --console winapp/hotkey_probe.py
+      - name: Stage the artifact (exe + MSIX layout + instructions)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path stage/msix_probe/Assets -Force
+          Copy-Item dist/hotkey_probe.exe stage/
+          Copy-Item dist/hotkey_probe.exe stage/msix_probe/
+          Copy-Item winapp/msix_probe/AppxManifest.xml stage/msix_probe/
+          Copy-Item logo/sottoLogo.png stage/msix_probe/Assets/logo.png
+          Copy-Item winapp/PROBE.md stage/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-probe
+          path: stage/
+          if-no-files-found: error

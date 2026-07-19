@@ -386,6 +386,84 @@ def test_insights_config():
         insights._port = old
 
 
+def test_win32_filter():
+    print("Windows hotkey filter (W2 — fake hook events, no pynput hook):")
+    import types
+
+    from sotto import hotkey as hk
+
+    class Suppressed(Exception):
+        pass
+
+    class FakeListener:
+        def suppress_event(self):
+            raise Suppressed()
+
+    events = []
+    lst = hk.HotkeyListener(
+        "ctrl_r", lambda: events.append("start"),
+        lambda discard=False: events.append("discard" if discard else "stop"),
+        on_handsfree=lambda: events.append("handsfree"),
+        on_cancel=lambda: events.append("cancel"))
+    lst._listener = FakeListener()
+
+    def feed(msg, vk, flags=0):
+        """Returns True when the filter swallowed the event."""
+        try:
+            lst._win32_filter(msg, types.SimpleNamespace(vkCode=vk,
+                                                         flags=flags))
+            return False
+        except Suppressed:
+            return True
+
+    D, U = hk._WM_KEYDOWN, hk._WM_KEYUP
+
+    # idle: nothing swallowed, nothing fired
+    check("space passes through when idle",
+          not feed(D, hk._VK_SPACE) and not feed(U, hk._VK_SPACE)
+          and events == [], str(events))
+    check("escape passes through when idle",
+          not feed(D, hk._VK_ESCAPE) and events == [])
+
+    # hold → space engages hands-free, down AND up swallowed, later space free
+    lst._down = True
+    lst._hotkey_press()
+    check("hold starts dictation", events == ["start"], str(events))
+    check("space down while holding is swallowed", feed(D, hk._VK_SPACE))
+    check("hands-free engaged", events == ["start", "handsfree"], str(events))
+    check("the matching space up is swallowed too", feed(U, hk._VK_SPACE))
+    check("space in hands-free passes through (typed normally)",
+          not feed(D, hk._VK_SPACE) and not feed(U, hk._VK_SPACE))
+
+    # escape cancels hands-free, both edges swallowed
+    check("escape down cancels and is swallowed", feed(D, hk._VK_ESCAPE))
+    check("cancel fired", events[-1] == "cancel", str(events))
+    check("the matching escape up is swallowed", feed(U, hk._VK_ESCAPE))
+    lst._down = False
+
+    # combo: another key while holding → discard, key passes through
+    events.clear()
+    lst._down = True
+    lst._hotkey_press()
+    check("combo key is NOT swallowed (shortcut must reach the app)",
+          not feed(D, 0x2E))  # VK_DELETE
+    check("combo discards the dictation",
+          events == ["start", "discard"], str(events))
+    lst._down = False
+
+    # our own SendInput typing must never re-enter the gesture machine
+    events.clear()
+    lst._down = True
+    lst._hotkey_press()
+    check("injected events are ignored entirely",
+          not feed(D, hk._VK_SPACE, flags=hk._LLKHF_INJECTED)
+          and events == ["start"], str(events))
+    # non-key hook messages fall straight through
+    check("non-key messages pass through", not feed(0x0200, hk._VK_SPACE))
+    lst._down = False
+    lst.force_stop()
+
+
 def test_insights_linux():
     print("Linux insights window (pure logic — fake gi, no GTK):")
     import logging
@@ -2407,6 +2485,7 @@ if __name__ == "__main__":
     test_ollama_runtime()
     test_firstrun()
     test_insights_config()
+    test_win32_filter()
     test_insights_linux()
     test_listener_retry()
     test_logging_setup()
