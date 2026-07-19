@@ -322,6 +322,9 @@ ROWS = [
 
 GATING = ("input", "injection")  # models/autostart never block Start
 
+SUBTITLE = ("Private dictation, fully on this computer. "
+            "Two quick permissions and you're set.")
+
 
 # ---------------------------------------------------------------- relaunch --
 

@@ -286,18 +286,21 @@ class Sotto:
                 # being revoked mid-session, which is otherwise silent.
                 threading.Thread(target=self._permission_watchdog,
                                  daemon=True).start()
-        elif IS_LINUX:
-            from . import firstrun_linux
+        elif IS_LINUX or IS_WINDOWS:
+            if IS_LINUX:
+                from . import firstrun_linux as fr_platform
+            else:
+                from . import firstrun_windows as fr_platform
             # packaged builds get the guided setup; checkouts keep today's
             # behavior unless SOTTO_FIRSTRUN=1 previews the windows
-            if (firstrun_linux.bundle_type()
+            if (fr_platform.bundle_type()
                     or os.environ.get("SOTTO_FIRSTRUN") == "1"):
                 from . import firstrun, firstrun_tk
-                if firstrun_linux.needed(self.cfg):
+                if fr_platform.needed(self.cfg):
                     firstrun_tk.launch(self.cfg)  # owns the process;
                     return                        # completing it relaunches
                 firstrun.consolidate_model_stores(self.cfg)
-                if firstrun_linux.setup_missing(self.cfg):
+                if fr_platform.setup_missing(self.cfg):
                     firstrun_tk.download_screen(self.cfg)
                     return
         if IS_LINUX:
@@ -326,9 +329,9 @@ class Sotto:
                 # macOS may have quit-&-reopened us to apply Input Monitoring
                 # — tell the user setup finished if the welcome window ran.
                 firstrun.announce_if_setup_just_finished()
-        elif IS_LINUX:
+        elif IS_LINUX or IS_WINDOWS:
             from . import firstrun
-            # the execv relaunch after the download screen lands here
+            # the relaunch after the download screen lands here
             firstrun.announce_if_setup_just_finished(hotkey=self.cfg.hotkey)
         listener = self._make_listener()
         self.listener = listener
@@ -514,13 +517,48 @@ def setup_logging(path: str = None):
 _instance_lock = None  # held socket — must outlive main()
 
 
-def _acquire_instance_lock(socket_mod=None):
-    """Linux: hold a lock socket in the user's own 0700 XDG_RUNTIME_DIR as a
-    single-instance guard — dies with the process (no stale files), and being
-    inside the per-user runtime dir it can't be squatted by another user the
-    way an abstract-namespace name could (#64 review). Returns a truthy token
-    elsewhere (macOS bundles are single-instance via LaunchServices) and None
-    when another live Sotto already holds it."""
+def _win_instance_lock(kernel32=None):
+    """Windows: a per-session named mutex (docs/windows-app.md W5 — the #63
+    double-instance lesson; no LaunchServices backstop exists here and MSIX
+    apps are multi-instance). The handle lives for the process lifetime and
+    the OS reclaims it on ANY exit — no stale state possible. Fails OPEN:
+    a mutex API problem must not block startup."""
+    try:
+        get_err = None
+        if kernel32 is None:
+            import ctypes
+            from ctypes import wintypes
+            # use_last_error=True + ctypes.get_last_error(): the bare
+            # GetLastError() read is NOT reliably attributable to our call
+            # (interpreter internals / AV hooks can clobber it in between)
+            # — and a clobbered read here silently defeats second-instance
+            # detection, the exact scenario this guard exists for
+            # (#78 review; the documented ctypes pattern).
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.CreateMutexW.restype = wintypes.HANDLE
+            get_err = ctypes.get_last_error
+        handle = kernel32.CreateMutexW(None, False, "Local\\sotto-instance")
+        if not handle:
+            return True
+        err = get_err() if get_err else kernel32.GetLastError()
+        if err == 183:  # ERROR_ALREADY_EXISTS
+            return None
+        return handle
+    except Exception:
+        return True
+
+
+def _acquire_instance_lock(socket_mod=None, win_kernel32=None):
+    """Single-instance guard (#63: two instances = double-typed text).
+    Linux: hold a lock socket in the user's own 0700 XDG_RUNTIME_DIR —
+    dies with the process (no stale files), and being inside the per-user
+    runtime dir it can't be squatted by another user the way an
+    abstract-namespace name could (#64 review). Windows: named mutex (see
+    _win_instance_lock). Returns a truthy token elsewhere (macOS bundles
+    are single-instance via LaunchServices) and None when another live
+    Sotto already holds it."""
+    if (IS_WINDOWS and socket_mod is None) or win_kernel32 is not None:
+        return _win_instance_lock(win_kernel32)
     if not IS_LINUX and socket_mod is None:
         return True
     import socket as _socket
