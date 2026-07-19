@@ -176,6 +176,13 @@ cycle). Milestones in between ship on CI + units alone.
    at the root — serves Round B directly and Round C via
    Add-AppxPackage -Register). test_smoke_imports pins the Windows
    smoke list (and that no Linux-only modules leak in).
+   **HONESTY CORRECTION (found in W8):** this milestone's "smoke passed
+   first try" was a FALSE GREEN — PowerShell does not wait for
+   GUI-subsystem exes on a bare invocation, so `$LASTEXITCODE` was
+   stale from the PyInstaller command and the frozen smoke never gated
+   anything. Fixed in W8 (Start-Process -Wait -PassThru at every
+   frozen-exe call site); the first HONEST frozen smoke ran there and
+   did pass.
    **→ Round C**: sideload on the friend's box — hook + SendInput + mic
    + model download under runFullTrust = the gate completes. PASS →
    Store channel confirmed (decision table updated), submission dry
