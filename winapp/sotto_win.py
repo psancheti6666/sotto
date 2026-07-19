@@ -52,17 +52,18 @@ SMOKE_IMPORTS = [
     "sotto.platform.windows",
     "sotto.tray_linux",
     "sotto.update",
+    # pywebview defers all backend/pythonnet init to start()/create_window
+    # (verified against upstream) — the bare import is safe and a stronger
+    # check than find_spec; the real GUI init is --smoke-webview's job
+    "webview",
 ]
 
 # Bundled-presence checks (find_spec, NOT imported): importing pystray runs
-# its backend auto-selection — on Windows that touches the real shell tray —
-# and importing webview loads the pythonnet/.NET machinery, which belongs in
-# the dedicated --smoke-webview step, not the import smoke. The smoke only
-# asserts the modules made it into the bundle; runtime failures collapse to
-# best-effort fallbacks (tray-less log line / browser tab).
+# its backend auto-selection — on Windows that touches the real shell tray.
+# The smoke only asserts the module made it into the bundle; tray_linux
+# catches real failures at runtime (best-effort, one log line).
 SMOKE_FIND = [
     "pystray",
-    "webview",
 ]
 
 

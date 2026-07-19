@@ -218,7 +218,9 @@ jobs:
         run: |
           sudo apt-get install -y gir1.2-webkit2-4.1 \
             || sudo apt-get install -y gir1.2-webkit2-4.0
-          out=$(timeout -k 10 240 xvfb-run -a dist/sotto/sotto --smoke-webview)
+          # || true: under -e a failing substitution would kill the step
+          # BEFORE the echo — the output is the diagnostic; grep is the gate
+          out=$(timeout -k 10 240 xvfb-run -a dist/sotto/sotto --smoke-webview 2>&1 || true)
           echo "$out"
           grep -q "webview smoke OK" <<<"$out"
       # The runner has libportaudio2 installed, so the build-time smoke can't

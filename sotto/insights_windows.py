@@ -144,6 +144,7 @@ def smoke(port: int, timeout_s: float = 60.0) -> int:
             pass
 
     try:
+        write("smoke starting")
         from . import dashboard
         server = dashboard.start(port)
         if server is None:
@@ -151,6 +152,7 @@ def smoke(port: int, timeout_s: float = 60.0) -> int:
             return 1
         configure(port)
         webview = _import_webview()
+        write("webview imported")
         result = {}
         done = threading.Event()
 
@@ -171,6 +173,8 @@ def smoke(port: int, timeout_s: float = 60.0) -> int:
         win = webview.create_window("smoke", f"http://127.0.0.1:{port}/",
                                     hidden=True)
         win.events.loaded += on_loaded
+        write("window created — starting loop (a native crash after this "
+              "line leaves no further breadcrumbs)")
         webview.start(gui="edgechromium")
         title = result.get("title") or ""
         ok = "sotto" in title.lower()
