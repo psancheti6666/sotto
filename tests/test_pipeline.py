@@ -388,6 +388,11 @@ def test_insights_config():
 
 def test_win32_filter():
     print("Windows hotkey filter (W2 — fake hook events, no pynput hook):")
+    if sys.platform not in ("darwin", "win32"):
+        # constructing HotkeyListener imports pynput, which Linux
+        # deliberately does not install (evdev is its backend)
+        print("  (skipped — needs pynput, darwin/win32 only)")
+        return
     import types
 
     from sotto import hotkey as hk
@@ -1335,8 +1340,8 @@ def test_recorder_truncation():
 
 def test_force_stop():
     print("watchdog force-stop:")
-    if sys.platform != "darwin":
-        print("  (skipped — HotkeyListener needs pynput, which is macOS-only;"
+    if sys.platform not in ("darwin", "win32"):
+        print("  (skipped — HotkeyListener needs pynput, absent on Linux;"
               " the shared gesture state machine is covered by test_evdev_gestures)")
         return
     from sotto.hotkey import HotkeyListener
