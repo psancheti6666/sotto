@@ -63,6 +63,14 @@ hiddenimports += [
     "sotto.tray_linux", "pystray", "pystray._appindicator", "pystray._xorg",
     "gi", "gi.repository.Gtk", "gi.repository.GLib", "gi.repository.GObject",
     "gi.repository.AyatanaAppIndicator3",
+    # Insights window: the module ships, but gi.repository.WebKit2 is
+    # DELIBERATELY not hidden-imported — the gi hook would collect
+    # libwebkit2gtk and its helper binaries (WebKitWebProcess etc.), which
+    # don't relocate into a bundle. insights_linux loads the SYSTEM
+    # introspection data at runtime (deb Depends installs it; without it the
+    # window falls back to the browser tab). CI's webview smoke proves the
+    # frozen path against the real system WebKit.
+    "sotto.insights_linux",
 ]
 
 a = Analysis(

@@ -330,9 +330,17 @@ class Sotto:
                     # arms the menu-bar "Insights" item (menu built later, in
                     # overlay.run_forever)
                     insights.configure(self.cfg.dashboard_port)
+            elif server and IS_LINUX:
+                # arms the tray's "Insights" item; show_soon() opens a native
+                # WebKitGTK window when the system can host one, else the
+                # browser tab as before
+                from . import insights_linux
+                insights_linux.configure(self.cfg.dashboard_port)
             if server and self.cfg.open_dashboard_on_start:
                 if in_bundle:
                     insights.show_soon()  # native window, not a browser tab
+                elif IS_LINUX:
+                    insights_linux.show_soon()
                 else:
                     dashboard.open_in_browser(self.cfg.dashboard_port)
         if IS_LINUX:

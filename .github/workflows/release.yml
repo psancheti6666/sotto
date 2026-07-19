@@ -149,6 +149,24 @@ jobs:
           PYTHON: python3.11
       - name: Pack onedir
         run: tar -C dist -czf dist/sotto-linux-x86_64-onedir.tar.gz sotto
+      # Native Insights window (docs/linux-app.md): render the REAL dashboard
+      # in the REAL WebKitGTK webview inside the frozen onedir — the first
+      # actual execution of insights_linux, since no local Linux hardware
+      # exists. The WebKit introspection data comes from the SYSTEM at
+      # runtime (never bundled — WebKit's helper binaries don't relocate);
+      # the deb's Depends installs it for users, this step installs it for
+      # the runner. COMPOSITING var: xvfb has no GPU — webkit's accelerated
+      # compositing path can hang headless; real desktops don't set this.
+      - name: Webview smoke (native Insights window in the frozen onedir)
+        timeout-minutes: 10
+        env:
+          WEBKIT_DISABLE_COMPOSITING_MODE: "1"
+        run: |
+          sudo apt-get install -y gir1.2-webkit2-4.1 \
+            || sudo apt-get install -y gir1.2-webkit2-4.0
+          out=$(timeout -k 10 240 xvfb-run -a dist/sotto/sotto --smoke-webview)
+          echo "$out"
+          grep -q "webview smoke OK" <<<"$out"
       # The runner has libportaudio2 installed, so the build-time smoke can't
       # prove the BUNDLED copy is reachable (rthook_portaudio.py). Re-smoke
       # the tarball in a bare container with no libportaudio2: xvfb pulls in

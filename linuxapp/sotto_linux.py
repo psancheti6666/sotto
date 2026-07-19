@@ -36,6 +36,7 @@ SMOKE_IMPORTS = [
     "sotto.firstrun_tk",
     "sotto.history",
     "sotto.hotkey_evdev",
+    "sotto.insights_linux",
     "sotto.inject",
     "sotto.inject_linux",
     "sotto.llm_server",
@@ -77,6 +78,12 @@ def smoke() -> int:
 def main():
     if "--smoke" in sys.argv[1:]:
         sys.exit(smoke())
+    if "--smoke-webview" in sys.argv[1:]:
+        # CI-only: render the real dashboard in the real WebKitGTK webview
+        # under xvfb — the first actual execution of insights_linux, since
+        # no local Linux hardware exists (needs gir1.2-webkit2 installed).
+        from sotto import insights_linux
+        sys.exit(insights_linux.smoke(port=8399))
     from sotto.app import main as run_sotto
     run_sotto()
 

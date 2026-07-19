@@ -29,6 +29,8 @@ questions don't get reopened. Windows scouting notes live at the bottom.
 | Dev/release split | **None on Linux** — one package identity; a source checkout is "dev". | No TCC analogue to protect (the macOS split existed because same-bundle-id copies fought over TCC rows). |
 | Arch | **amd64 only** initially; arm64 Linux deferred (L8's `asset_suffix()` will return None there → updater silent). | No test hardware; the friend's machine is amd64. |
 | Permission watchdog | **Not ported** to Linux initially. | Revocation isn't a Settings toggle on Linux; the evdev listener's retry-with-alert and the injection chain's runtime fallthrough already cover device loss. |
+| Insights surface (v0.4.1) | **Native WebKitGTK window** — hand-rolled gi `Gtk.Window` + `WebKit2.WebView` (`sotto/insights_linux.py`, mirrors macOS `insights.py`); the browser tab stays as the automatic fallback (one log line, sticky). **pywebview rejected.** | pywebview's `webview.start()` must own the main thread, which the tk overlay holds; it adds a dependency for ~120 lines of window. GTK work runs via `GLib.idle_add` on the DEFAULT main context — the one pystray's tray loop already iterates; a standby daemon `GLib.MainLoop` thread guarantees dispatch when the tray is absent (`g_main_loop_run` from a non-owner just blocks, so the two compose and exactly ONE thread executes GTK at a time). PyGObject installs its SIGINT glue only on the main thread — neither loop touches overlay_tk's Ctrl+C handler. |
+| WebKitGTK in artifacts (v0.4.1) | deb: `Depends: gir1.2-webkit2-4.1 \| gir1.2-webkit2-4.0` → native window guaranteed. **AppImage + PyInstaller bundle: NEVER bundled** — the system introspection is used when present, else the browser tab. | WebKit's helper binaries (WebKitWebProcess/NetworkProcess) don't relocate into a bundle and the stack is hundreds of MB. On a frozen app the environment is sanitized (clean_env, permanently, at first webview use) so the SYSTEM helpers don't inherit PyInstaller's LD_LIBRARY_PATH (#63 class). Honest degradation beats a broken bundle. |
 
 ## Open decisions
 
@@ -226,6 +228,30 @@ every test round attaches `~/.sotto/sotto.log`.
     cycle via a 0.3.9-versioned dispatch-built test deb updating to the
     published v0.4.0 → publish → fresh-machine zero-terminal test from
     the published URL, timed, every prompt counted.
+
+12. **L11 — Native Insights window (v0.4.1).** 🔄 code done (PR pending,
+    issue #65). `sotto/insights_linux.py` (configure/available/show_soon
+    mirroring macOS insights.py; GLib.idle_add dispatch + standby loop
+    thread; sticky browser fallback; frozen-env sanitize for the WebKit
+    helper processes; `smoke()` for CI), tray "Insights" + `open_dashboard_
+    on_start` route through it, deb Depends gains the webkit gir
+    (alternation 4.1|4.0), spec ships the module but NEVER bundles WebKit,
+    CI gains an xvfb `--smoke-webview` step that renders the real dashboard
+    in the real webview inside the frozen onedir. Dashboard page/server
+    untouched (localhost-only, zero external requests, textContent, CSRF).
+    Units: `test_insights_linux` + tray-wiring pins in `test_tray_menu`.
+    **Validation checklist (ONE batched round, VM or friend, deb path):**
+    (1) install the v0.4.1 deb → tray → Insights → a NATIVE window opens
+    (not a browser tab); (2) close it, reopen from the tray — same window
+    returns, state intact; (3) inside the window: history renders, search
+    works, dictionary add/save works (the POST path), theme toggle sticks;
+    (4) launch with `open_dashboard_on_start = true` → native window at
+    startup; (5) dictate while the window is open — overlay, typing, and
+    window all stay live (mainloop separation); (6) Quit from tray →
+    `pgrep` clean; (7) AppImage on a box WITHOUT gir1.2-webkit2 → browser
+    tab opens as before + one "native Insights window unavailable" log
+    line; with the gir installed → native window; (8) attach
+    `~/.sotto/sotto.log`. X11 AND Wayland where possible.
 
 ### Validation round 1 — 2026-07-19, Pratik (VirtualBox on a 2019 Intel MBP;
 ### stock Ubuntu 24.04 GNOME Wayland; AppImage path)

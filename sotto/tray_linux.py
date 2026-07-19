@@ -91,10 +91,13 @@ def _tray_thread(dashboard_port):
     try:
         import pystray
 
-        from . import dashboard, update
+        from . import insights_linux, update
 
         actions = {
-            "insights": lambda *_: dashboard.open_in_browser(dashboard_port),
+            # native WebKitGTK window when the system can host one; falls
+            # back to the browser tab inside show_soon() — the tray gains
+            # zero new failure modes from it
+            "insights": lambda *_: insights_linux.show_soon(),
             "updates": lambda *_: update.check_from_menu(),
             "quit": _quit,
         }
