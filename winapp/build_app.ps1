@@ -27,9 +27,13 @@ if ($LASTEXITCODE -ne 0) { exit 1 }
 
 # Import every runtime-selected backend inside the frozen app - the safety
 # net for lazy imports PyInstaller can't see. Windowed exe: exit code is
-# the contract (std streams are None under the windowed bootloader).
-& dist\sotto\sotto.exe --smoke
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "smoke check failed (exit $LASTEXITCODE)"
+# the contract - and PowerShell does NOT wait for GUI-subsystem exes on a
+# bare invocation ($LASTEXITCODE would be stale from the previous native
+# command: a false green, found the hard way in W8). Start-Process -Wait
+# is the honest launch.
+$p = Start-Process -FilePath (Resolve-Path "dist\sotto\sotto.exe") `
+    -ArgumentList "--smoke" -Wait -PassThru -NoNewWindow
+if ($p.ExitCode -ne 0) {
+    Write-Error "smoke check failed (exit $($p.ExitCode))"
 }
 Write-Host "smoke OK (exit 0) - dist\sotto ready"

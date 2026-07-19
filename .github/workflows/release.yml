@@ -148,12 +148,14 @@ jobs:
             Invoke-WebRequest "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile wv2setup.exe
             Start-Process -Wait -FilePath .\wv2setup.exe -ArgumentList "/silent","/install"
           }
-          & dist\sotto\sotto.exe --smoke-webview
-          $code = $LASTEXITCODE
+          # Start-Process -Wait: PowerShell does NOT wait for GUI-subsystem
+          # exes on a bare invocation ($LASTEXITCODE stale → false result)
+          $p = Start-Process -FilePath (Resolve-Path "dist\sotto\sotto.exe") `
+            -ArgumentList "--smoke-webview" -Wait -PassThru -NoNewWindow
           # the windowed exe's streams are devnull — the report file is the
           # only diagnostic surface
           if (Test-Path webview-smoke.txt) { Get-Content webview-smoke.txt }
-          if ($code -ne 0) { exit 1 }
+          if ($p.ExitCode -ne 0) { exit 1 }
       # ONE layout serves both rounds: Round B runs sotto/sotto.exe
       # directly; Round C registers the manifest at the root (its
       # Executable path points into the same sotto/ folder).
