@@ -3,6 +3,10 @@
 # Windows-only; CI (windows-latest) is the primary runner - no Windows dev
 # hardware exists, so treat local runs as best-effort.
 $ErrorActionPreference = "Stop"
+# pwsh 7.3+: make native-command failures (pip etc.) honor Stop — without
+# this a failed pip install only surfaces later as a confusing PyInstaller
+# import error. Harmless no-op assignment on Windows PowerShell 5.1.
+$PSNativeCommandUseErrorActionPreference = $true
 Set-Location (Join-Path $PSScriptRoot "..")
 
 if ($env:OS -ne "Windows_NT") {
