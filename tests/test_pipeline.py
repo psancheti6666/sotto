@@ -159,8 +159,11 @@ def test_llm_server():
             fake = os.path.join(tmp, "ollama", "ollama")
             with open(fake, "w") as f:
                 f.write("#!/bin/sh\n")
-            check("non-executable file ignored",
-                  llm_server.bundled_binary() is None)
+            if sys.platform != "win32":
+                # os.access(X_OK) is true for ANY existing file on Windows —
+                # the exec-bit concept doesn't exist there (docs/windows-app.md W1)
+                check("non-executable file ignored",
+                      llm_server.bundled_binary() is None)
             os.chmod(fake, 0o755)
             check("executable found", llm_server.bundled_binary() == fake)
         del os.environ["RESOURCEPATH"]
@@ -203,7 +206,10 @@ def test_ollama_runtime():
             os.makedirs(os.path.dirname(binpath))
             with open(binpath, "w") as f:
                 f.write("#!/bin/sh\n")
-            check("non-executable download ignored", orr.installed() is None)
+            if sys.platform != "win32":
+                # no exec bit on Windows — os.access(X_OK) is always true
+                check("non-executable download ignored",
+                      orr.installed() is None)
             os.chmod(binpath, 0o755)
             check("downloaded runtime found", orr.resolve() == binpath)
     finally:
