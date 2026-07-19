@@ -517,7 +517,9 @@ def _acquire_instance_lock(socket_mod=None):
     import socket as _socket
     socket_mod = socket_mod or _socket
     runtime = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
-    path = os.path.join(runtime, "sotto.lock")
+    # literal "/" — a Linux path; the W1 unit tier runs this with a fake
+    # socket module on Windows too, where os.path.join would backslash it
+    path = runtime + "/sotto.lock"
     s = socket_mod.socket(socket_mod.AF_UNIX, socket_mod.SOCK_STREAM)
     try:
         try:

@@ -39,9 +39,13 @@ def _run(argv, **kw):
 # (systemd's %t == XDG_RUNTIME_DIR), and every client call below sets
 # YDOTOOL_SOCKET to match. Without this the daemon and client can start fine
 # yet never connect, leaving the Typing row red forever.
-YDOTOOL_SOCKET = os.path.join(
-    os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}",
-    ".ydotool_socket")
+# literal "/" join, not os.path.join: this names a path on a LINUX system,
+# and the module is imported by the cross-platform unit tier (W1) where
+# os.path.join would produce a backslash. getattr: os.getuid does not exist
+# on Windows.
+YDOTOOL_SOCKET = (
+    os.environ.get("XDG_RUNTIME_DIR")
+    or f"/run/user/{getattr(os, 'getuid', os.getpid)()}") + "/.ydotool_socket"
 
 
 def _ydotool_env():
