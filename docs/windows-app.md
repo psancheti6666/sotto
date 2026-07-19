@@ -110,17 +110,30 @@ cycle). Milestones in between ship on CI + units alone.
    (start_new_session is POSIX-only — same console-Ctrl isolation
    intent). Units: asset-table pins, windows-layout installed(), real
    zip round-trip + slip refusal. Friend: deferred to Round B.
-5. **W5 — First-run + config defaults + single-instance.** Decouple
-   `firstrun_tk` from its module-level `firstrun_linux` coupling (rows/
-   statuses/gating/relaunch parameterized or a `firstrun_windows`
-   sibling); download-consent screen (≥100 MB gate) + non-MSIX mic row
-   (check + `ms-settings:privacy-microphone` deep link) + optional
-   Start-at-login; **spawn-then-exit relaunch** (never `os.execv` on
-   Windows); `load_config()` `IS_WINDOWS` branch (ctrl_r default, sound
-   table, terminal `keystroke_apps`, haptics off); **named-mutex
-   single-instance guard** in `_acquire_instance_lock` (see decision
-   table — the #63 lesson). Units: gating/defaults/lock logic with fakes.
-   Friend: deferred to Round B.
+5. **W5 — First-run + config defaults + single-instance.** ✅ code done
+   (PR #78, issue #77). `firstrun_tk` decoupled via a BACKEND module
+   parameter (ROWS/GATING/SUBTITLE/statuses/run_fix/engine_missing/
+   setup_missing/relaunch — platform-selected by `_backend()`, injectable
+   for tests; Linux call sites unchanged). New `firstrun_windows.py`:
+   mic row reads the REAL ConsentStore registry toggle (non-MSIX apps get
+   no OS prompt — the global toggle fails silently), gates Start but
+   every read uncertainty fails OPEN; Fix deep-links
+   `ms-settings:privacy-microphone`; models/consent + download screen
+   shared with Linux (≥100 MB gate covers engine zip + models);
+   Start-at-login = Startup-folder .lnk via a pure-argv powershell
+   WScript.Shell one-liner; `bundle_type()` msix/exe/None via
+   GetCurrentPackageFullName; **spawn-then-exit relaunch** (DETACHED_
+   PROCESS + os._exit — never execv on Windows; ollama child shut down
+   first, same reason as Linux). `load_config()` `IS_WINDOWS` branch
+   (ctrl_r, haptics off, provisional winsound table — auditioned in W6,
+   terminal exes on the paste path). **Named-mutex single-instance**
+   (`Local\sotto-instance`, fails open) wired into
+   `_acquire_instance_lock`; app.py first-run gate + announce path now
+   IS_LINUX-or-IS_WINDOWS. Units: backend surface pins, mic fail-open
+   matrix, needed() marker/env contract, mutex accept/refuse/fail-open,
+   config defaults, and the shared Tk windows driven end-to-end with the
+   Windows backend (mic gating, consent, marker+relaunch). Friend:
+   deferred to Round B.
 6. **W6 — Overlay + sounds + tray + quit path.** overlay_tk verified on
    Windows (capsule position vs taskbar, transparency); winsound event
    table auditioned and recorded here; **tray startup wired on Windows**

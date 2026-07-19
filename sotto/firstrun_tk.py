@@ -1,20 +1,34 @@
 # Created by Pratik Sancheti / https://github.com/psancheti6666
-"""Linux first-run windows (tkinter): welcome walkthrough + download screen.
+"""Shared first-run windows (tkinter): welcome walkthrough + download screen.
 
 Mirrors the AppKit flow in firstrun.py: rows re-verified every second and
-again at the Start click; models never gate; completion writes the pending
-marker and relaunches via execv. Each window owns the main thread with its
-own mainloop — they run BEFORE the overlay exists, exactly like their AppKit
-counterparts own the process on macOS.
+again at the Start click; models never gate beyond their consent checkbox;
+completion writes the pending marker and relaunches. Each window owns the
+main thread with its own mainloop — they run BEFORE the overlay exists,
+exactly like their AppKit counterparts own the process on macOS.
+
+The platform specifics (rows, checks, gating, fix actions, relaunch idiom)
+come from a BACKEND module — firstrun_linux or firstrun_windows (W5) — with
+the same surface: ROWS, GATING, SUBTITLE, statuses(cfg), run_fix(action),
+engine_missing(cfg), setup_missing(cfg), relaunch().
 """
 
 import logging
 import queue
 import threading
 
-from . import firstrun, firstrun_linux
+from . import firstrun
 
 log = logging.getLogger("sotto")
+
+
+def _backend():
+    from .platform import IS_WINDOWS
+    if IS_WINDOWS:
+        from . import firstrun_windows
+        return firstrun_windows
+    from . import firstrun_linux
+    return firstrun_linux
 
 GREEN, GRAY = "#2e9e4f", "#b9b3a9"
 AMBER = "#d99a06"  # authorized-but-not-done (the models consent) — never
@@ -23,18 +37,18 @@ AMBER = "#d99a06"  # authorized-but-not-done (the models consent) — never
 
 
 class _Walkthrough:
-    def __init__(self, cfg):
+    def __init__(self, cfg, backend=None):
         import tkinter as tk
         self.tk = tk
         self.cfg = cfg
+        self.be = backend or _backend()
         root = self.root = tk.Tk()
         root.title("Welcome to Sotto")
         root.resizable(False, False)
         tk.Label(root, text="Welcome to Sotto",
                  font=("", 16, "bold")).grid(
             row=0, column=0, columnspan=3, sticky="w", padx=18, pady=(14, 2))
-        tk.Label(root, text="Private dictation, fully on this computer. "
-                            "Two quick permissions and you're set.",
+        tk.Label(root, text=self.be.SUBTITLE,
                  fg="#555").grid(row=1, column=0, columnspan=3,
                                  sticky="w", padx=18, pady=(0, 8))
         self.dots, self.buttons = {}, {}
@@ -42,8 +56,7 @@ class _Walkthrough:
         # stays disabled until the user ticks this (or the models already
         # exist) — VM-round product decision, 2026-07-19.
         self.models_ok = tk.BooleanVar(value=False)
-        for i, (key, title, detail, btn, action) in enumerate(
-                firstrun_linux.ROWS):
+        for i, (key, title, detail, btn, action) in enumerate(self.be.ROWS):
             r = 2 + i * 2
             dot = tk.Canvas(root, width=14, height=14, highlightthickness=0)
             dot.grid(row=r, column=0, sticky="ne", padx=(18, 6), pady=(6, 0))
@@ -55,7 +68,7 @@ class _Walkthrough:
                                      pady=(0, 4))
             if btn:
                 b = tk.Button(root, text=btn, command=(
-                    lambda a=action: firstrun_linux.run_fix(a)))
+                    lambda a=action: self.be.run_fix(a)))
                 b.grid(row=r, column=2, rowspan=2, sticky="e", padx=(8, 18))
                 self.buttons[key] = b
             if key == "models":
@@ -78,7 +91,7 @@ class _Walkthrough:
 
     # one honest re-check per second, same cadence as the AppKit window
     def tick(self, loop=True):
-        st = firstrun_linux.statuses(self.cfg)
+        st = self.be.statuses(self.cfg)
         for key, dot in self.dots.items():
             dot.delete("all")
             if st.get(key):
@@ -90,7 +103,7 @@ class _Walkthrough:
             dot.create_oval(2, 2, 12, 12, fill=fill, outline="")
         for key, btn in self.buttons.items():
             btn.grid_remove() if st.get(key) else btn.grid()
-        ready = (all(st[k] for k in firstrun_linux.GATING)
+        ready = (all(st[k] for k in self.be.GATING)
                  and self._models_gate(st))
         self.start_btn.config(state="normal" if ready else "disabled")
         if loop and not self._closed:
@@ -100,34 +113,35 @@ class _Walkthrough:
     def start(self):
         # trust nothing: re-verify at the click, refuse + repaint if a
         # permission regressed since the last tick
-        st = firstrun_linux.statuses(self.cfg)
-        if (not all(st[k] for k in firstrun_linux.GATING)
+        st = self.be.statuses(self.cfg)
+        if (not all(st[k] for k in self.be.GATING)
                 or not self._models_gate(st)):
             self.tick(loop=False)
             return
         open(firstrun.PENDING_MARKER, "w").close()
         self._closed = True
         self.root.destroy()
-        firstrun_linux.relaunch()
+        self.be.relaunch()
 
     def close(self):
         self._closed = True
         self.root.destroy()
 
 
-def launch(cfg):
+def launch(cfg, backend=None):
     """Show the walkthrough; owns the process. Returns only if the user
     closes the window (the app then exits, like macOS)."""
-    w = _Walkthrough(cfg)
+    w = _Walkthrough(cfg, backend)
     w.tick()
     w.root.mainloop()
 
 
 class _DownloadScreen:
-    def __init__(self, cfg):
+    def __init__(self, cfg, backend=None):
         import tkinter as tk
         from tkinter import ttk
         self.cfg = cfg
+        self.be = backend or _backend()
         self.q = queue.Queue()
         root = self.root = tk.Tk()
         root.title("Setting up Sotto")
@@ -166,7 +180,7 @@ class _DownloadScreen:
 
         def work():
             try:
-                if firstrun_linux.engine_missing(self.cfg):
+                if self.be.engine_missing(self.cfg):
                     from . import ollama_runtime
                     progress("downloading cleanup engine…", None)
                     ollama_runtime.download(
@@ -207,16 +221,16 @@ class _DownloadScreen:
     def finish(self):
         # only relaunch when everything is really here — a failed download
         # must show Retry, never loop the app through relaunch forever
-        if firstrun_linux.setup_missing(self.cfg):
+        if self.be.setup_missing(self.cfg):
             self.retry.grid()
             return
         self.root.destroy()
-        firstrun_linux.relaunch()
+        self.be.relaunch()
 
 
-def download_screen(cfg):
+def download_screen(cfg, backend=None):
     """Download engine + models with progress; owns the process; relaunches
     into a normal start when complete."""
-    s = _DownloadScreen(cfg)
+    s = _DownloadScreen(cfg, backend)
     s.begin()
     s.root.mainloop()

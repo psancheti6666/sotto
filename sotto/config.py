@@ -10,7 +10,7 @@ import os
 import tomllib
 from dataclasses import dataclass, field
 
-from .platform import IS_LINUX
+from .platform import IS_LINUX, IS_WINDOWS
 
 CONFIG_DIR = os.path.expanduser("~/.sotto")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.toml")
@@ -62,6 +62,23 @@ LINUX_SOUND_DEFAULTS = {
     "handsfree_sound": "device-added",
     "cancel_sound": "dialog-warning",
     "warn_sound": "bell",
+}
+
+# active_app_id() exe names on Windows (paste path — Windows Terminal has
+# known unicode-typing quirks; docs/windows-app.md)
+WINDOWS_TERMINAL_EXES = [
+    "windowsterminal.exe", "wt.exe", "openconsole.exe", "conhost.exe",
+    "cmd.exe", "powershell.exe", "pwsh.exe", "alacritty.exe", "wezterm.exe",
+]
+
+# winsound system aliases — provisional W5 defaults; auditioned and settled
+# in W6 like the macOS/Linux tables (docs/windows-app.md)
+WINDOWS_SOUND_DEFAULTS = {
+    "start_sound": "SystemAsterisk",
+    "done_sound": "SystemNotification",
+    "handsfree_sound": "SystemExclamation",
+    "cancel_sound": "SystemHand",
+    "warn_sound": "SystemDefault",
 }
 
 
@@ -145,6 +162,14 @@ def load_config() -> Config:
         for key, value in LINUX_SOUND_DEFAULTS.items():
             setattr(cfg, key, value)
         cfg.keystroke_apps = list(LINUX_TERMINAL_CLASSES)
+    elif IS_WINDOWS:
+        # without this branch Windows inherits the macOS defaults — incl.
+        # hotkey "fn", which pynput cannot map there (docs/windows-app.md W5)
+        cfg.hotkey = "ctrl_r"
+        cfg.haptics = False
+        for key, value in WINDOWS_SOUND_DEFAULTS.items():
+            setattr(cfg, key, value)
+        cfg.keystroke_apps = list(WINDOWS_TERMINAL_EXES)
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH, "rb") as f:
             data = tomllib.load(f)

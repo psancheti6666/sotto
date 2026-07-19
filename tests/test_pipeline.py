@@ -699,6 +699,130 @@ def test_win_injector():
         inject._injector = orig_injector
 
 
+def test_firstrun_windows():
+    print("Windows first-run backend (W5 — fakes, no winreg/ctypes):")
+    from sotto import firstrun_windows as fw
+    from sotto.config import Config
+
+    cfg = Config()
+
+    # --- backend surface matches what firstrun_tk consumes
+    for name in ("ROWS", "GATING", "SUBTITLE", "statuses", "run_fix",
+                 "engine_missing", "setup_missing", "relaunch", "needed",
+                 "bundle_type"):
+        check(f"backend exposes {name}", hasattr(fw, name))
+    check("rows: mic / models / autostart",
+          [r[0] for r in fw.ROWS] == ["mic", "models", "autostart"])
+    check("only the mic gates Start (models = consent checkbox; "
+          "autostart optional)", fw.GATING == ("mic",))
+
+    # --- mic_ok: honest Deny detection, everything else fails OPEN
+    check("Deny → mic not ok", not fw.mic_ok(reader=lambda sk: "Deny"))
+    check("Allow → ok", fw.mic_ok(reader=lambda sk: "Allow"))
+    check("missing key/any error → fails open (never false-blocks a "
+          "Windows build we haven't met)",
+          fw.mic_ok(reader=lambda sk: (_ for _ in ()).throw(OSError())))
+    seen = []
+    fw.mic_ok(reader=lambda sk: seen.append(sk) or "Allow")
+    check("non-MSIX reads the NonPackaged consent subkey",
+          seen == ["NonPackaged"], str(seen))
+
+    # --- bundle_type: checkout → None (frozen paths need real Windows)
+    check("source checkout → no bundle", fw.bundle_type() is None)
+
+    # --- needed(): marker short-circuits; downloads or mic drive it
+    orig_marker = fw.firstrun.PENDING_MARKER
+    orig_setup, orig_mic = fw.setup_missing, fw.mic_ok
+    saved_force = os.environ.pop("SOTTO_FIRSTRUN", None)
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            fw.firstrun.PENDING_MARKER = os.path.join(td, "pending")
+            fw.setup_missing = lambda c: False
+            fw.mic_ok = lambda reader=None: True
+            check("all set → walkthrough not needed", not fw.needed(cfg))
+            fw.setup_missing = lambda c: True
+            check("downloads missing → needed", fw.needed(cfg))
+            fw.setup_missing = lambda c: False
+            fw.mic_ok = lambda reader=None: False
+            check("mic toggle off → needed (silent-mic first dictation "
+                  "would type nothing)", fw.needed(cfg))
+            open(fw.firstrun.PENDING_MARKER, "w").close()
+            check("pending marker short-circuits (consent given, "
+                  "relaunch in flight)", not fw.needed(cfg))
+            os.environ["SOTTO_FIRSTRUN"] = "1"
+            check("SOTTO_FIRSTRUN=1 forces the window", fw.needed(cfg))
+    finally:
+        fw.firstrun.PENDING_MARKER = orig_marker
+        fw.setup_missing, fw.mic_ok = orig_setup, orig_mic
+        os.environ.pop("SOTTO_FIRSTRUN", None)
+        if saved_force is not None:
+            os.environ["SOTTO_FIRSTRUN"] = saved_force
+
+    # --- relaunch argv: spawn-then-exit inputs (never execv on Windows)
+    check("checkout relaunch argv is python -m sotto",
+          fw.relaunch_argv() == [sys.executable, "-m", "sotto"])
+    argv = fw.autostart_argv("C:\\Apps\\Sotto\\sotto.exe")
+    check("autostart shortcut via powershell WScript.Shell",
+          argv[0] == "powershell" and "-NonInteractive" in argv
+          and "CreateShortcut" in argv[-1]
+          and "C:\\Apps\\Sotto\\sotto.exe" in argv[-1], str(argv[-1]))
+
+    # --- firstrun_tk selects the backend by platform
+    from sotto import firstrun_tk as ft
+    be = ft._backend()
+    check("firstrun_tk backend selection is platform-correct",
+          be.__name__.endswith(
+              "firstrun_windows" if sys.platform == "win32"
+              else "firstrun_linux"), be.__name__)
+
+    # --- Windows single-instance mutex (fake kernel32)
+    from sotto import app as app_mod
+
+    class FakeKernel32:
+        def __init__(self, exists=False, fail=False):
+            self._exists, self._fail = exists, fail
+            self.names = []
+
+        def CreateMutexW(self, attrs, initial, name):
+            self.names.append(name)
+            return 0 if self._fail else 7
+
+        def GetLastError(self):
+            return 183 if self._exists else 0
+
+    k = FakeKernel32()
+    check("first instance holds the mutex handle",
+          app_mod._acquire_instance_lock(win_kernel32=k) == 7)
+    check("mutex is per-session Local\\, fixed name",
+          k.names == ["Local\\sotto-instance"], str(k.names))
+    check("second live instance refused (the #63 lesson, Windows edition)",
+          app_mod._acquire_instance_lock(
+              win_kernel32=FakeKernel32(exists=True)) is None)
+    check("mutex API failure fails open (never blocks startup)",
+          app_mod._acquire_instance_lock(
+              win_kernel32=FakeKernel32(fail=True)) is True)
+
+    # --- load_config Windows defaults (branch forced; real platform's
+    # flags restored after)
+    from sotto import config as cfg_mod
+    orig_flags = (cfg_mod.IS_LINUX, cfg_mod.IS_WINDOWS, cfg_mod.CONFIG_PATH)
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            cfg_mod.IS_LINUX, cfg_mod.IS_WINDOWS = False, True
+            cfg_mod.CONFIG_PATH = os.path.join(td, "none.toml")
+            wcfg = cfg_mod.load_config()
+            check("Windows default hotkey is ctrl_r (fn is unmappable "
+                  "there)", wcfg.hotkey == "ctrl_r")
+            check("Windows: haptics off, winsound aliases, terminal exes "
+                  "on the paste path",
+                  not wcfg.haptics
+                  and wcfg.start_sound == "SystemAsterisk"
+                  and "windowsterminal.exe" in wcfg.keystroke_apps,
+                  f"{wcfg.start_sound} {wcfg.keystroke_apps[:2]}")
+    finally:
+        cfg_mod.IS_LINUX, cfg_mod.IS_WINDOWS, cfg_mod.CONFIG_PATH = orig_flags
+
+
 def test_insights_linux():
     print("Linux insights window (pure logic — fake gi, no GTK):")
     import logging
@@ -2004,6 +2128,40 @@ def test_tk_firstrun_windows():
     finally:
         (fl.input_ok, fl.injection_ok, fl.setup_missing, fl.autostart_ok) = orig
 
+    # --- same windows, Windows backend (W5): mic gates Start, consent
+    # checkbox still owns the models row, Start routes through the
+    # backend's relaunch (spawn-then-exit — stubbed, like fl.relaunch above)
+    from sotto import firstrun_windows as fw
+    orig_w = (fw.mic_ok, fw.setup_missing, fw.autostart_ok, fw.relaunch)
+    orig_marker = fw.firstrun.PENDING_MARKER
+    relaunched_w = []
+    fw.mic_ok = lambda reader=None: False
+    fw.setup_missing = lambda c: True
+    fw.autostart_ok = lambda: False
+    fw.relaunch = lambda: relaunched_w.append(True)
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            fw.firstrun.PENDING_MARKER = os.path.join(td, "pending")
+            w = ft._Walkthrough(cfg, backend=fw)
+            st = w.tick(loop=False)
+            check("windows backend rows render (mic/models/autostart)",
+                  set(st) == {"mic", "models", "autostart"}, str(st))
+            w.models_ok.set(True)
+            w.tick(loop=False)
+            check("mic off gates Start even with download consent",
+                  str(w.start_btn["state"]) == "disabled")
+            fw.mic_ok = lambda reader=None: True
+            w.tick(loop=False)
+            check("mic on + consent → Start enabled",
+                  str(w.start_btn["state"]) == "normal")
+            w.start()
+            check("Start writes the marker and relaunches via the backend",
+                  os.path.exists(fw.firstrun.PENDING_MARKER)
+                  and relaunched_w == [True])
+    finally:
+        (fw.mic_ok, fw.setup_missing, fw.autostart_ok, fw.relaunch) = orig_w
+        fw.firstrun.PENDING_MARKER = orig_marker
+
 
 def test_platform_detection():
     print("platform detection and Linux config defaults:")
@@ -2723,6 +2881,7 @@ if __name__ == "__main__":
     test_win32_filter()
     test_windows_platform()
     test_win_injector()
+    test_firstrun_windows()
     test_insights_linux()
     test_listener_retry()
     test_logging_setup()
