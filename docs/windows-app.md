@@ -159,14 +159,28 @@ cycle). Milestones in between ship on CI + units alone.
    distinct (audition the table), tray menu works, Quit exits clean
    (Task Manager), second launch refuses (single-instance),
    `sotto.log` attached.
-7. **W7 — Packaging + the MSIX decision.** `winapp/` (build script +
-   spec + `--smoke`), CI builds onedir and smokes it (W1 job extended);
-   MSIX packaging of the real app. **→ Round C**: sideload on the
-   friend's box — hook + SendInput + mic + model download under
-   runFullTrust = the gate completes. PASS → Store channel confirmed
-   (decision table updated), submission dry run. FAIL → Inno fallback
-   activated, W9's signature gate becomes mandatory. Zero-terminal
-   install → dictation, every prompt counted.
+7. **W7 — Packaging + the MSIX decision.** 🔄 code done (PR #82, issue
+   #81). `winapp/sotto_win.py` (entry; --smoke by EXIT CODE — the
+   windowed bootloader Nones the std streams, `_repair_streams()` fixes
+   them and ~/.sotto/sotto.log is the output surface),
+   `winapp/sotto_win.spec` (onedir, console=False, collect_all onnx_asr/
+   huggingface_hub, mac+linux stacks excluded; NO PortAudio handling —
+   sounddevice's Windows wheel bundles its own DLL),
+   `winapp/build_app.ps1`, `winapp/msix/AppxManifest.xml` (loose-layout
+   runFullTrust wrapper around the SAME onedir; internetClient +
+   microphone DeviceCapability — the latter drives the per-app OS mic
+   prompt W5's mic_ok defers to on MSIX; documentsLibrary deliberately
+   absent, restricted + unneeded), `winapp/INSTALL-TEST.md` (Rounds B+C
+   hands-on). CI: new `windows` job in release.yml builds the onedir,
+   runs --smoke, uploads ONE `windows-app` artifact (onedir + manifest
+   at the root — serves Round B directly and Round C via
+   Add-AppxPackage -Register). test_smoke_imports pins the Windows
+   smoke list (and that no Linux-only modules leak in).
+   **→ Round C**: sideload on the friend's box — hook + SendInput + mic
+   + model download under runFullTrust = the gate completes. PASS →
+   Store channel confirmed (decision table updated), submission dry
+   run. FAIL → Inno fallback activated, W9's signature gate becomes
+   mandatory. Zero-terminal install → dictation, every prompt counted.
 8. **W8 — Insights window on WebView2.** `insights_windows.py` mirroring
    the macOS/Linux surface; pywebview-vs-hand-rolled resolved and
    recorded; browser fallback sticky; CI smoke renders the real dashboard

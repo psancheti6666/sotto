@@ -2734,6 +2734,33 @@ def test_smoke_imports():
     missing = required - set(mod.SMOKE_IMPORTS)
     check("smoke list covers every runtime-selected module", not missing,
           f"missing: {sorted(missing)}")
+
+    # Windows entry (W7): same contract, Windows selector set
+    wpath = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "winapp", "sotto_win.py")
+    wspec = importlib.util.spec_from_file_location("sotto_win_entry", wpath)
+    wmod = importlib.util.module_from_spec(wspec)
+    wspec.loader.exec_module(wmod)  # imports os+sys only — safe anywhere
+    wrequired = {
+        "tkinter", "pynput", "sounddevice", "onnx_asr", "onnxruntime",
+        "huggingface_hub",
+        "sotto.app", "sotto.asr", "sotto.asr_onnx", "sotto.audio",
+        "sotto.hotkey", "sotto.inject", "sotto.inject_windows",
+        "sotto.overlay_tk", "sotto.platform.windows",
+        "sotto.firstrun", "sotto.firstrun_windows", "sotto.firstrun_tk",
+        "sotto.llm_server", "sotto.ollama_runtime",
+        "sotto.update", "sotto.dashboard", "sotto.tray_linux",
+    }
+    wmissing = wrequired - set(wmod.SMOKE_IMPORTS)
+    check("windows smoke list covers the Windows selectors", not wmissing,
+          f"missing: {sorted(wmissing)}")
+    check("windows smoke presence-checks pystray (import would touch the "
+          "real tray)", "pystray" in wmod.SMOKE_FIND)
+    check("no Linux-only modules leak into the Windows smoke",
+          not {"evdev", "zstandard", "sotto.hotkey_evdev",
+               "sotto.inject_linux", "sotto.firstrun_linux",
+               "sotto.insights_linux", "sotto.update_linux",
+               "sotto.platform.linux"} & set(wmod.SMOKE_IMPORTS))
     # pystray is presence-checked, not imported: its import runs backend
     # auto-selection into gi/Gtk, which legitimately fails without the deb's
     # gir/gtk packages (tray_linux catches that at runtime — best-effort)
