@@ -280,10 +280,20 @@ def smoke(port: int, timeout_s: float = 30.0) -> int:
     GLib, Gtk, WebKit2 = _gi_modules()
     result = {}
 
-    def on_load(view, event):
-        if event == WebKit2.LoadEvent.FINISHED:
-            result["title"] = view.get_title() or ""
+    def settle(view):
+        # load-FINISHED can fire before WebKit has parsed <title> (seen as
+        # a CI flake: title='') — poll briefly instead of racing it
+        result["polls"] = result.get("polls", 0) + 1
+        title = view.get_title() or ""
+        if title or result["polls"] > 25:  # ~5 s of 200 ms polls
+            result["title"] = title
             loop.quit()
+            return False
+        return True  # keep polling
+
+    def on_load(view, event):
+        if event == WebKit2.LoadEvent.FINISHED and "title" not in result:
+            GLib.timeout_add(200, settle, view)
 
     def start():
         win, view = _build()
