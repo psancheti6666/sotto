@@ -2172,6 +2172,111 @@ def test_tk_firstrun_windows():
         fw.firstrun.PENDING_MARKER = orig_marker
 
 
+def test_insights_windows():
+    print("Windows insights window (pure logic — fake pywebview):")
+    import logging
+    import threading
+    import types
+
+    from sotto import insights_windows as iw
+
+    saved = (iw._port, iw._failed, iw._window, iw._started)
+    orig_import, orig_browser = iw._import_webview, iw._open_browser
+    try:
+        # --- gating mirrors the macOS/Linux surface
+        iw._port, iw._failed, iw._window, iw._started = None, False, None, False
+        check("not available before configure", not iw.available())
+        iw._import_webview = lambda: (_ for _ in ()).throw(
+            AssertionError("webview must not load when unconfigured"))
+        iw.show_soon()
+        check("show_soon() is a safe no-op when unconfigured", True)
+        iw.configure(8377)
+        check("available after configure", iw.available())
+
+        # --- fallback ladder: import failure → browser, sticky, one line
+        records = []
+        handler = logging.Handler()
+        handler.emit = lambda r: records.append(r.getMessage())
+        iw.log.addHandler(handler)
+        orig_level = iw.log.level
+        iw.log.setLevel(logging.INFO)
+        opened = []
+        iw._open_browser = lambda: opened.append(1)
+        iw._import_webview = lambda: (_ for _ in ()).throw(
+            ImportError("No module named 'webview'"))
+        try:
+            iw._show()
+            check("missing pywebview opens the browser instead",
+                  opened == [1] and iw._failed)
+            iw.show_soon()  # sticky: straight to browser, no thread, no gi
+            check("later clicks go straight to the browser", opened == [1, 1])
+            check("says so exactly once",
+                  sum("native Insights window unavailable" in m
+                      for m in records) == 1, str(records))
+        finally:
+            iw.log.setLevel(orig_level)
+            iw.log.removeHandler(handler)
+
+        # --- create-once / reshow / close=hide, with a blocking fake loop
+        iw._failed, iw._window, iw._started = False, None, False
+        opened.clear()
+        loop_started, release = threading.Event(), threading.Event()
+        calls = {"created": [], "shown": 0, "hidden": 0}
+
+        class _HandlerList:  # emulates pywebview's `events.closing += h`
+            def __init__(self):
+                self.handlers = []
+
+            def __iadd__(self, h):
+                self.handlers.append(h)
+                return self
+
+        class FakeWin:
+            def __init__(self):
+                self.events = types.SimpleNamespace(closing=_HandlerList())
+
+            def show(self):
+                calls["shown"] += 1
+
+            def hide(self):
+                calls["hidden"] += 1
+
+        fake = types.SimpleNamespace(
+            create_window=lambda title, url, **kw: (
+                calls["created"].append((title, url, kw)), FakeWin())[1],
+            start=lambda **kw: (loop_started.set(), release.wait(10)))
+        iw._import_webview = lambda: fake
+
+        t = threading.Thread(target=iw._show, daemon=True)
+        t.start()
+        check("first show starts the loop thread",
+              loop_started.wait(5))
+        title, url, kw = calls["created"][0]
+        check("window is the dashboard at the configured port",
+              url == "http://127.0.0.1:8377/" and "Insights" in title
+              and kw.get("min_size") == (640, 480), f"{title} {url} {kw}")
+        check("loop marked started, window held",
+              iw._started and iw._window is not None)
+
+        iw._show()  # second show: loop alive → just surface the window
+        check("reshow surfaces the existing window (no second create)",
+              calls["shown"] == 1 and len(calls["created"]) == 1)
+
+        closing = iw._window.events.closing.handlers
+        check("closing handler wired", len(closing) == 1)
+        check("close hides and CANCELS (the loop must never end)",
+              closing[0]() is False and calls["hidden"] == 1)
+
+        # --- loop death lands in the ladder
+        release.set()
+        t.join(5)
+        check("a dead webview loop falls back to the browser, sticky",
+              iw._failed and opened == [1], str(opened))
+    finally:
+        (iw._port, iw._failed, iw._window, iw._started) = saved
+        iw._import_webview, iw._open_browser = orig_import, orig_browser
+
+
 def test_platform_detection():
     print("platform detection and Linux config defaults:")
     import sotto.platform as sp
@@ -2429,15 +2534,15 @@ def test_tray_menu():
 
     fake = types.ModuleType("pystray")
     fake.MenuItem, fake.Menu, fake.Icon = FakeMenuItem, FakeMenu, FakeIcon
-    from sotto import dashboard, insights_linux
-    shown, opened = [], []
+    from sotto import insights_linux, insights_windows
+    shown, shown_w = [], []
     orig_pystray = sys.modules.get("pystray")
     orig_icon_image, orig_show = tl._icon_image, insights_linux.show_soon
-    orig_open, orig_win = dashboard.open_in_browser, tl.IS_WINDOWS
+    orig_show_w, orig_win = insights_windows.show_soon, tl.IS_WINDOWS
     sys.modules["pystray"] = fake
     tl._icon_image = lambda: None
     insights_linux.show_soon = lambda: shown.append(1)
-    dashboard.open_in_browser = lambda port: opened.append(port)
+    insights_windows.show_soon = lambda: shown_w.append(1)
     try:
         tl.IS_WINDOWS = False  # platform forced — this block pins Linux
         tl._tray_thread(8377)  # fake icon.run() returns immediately
@@ -2445,17 +2550,17 @@ def test_tray_menu():
         insights_item = next(i for i in items if i.label == "Insights")
         insights_item.action()
         check("Linux tray Insights routes through insights_linux.show_soon",
-              shown == [1] and opened == [])
+              shown == [1] and shown_w == [])
         check("Insights stays the left-click default action",
               insights_item.default
               and not any(i.default for i in items if i.label != "Insights"))
 
-        tl.IS_WINDOWS = True  # Windows: browser tab until W8's WebView2
-        tl._tray_thread(8377)
+        tl.IS_WINDOWS = True  # Windows: native WebView2 window (W8) — the
+        tl._tray_thread(8377)  # browser fallback lives INSIDE show_soon
         next(i for i in FakeIcon.last.menu.items
              if i.label == "Insights").action()
-        check("Windows tray Insights opens the dashboard in the browser "
-              "(until W8)", opened == [8377] and shown == [1], str(opened))
+        check("Windows tray Insights routes through insights_windows"
+              ".show_soon", shown_w == [1] and shown == [1], str(shown_w))
     finally:
         if orig_pystray is None:
             sys.modules.pop("pystray", None)
@@ -2463,7 +2568,7 @@ def test_tray_menu():
             sys.modules["pystray"] = orig_pystray
         tl._icon_image = orig_icon_image
         insights_linux.show_soon = orig_show
-        dashboard.open_in_browser = orig_open
+        insights_windows.show_soon = orig_show_w
         tl.IS_WINDOWS = orig_win
 
     # Windows quit path (W6): never SIGINT — overlay command path when a tk
@@ -2993,6 +3098,7 @@ if __name__ == "__main__":
     test_win_injector()
     test_firstrun_windows()
     test_insights_linux()
+    test_insights_windows()
     test_listener_retry()
     test_logging_setup()
     test_firstrun_cosmetics()

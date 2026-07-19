@@ -47,6 +47,11 @@ hiddenimports += [
     "sotto.llm_server", "sotto.ollama_runtime", "sotto.update",
     # tray: pystray's Win32 backend is pure win32 API — no gi anywhere
     "sotto.tray_linux", "pystray", "pystray._win32",
+    # Insights window (W8): pywebview's WebView2 backend; the contrib hook
+    # collects pythonnet/clr_loader runtime data. The WebView2 RUNTIME is
+    # never bundled (Evergreen, system-owned) — absent runtime = the
+    # browser-tab fallback, proven by --smoke-webview in CI.
+    "sotto.insights_windows", "webview", "webview.platforms.edgechromium",
 ]
 
 a = Analysis(

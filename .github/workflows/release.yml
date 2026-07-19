@@ -133,6 +133,23 @@ jobs:
           python-version: "3.11"
       - name: Build onedir and run smoke check
         run: ./winapp/build_app.ps1
+      # Native Insights window (docs/windows-app.md W8): render the REAL
+      # dashboard in the REAL WebView2 inside the frozen onedir. The
+      # Evergreen runtime is system-owned (never bundled) — Server images
+      # don't reliably ship it, so install the bootstrapper when the
+      # registry says it's absent. Exit code is the contract (windowed
+      # bootloader); the smoke prints its title line to stderr.
+      - name: Webview smoke (native Insights window in the frozen onedir)
+        timeout-minutes: 10
+        shell: pwsh
+        run: |
+          $key = "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+          if (-not (Test-Path $key)) {
+            Invoke-WebRequest "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile wv2setup.exe
+            Start-Process -Wait -FilePath .\wv2setup.exe -ArgumentList "/silent","/install"
+          }
+          & dist\sotto\sotto.exe --smoke-webview
+          if ($LASTEXITCODE -ne 0) { exit 1 }
       # ONE layout serves both rounds: Round B runs sotto/sotto.exe
       # directly; Round C registers the manifest at the root (its
       # Executable path points into the same sotto/ folder).

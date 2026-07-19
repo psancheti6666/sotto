@@ -350,12 +350,15 @@ class Sotto:
                     # arms the menu-bar "Insights" item (menu built later, in
                     # overlay.run_forever)
                     insights.configure(self.cfg.dashboard_port)
-            elif server and IS_LINUX:
+            elif server and (IS_LINUX or IS_WINDOWS):
                 # arms the tray's "Insights" item; show_soon() opens a native
-                # WebKitGTK window when the system can host one, else the
-                # browser tab as before
-                from . import insights_linux
-                insights_linux.configure(self.cfg.dashboard_port)
+                # window (WebKitGTK / WebView2) when the system can host
+                # one, else the browser tab as before
+                if IS_LINUX:
+                    from . import insights_linux as insights_native
+                else:
+                    from . import insights_windows as insights_native
+                insights_native.configure(self.cfg.dashboard_port)
         if IS_LINUX or IS_WINDOWS:
             # Best-effort tray (docs/linux-app.md L7; docs/windows-app.md
             # W6): daemon thread, any failure logs one line and the app
@@ -367,8 +370,8 @@ class Sotto:
         if server and self.cfg.open_dashboard_on_start:
             if in_bundle:
                 insights.show_soon()  # native window, not a browser tab
-            elif IS_LINUX:
-                insights_linux.show_soon()
+            elif IS_LINUX or IS_WINDOWS:
+                insights_native.show_soon()
             else:
                 dashboard.open_in_browser(self.cfg.dashboard_port)
         overlay_mod = self._overlay_module() if self.cfg.indicator else None
