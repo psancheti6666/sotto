@@ -516,31 +516,86 @@ def test_insights_linux():
         finally:
             il._build = orig_build
 
-        # --- env sanitize: frozen only, applies clean_env, sticky
+        # --- async load failure: window torn down, browser fallback, sticky
+        # (WebKit's web process dying is the exact failure family a frozen
+        # bundle risks — it must land in the ladder, not a blank window)
+        il._failed, opened[:] = False, []
+        win2, destroyed = FakeWin(), []
+        win2.destroy = lambda: destroyed.append(1)
+        il._window, il._webview = win2, FakeView()
+        check("load-failed abandons the window and falls back",
+              il._on_load_failed(None, None, "http://127.0.0.1:8377/",
+                                 RuntimeError("boom")) is True
+              and destroyed == [1] and opened == [1]
+              and il._failed and il._window is None)
+        il._failed, opened[:] = False, []
+        il._on_web_process_died(None, "crashed")
+        check("web-process death falls back too",
+              opened == [1] and il._failed)
+
+        # --- standby-loop grace: yields the context to a live tray loop
+        from sotto import tray_linux as tl_mod
+        old_tray_thread = tl_mod._thread
+        try:
+            tl_mod._thread = None
+            check("no tray thread: standby loop starts immediately",
+                  il._loop_grace() == 0.0)
+
+            class AliveThread:
+                def is_alive(self):
+                    return True
+
+            tl_mod._thread = AliveThread()
+            check("live tray thread: standby gives its loop a head start",
+                  il._loop_grace() == il.TRAY_LOOP_GRACE_S)
+        finally:
+            tl_mod._thread = old_tray_thread
+
+        # --- env sanitize: frozen only, clean_env applied; the tray's
+        # typelib path and the user's own LD_LIBRARY_PATH both survive, and
+        # later clean_env() calls stay idempotent (_ORIG kept)
         env_saved = {k: os.environ.get(k) for k in
-                     ("LD_LIBRARY_PATH", "LD_LIBRARY_PATH_ORIG")}
+                     ("LD_LIBRARY_PATH", "LD_LIBRARY_PATH_ORIG",
+                      "GI_TYPELIB_PATH")}
         had_frozen = hasattr(sys, "frozen")
+        had_meipass = hasattr(sys, "_MEIPASS")
         try:
             il._sanitized = False
             os.environ["LD_LIBRARY_PATH"] = "/bundle/_internal"
-            os.environ.pop("LD_LIBRARY_PATH_ORIG", None)
+            os.environ["LD_LIBRARY_PATH_ORIG"] = "/users/own"
+            os.environ["GI_TYPELIB_PATH"] = "/bundle/_internal/gi_typelibs"
             if not had_frozen:
                 sys.frozen = True
-            il._sanitize_environ()
-            check("frozen: PyInstaller's LD_LIBRARY_PATH is dropped for the "
-                  "WebKit helpers", "LD_LIBRARY_PATH" not in os.environ)
+            if not had_meipass:
+                sys._MEIPASS = "/bundle/_internal"
+            il.sanitize_environ()
+            check("frozen: the user's own LD_LIBRARY_PATH reaches the "
+                  "WebKit helpers",
+                  os.environ.get("LD_LIBRARY_PATH") == "/users/own")
+            check("frozen: _ORIG kept so later clean_env() calls stay "
+                  "idempotent",
+                  os.environ.get("LD_LIBRARY_PATH_ORIG") == "/users/own")
+            from sotto.platform.linux import clean_env
+            check("clean_env() after sanitize returns the same value",
+                  clean_env().get("LD_LIBRARY_PATH") == "/users/own")
+            check("frozen: bundled GI_TYPELIB_PATH survives (the tray needs "
+                  "it; WebKit helpers never read it)",
+                  os.environ.get("GI_TYPELIB_PATH")
+                  == "/bundle/_internal/gi_typelibs")
             check("sanitize is one-shot", il._sanitized)
             if not had_frozen:
                 del sys.frozen
             il._sanitized = False
             os.environ["LD_LIBRARY_PATH"] = "/bundle/_internal"
-            il._sanitize_environ()
+            il.sanitize_environ()
             check("not frozen: environment untouched",
                   os.environ.get("LD_LIBRARY_PATH") == "/bundle/_internal"
                   and not il._sanitized)
         finally:
             if not had_frozen and hasattr(sys, "frozen"):
                 del sys.frozen
+            if not had_meipass and hasattr(sys, "_MEIPASS"):
+                del sys._MEIPASS
             for k, v in env_saved.items():
                 if v is None:
                     os.environ.pop(k, None)

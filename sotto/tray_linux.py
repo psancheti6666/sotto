@@ -129,10 +129,18 @@ def _tray_thread(dashboard_port):
         log.info("tray unavailable (%s) — running without a tray icon", e)
 
 
+# the live tray thread (insights_linux reads it: while this thread is alive
+# its pystray loop is — or is about to be — the GLib dispatcher, so the
+# standby loop gives it a head start on acquiring the context)
+_thread = None
+
+
 def start(dashboard_port=None):
     """Spawn the tray in a daemon thread; returns immediately, never raises.
     dashboard_port None = no dashboard = no Insights item."""
+    global _thread
     t = threading.Thread(target=_tray_thread, args=(dashboard_port,),
                          name="tray", daemon=True)
+    _thread = t
     t.start()
     return t

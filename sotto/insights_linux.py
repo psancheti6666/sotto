@@ -31,6 +31,7 @@ import logging
 import os
 import sys
 import threading
+import time
 
 log = logging.getLogger("sotto")
 
@@ -107,7 +108,7 @@ def _gi_modules():
     the caller falls back — gi never loads on macOS or in the unit tier.
     PyGObject's Gtk override initializes GTK at import and raises when there
     is no display, which lands in the same fallback."""
-    _sanitize_environ()
+    sanitize_environ()
     import gi
     gi.require_version("Gtk", "3.0")
     _require_webkit(gi)
@@ -115,27 +116,62 @@ def _gi_modules():
     return GLib, Gtk, WebKit2
 
 
-def _sanitize_environ():
+def sanitize_environ():
     """Frozen bundle only: WebKitGTK spawns SYSTEM helper binaries
     (WebKitWebProcess/WebKitNetworkProcess) asynchronously, and they inherit
     os.environ — with PyInstaller's LD_LIBRARY_PATH they load bundle
-    libraries and die (the #63 bug class; every other host-binary launch
-    already uses platform.linux.clean_env()). Helpers spawn at times we
-    don't control, so a scoped swap can't cover them: apply the sanitized
-    env to os.environ once, permanently. By the time Insights can show, the
-    bundle's own libraries are long loaded (resolved at bootstrap, not via
-    the environment), and every subprocess Sotto itself spawns already
-    passes an explicit env."""
+    libraries and die (the #63 bug class). Helpers spawn at times we don't
+    control, so a scoped swap can't cover them: apply the sanitized env to
+    os.environ once, permanently. app.py calls this at startup BEFORE any
+    thread spawns, so nothing ever reads os.environ mid-mutation. The
+    process's own dlopens are unaffected — the dynamic linker captured
+    LD_LIBRARY_PATH at exec; environ changes only reach children.
+
+    Two values are deliberately put back after the clean_env() sweep:
+    - GI_TYPELIB_PATH: read LIVE by libgirepository, and the bundled
+      typelibs are what keep the tray working on systems without the gir
+      packages (helpers are plain C binaries — they never read it, so
+      keeping it costs them nothing).
+    - LD_LIBRARY_PATH_ORIG/LD_PRELOAD_ORIG: clean_env() pops these while
+      restoring the user's own values; without re-adding them every LATER
+      clean_env() call would find no _ORIG and silently drop the restored
+      value — keeping them makes clean_env() idempotent forever after."""
     global _sanitized
     if _sanitized or not getattr(sys, "frozen", False):
         return
     from .platform.linux import clean_env
+    keep_typelib = os.environ.get("GI_TYPELIB_PATH")
+    keep_orig = {var: os.environ.get(var)
+                 for var in ("LD_LIBRARY_PATH_ORIG", "LD_PRELOAD_ORIG")}
     env = clean_env()
     for key in set(os.environ) - set(env):
         os.environ.pop(key, None)
     os.environ.update(env)
+    if keep_typelib is not None:
+        os.environ["GI_TYPELIB_PATH"] = keep_typelib
+    for var, val in keep_orig.items():
+        if val is not None:
+            os.environ[var] = val
     _sanitized = True
     log.debug("environment sanitized for the WebKit helper processes")
+
+
+# Startup grace before the standby loop starts dispatching: gives pystray's
+# tray loop time to acquire the default context first. pystray does a few
+# GTK calls directly on its own thread during init (Gtk.init_check,
+# Indicator.new) — if the standby loop were already dispatching our window
+# build at that moment, two threads would be inside GTK at once. Once EITHER
+# loop owns the context the other blocks in acquire, so the race only exists
+# in this startup window; the grace closes it unless the tray takes longer
+# than this to reach its loop (then we accept the tiny residual window
+# rather than never showing).
+TRAY_LOOP_GRACE_S = 3.0
+
+
+def _loop_grace() -> float:
+    from . import tray_linux
+    t = getattr(tray_linux, "_thread", None)
+    return TRAY_LOOP_GRACE_S if (t is not None and t.is_alive()) else 0.0
 
 
 def _ensure_loop_thread(GLib):
@@ -146,8 +182,15 @@ def _ensure_loop_thread(GLib):
     global _loop_thread
     with _lock:
         if _loop_thread is None or not _loop_thread.is_alive():
+            grace = _loop_grace()
+
+            def standby():
+                if grace:
+                    time.sleep(grace)
+                GLib.MainLoop().run()
+
             _loop_thread = threading.Thread(
-                target=GLib.MainLoop().run, name="insights-glib", daemon=True)
+                target=standby, name="insights-glib", daemon=True)
             _loop_thread.start()
 
 
@@ -183,6 +226,12 @@ def _build():
 
     view = WebKit2.WebView()
     win.add(view)
+    # async breakage (WebKit's web process dying is the exact failure family
+    # a frozen bundle risks) must reach the same fallback as a sync one — a
+    # permanently blank window would betray the "never worse than the
+    # browser tab" contract
+    view.connect("load-failed", _on_load_failed)
+    view.connect("web-process-terminated", _on_web_process_died)
     view.load_uri(f"http://127.0.0.1:{_port}/")
 
     # close = hide, window survives for the next tray click (macOS parity:
@@ -194,6 +243,27 @@ def _build():
 def _on_delete(win, _event):
     win.hide()
     return True  # stop propagation — never destroy
+
+
+def _abandon_window(reason):
+    """Tear the window down and hand the user the browser instead (sticky)."""
+    global _window, _webview
+    win, _window, _webview = _window, None, None
+    if win is not None:
+        try:
+            win.destroy()
+        except Exception:
+            pass
+    _fall_back(reason)
+
+
+def _on_load_failed(_view, _event, uri, error):
+    _abandon_window(f"load failed for {uri}: {error}")
+    return True  # handled — no default error page
+
+
+def _on_web_process_died(_view, reason):
+    _abandon_window(f"web process terminated ({reason})")
 
 
 def smoke(port: int, timeout_s: float = 30.0) -> int:
