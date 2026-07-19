@@ -83,7 +83,8 @@ def download(on_progress=None) -> str:
             os.remove(archive)
     binary = installed()
     if not binary:
-        raise RuntimeError("ollama runtime extracted but bin/ollama is missing")
+        raise RuntimeError("ollama runtime extracted but "
+                           f"{'/'.join(_ASSET['bin'])} is missing")
     log.info("ollama runtime %s installed at %s", OLLAMA_VERSION, RUNTIME_DIR)
     return binary
 

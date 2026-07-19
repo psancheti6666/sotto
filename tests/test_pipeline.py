@@ -192,7 +192,12 @@ def test_ollama_runtime():
     from sotto import ollama_runtime as orr
 
     orig_which, orig_dir = orr.shutil.which, orr.RUNTIME_DIR
+    orig_asset_mod = orr._ASSET
     try:
+        # the resolution/download blocks below exercise the LINUX layout by
+        # name (bin/ollama) — pin the asset so they hold on windows-latest,
+        # where the import-time _ASSET is the ollama.exe layout
+        orr._ASSET = orr._ASSETS["linux"]
         with tempfile.TemporaryDirectory() as td:
             orr.RUNTIME_DIR = td
 
@@ -228,13 +233,15 @@ def test_ollama_runtime():
               win["bin"] == ("ollama.exe",))
 
         orig_asset = orr._ASSET
-        with tempfile.TemporaryDirectory() as td:
-            orr.RUNTIME_DIR, orr._ASSET = td, win
-            open(os.path.join(td, "ollama.exe"), "w").write("x")
-            os.chmod(os.path.join(td, "ollama.exe"), 0o755)
-            check("windows layout: installed() finds root ollama.exe",
-                  orr.installed() == os.path.join(td, "ollama.exe"))
-        orr._ASSET = orig_asset
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                orr.RUNTIME_DIR, orr._ASSET = td, win
+                open(os.path.join(td, "ollama.exe"), "w").write("x")
+                os.chmod(os.path.join(td, "ollama.exe"), 0o755)
+                check("windows layout: installed() finds root ollama.exe",
+                      orr.installed() == os.path.join(td, "ollama.exe"))
+        finally:
+            orr._ASSET = orig_asset
 
         # --- zip extraction with the zip-slip guard
         import zipfile
@@ -261,6 +268,7 @@ def test_ollama_runtime():
                       not os.path.exists(os.path.join(td, "escape.txt")))
     finally:
         orr.shutil.which, orr.RUNTIME_DIR = orig_which, orig_dir
+        orr._ASSET = orig_asset_mod
 
     # _fetch: streaming hash + progress + checksum abort, no real network
     payload = b"x" * (2 * 1024 * 1024) + b"tail"
@@ -296,9 +304,11 @@ def test_ollama_runtime():
     finally:
         orr.requests.get = orig_get
 
-    # download(): orchestration with fetch/extract stubbed
+    # download(): orchestration with fetch/extract stubbed (Linux layout —
+    # same pin as above)
     orig_fetch, orig_extract = orr._fetch, orr._extract
     try:
+        orr._ASSET = orr._ASSETS["linux"]
         with tempfile.TemporaryDirectory() as td:
             orr.RUNTIME_DIR = td
 
@@ -326,6 +336,7 @@ def test_ollama_runtime():
                   got == os.path.join(td, "bin", "ollama"), str(got))
     finally:
         orr._fetch, orr._extract, orr.RUNTIME_DIR = orig_fetch, orig_extract, orig_dir
+        orr._ASSET = orig_asset_mod
 
     # real .tar.zst extraction — runs where zstandard is installed (Linux CI;
     # skipped on macOS, where the requirement doesn't apply)
