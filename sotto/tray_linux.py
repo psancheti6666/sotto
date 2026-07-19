@@ -1,5 +1,7 @@
 # Created by Pratik Sancheti / https://github.com/psancheti6666
-"""Best-effort tray icon for Linux (docs/linux-app.md, L7).
+"""Best-effort tray icon for Linux (docs/linux-app.md, L7) and Windows
+(docs/windows-app.md W6 — pystray's Win32 backend is its native, best one;
+the module keeps its historical name to spare the Linux spec/tests churn).
 
 pystray drives the icon. On Ubuntu GNOME the only tray protocol the shell
 renders is StatusNotifierItem (via the preinstalled AppIndicator extension),
@@ -28,6 +30,8 @@ import signal
 import sys
 import threading
 
+from .platform import IS_WINDOWS
+
 log = logging.getLogger(__name__)
 
 # the deb's postinst-installed icon; a checkout/tarball falls back to
@@ -53,6 +57,18 @@ def _menu_items(insights_available: bool, update_enabled: bool):
 
 def _quit(*_):
     log.info("quit from tray")
+    if IS_WINDOWS:
+        # os.kill(SIGINT) on Windows is TerminateProcess-adjacent for a
+        # windowed app — no unwinding, no atexit, orphaned ollama. Quit
+        # through the overlay's command path instead (docs/windows-app.md
+        # W6); headless (no tk loop to unwind, main thread parked in the
+        # pynput hook), shut the engine down ourselves and leave.
+        from . import llm_server, overlay_tk
+        if not overlay_tk.request_quit():
+            # headless: no loop to unwind
+            llm_server.shutdown()
+            os._exit(0)
+        return  # mainloop exits → the normal teardown path runs
     os.kill(os.getpid(), signal.SIGINT)
 
 
@@ -91,13 +107,22 @@ def _tray_thread(dashboard_port):
     try:
         import pystray
 
-        from . import insights_linux, update
+        from . import update
 
-        actions = {
+        if IS_WINDOWS:
+            # browser tab until W8 lands insights_windows (WebView2) with
+            # the same show_soon surface — then this branch collapses
+            from . import dashboard
+            open_insights = lambda *_: dashboard.open_in_browser(
+                dashboard_port)
+        else:
             # native WebKitGTK window when the system can host one; falls
             # back to the browser tab inside show_soon() — the tray gains
             # zero new failure modes from it
-            "insights": lambda *_: insights_linux.show_soon(),
+            from . import insights_linux
+            open_insights = lambda *_: insights_linux.show_soon()
+        actions = {
+            "insights": open_insights,
             "updates": lambda *_: update.check_from_menu(),
             "quit": _quit,
         }

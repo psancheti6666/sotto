@@ -356,12 +356,12 @@ class Sotto:
                 # browser tab as before
                 from . import insights_linux
                 insights_linux.configure(self.cfg.dashboard_port)
-        if IS_LINUX:
-            # Best-effort tray (docs/linux-app.md, L7): daemon thread, any
-            # failure logs one line and the app runs tray-less. Started
-            # BEFORE any insights show so its pystray loop becomes the GLib
-            # dispatcher (insights_linux gives it a head start — see
-            # TRAY_LOOP_GRACE_S there).
+        if IS_LINUX or IS_WINDOWS:
+            # Best-effort tray (docs/linux-app.md L7; docs/windows-app.md
+            # W6): daemon thread, any failure logs one line and the app
+            # runs tray-less. Started BEFORE any insights show so on Linux
+            # its pystray loop becomes the GLib dispatcher (insights_linux
+            # gives it a head start — see TRAY_LOOP_GRACE_S there).
             from . import tray_linux
             tray_linux.start(self.cfg.dashboard_port if server else None)
         if server and self.cfg.open_dashboard_on_start:

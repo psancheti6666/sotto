@@ -134,18 +134,31 @@ cycle). Milestones in between ship on CI + units alone.
    config defaults, and the shared Tk windows driven end-to-end with the
    Windows backend (mic gating, consent, marker+relaunch). Friend:
    deferred to Round B.
-6. **W6 — Overlay + sounds + tray + quit path.** overlay_tk verified on
-   Windows (capsule position vs taskbar, transparency); winsound event
-   table auditioned and recorded here; **tray startup wired on Windows**
-   (app.py starts pystray outside the `IS_LINUX` branch; the tray module
-   guards its `insights_linux` import per-platform) with Quit →
-   `request_quit()` via the overlay command queue on all platforms
-   (Linux SIGINT contract preserved). Units: quit plumbing, menu gating,
-   sound table. **→ Round B** (frozen onedir from CI): cold first run
+6. **W6 — Overlay + sounds + tray + quit path.** ✅ code done (PR #80,
+   issue #79). Tray: shared pystray module (historical `tray_linux` name
+   kept — spec/tests churn not worth it) started on `IS_LINUX or
+   IS_WINDOWS`; Insights action per-platform (Windows = browser tab until
+   W8's WebView2; Linux = insights_linux.show_soon unchanged); pystray
+   requirement marker gains win32 (same minor-pin rationale). **Quit:
+   `overlay_tk.request_quit()`** — thread-safe flag consumed by the tick
+   (`_consume_quit` destroys the root, mainloop returns → the normal
+   teardown path), used by the Windows tray Quit (os.kill(SIGINT) is
+   TerminateProcess-adjacent for a windowed app: no unwinding, no atexit,
+   orphaned ollama); headless Windows = llm_server.shutdown + os._exit;
+   **Linux SIGINT contract untouched** (pinned in units). Overlay code
+   audit for Windows: overrideredirect/-topmost/-alpha all supported;
+   the X11-specific bits are already try-guarded — live look is Round B.
+   winsound: W5's provisional alias table STANDS (no Windows hardware to
+   audition on — Round B auditions and this table gets settled then;
+   honest deviation from the original milestone wording). Units: tray
+   wiring per-platform (forced flags), the quit triple (overlay path /
+   headless / Linux SIGINT), request_quit arm/consume mechanics.
+   **→ Round B** (frozen onedir from CI): cold first run
    (consent screen, downloads with progress, relaunch), end-to-end
-   dictation, capsule visible over apps, sounds distinct, tray menu
-   works, Quit exits clean (Task Manager), second launch refuses
-   (single-instance), `sotto.log` attached.
+   dictation, capsule visible over apps + not stealing clicks, sounds
+   distinct (audition the table), tray menu works, Quit exits clean
+   (Task Manager), second launch refuses (single-instance),
+   `sotto.log` attached.
 7. **W7 — Packaging + the MSIX decision.** `winapp/` (build script +
    spec + `--smoke`), CI builds onedir and smokes it (W1 job extended);
    MSIX packaging of the real app. **→ Round C**: sideload on the
