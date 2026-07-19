@@ -97,12 +97,19 @@ cycle). Milestones in between ship on CI + units alone.
    gesture-set row); dictate into Notepad, a browser, Windows Terminal
    (paste path), non-ASCII text; run the MSIX hotkey probe — does the
    hook fire under runFullTrust?
-4. **W4 — Runtime: mic + ASR + LLM.** sounddevice/WASAPI capture,
-   `make_asr()` "auto" → ONNX on Windows (likely zero code), ollama
-   Windows-zip suffix in `ollama_runtime.py` (pinned version + sha256,
-   zip extraction, `ollama.exe` spawn with clean lifecycle — the atexit
-   kill path verified without POSIX signals). Units: resolver/download
-   logic with a fake platform. Friend: deferred to Round B.
+4. **W4 — Runtime: mic + ASR + LLM.** ✅ code done (PR #76, issue #75).
+   Confirmed zero-code: sounddevice (wheel bundles PortAudio/WASAPI) and
+   `make_asr()` ("auto" → ONNX off Apple Silicon already). Landed:
+   `ollama_runtime._ASSETS` per-platform table (win32 = pinned
+   `ollama-windows-amd64.zip` v0.32.1 + published sha256, `ollama.exe` at
+   the archive root, stdlib zipfile extraction with an explicit zip-slip
+   guard — extractall does not sanitize like tarfile's filter="data";
+   NOT the desktop installer, which runs its own tray/autostart);
+   `llm_server.bundled_binary()` resolves via ollama_runtime on Windows
+   too; `_spawn` uses CREATE_NEW_PROCESS_GROUP on Windows
+   (start_new_session is POSIX-only — same console-Ctrl isolation
+   intent). Units: asset-table pins, windows-layout installed(), real
+   zip round-trip + slip refusal. Friend: deferred to Round B.
 5. **W5 — First-run + config defaults + single-instance.** Decouple
    `firstrun_tk` from its module-level `firstrun_linux` coupling (rows/
    statuses/gating/relaunch parameterized or a `firstrun_windows`

@@ -24,7 +24,7 @@ import urllib.parse
 import requests
 
 from .config import CONFIG_DIR
-from .platform import IS_LINUX
+from .platform import IS_LINUX, IS_WINDOWS
 
 log = logging.getLogger("sotto")
 
@@ -41,7 +41,7 @@ def bundled_binary() -> str | None:
     if res:
         path = os.path.join(res, "ollama", "ollama")
         return path if os.access(path, os.X_OK) else None
-    if IS_LINUX:
+    if IS_LINUX or IS_WINDOWS:
         from . import ollama_runtime
         return ollama_runtime.resolve()
     return None
@@ -92,10 +92,14 @@ def _spawn(binary: str, url: str):
     # New session: a Ctrl+C aimed at Sotto shouldn't SIGINT the child
     # mid-request; shutdown() below is the one way it exits. If Sotto is
     # kill -9'd the orphan keeps serving and the next launch simply finds
-    # the port answering and adopts it.
+    # the port answering and adopts it. Windows: start_new_session is
+    # silently ignored — CREATE_NEW_PROCESS_GROUP is the same intent there
+    # (console Ctrl events don't reach the child).
+    popen_kwargs = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+                    if IS_WINDOWS else {"start_new_session": True})
     _child = subprocess.Popen([binary, "serve"], env=env,
                               stdout=logfile, stderr=logfile,
-                              start_new_session=True)
+                              **popen_kwargs)
     log.info("started bundled ollama (pid %d) on %s", _child.pid,
              _host_port(url))
     atexit.register(shutdown)
