@@ -205,14 +205,22 @@ cycle). Milestones in between ship on CI + units alone.
    create/reshow/close-cancel with a blocking fake loop, loop-death
    fallback) + tray wiring pin updated. Friend: Round D (native window
    open/close/reopen, dictionary save, dictate-while-open).
-9. **W9 — Updater backend (channel-dependent).** Store: `bundle_type()`
-   "msix" → updater silent, Store handles it. Inno: Windows backend with
-   the signature gate (pinned pubkey, verify BEFORE execute, no-downgrade)
-   + `asset_suffix()` `-setup.exe` (evaluate()'s .sig requirement already
-   composes); release workflow signs like the Linux artifacts. Units: the
-   full L8-style gate matrix. **→ Round D**: native insights window
-   (open/close/reopen, dictionary save, dictate-while-open) + vN → vN+1
-   update cycle live.
+9. **W9 — Updater backend (channel-dependent).** ✅ phase 1 done (PR
+   #86, issue #85): `update.enabled()` returns False on Windows **by
+   design and pinned** — "msix" installs are updated by the Store (a
+   self-updater would fight it) and "exe" has no distribution channel
+   until Round C's verdict (previously the silence was borrowed from the
+   macOS branch by accident: menubar.running_in_bundle() happening to be
+   False). `asset_suffix()` already returns None on Windows (pinned).
+   **Phase 2 is CONTINGENT on Round C failing the MSIX gate:** only then
+   does the Inno channel exist, and with it the signature-gated backend
+   (pinned pubkey, verify BEFORE execute, no-downgrade — the L8 pattern;
+   `-setup.exe` suffix; evaluate()'s .sig requirement already composes;
+   release workflow signs like the Linux artifacts; full L8-style gate
+   matrix in units). A package-name check alone stays recognized as
+   false assurance. **→ Round D**: native insights window (open/close/
+   reopen, dictionary save, dictate-while-open); the vN→vN+1 update
+   cycle item applies ONLY on the Inno outcome (Store handles its own).
 10. **W10 — Docs + release dry run.** README "Download (Windows)" (honest
     SmartScreen/UAC/UIPI notes), platform table, network-calls list
     updated; release workflow dispatch builds all platforms green; tag.

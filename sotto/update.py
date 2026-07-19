@@ -30,7 +30,7 @@ import time
 
 from . import __version__
 from .config import CONFIG_DIR
-from .platform import IS_LINUX, IS_MACOS, alert
+from .platform import IS_LINUX, IS_MACOS, IS_WINDOWS, alert
 
 log = logging.getLogger("sotto")
 
@@ -133,7 +133,14 @@ def mark_checked(state_path: str, now: float = None):
 def enabled() -> bool:
     """True only in a released bundle — never a checkout (run.sh git-pulls).
     macOS: the released Sotto.app (not Sotto Dev). Linux: an installed
-    package (SOTTO_BUNDLE set by the deb's /usr/bin/sotto launcher)."""
+    package (SOTTO_BUNDLE set by the deb's /usr/bin/sotto launcher).
+    Windows: False BY DESIGN, both bundle kinds (docs/windows-app.md W9):
+    "msix" = the Store owns updates for its installs, a self-updater would
+    fight it; "exe" = no distribution channel exists until Round C's
+    verdict — if it lands on Inno, the signature-gated backend (the L8
+    pattern) gets built THEN, never a package-name check."""
+    if IS_WINDOWS:
+        return False
     if IS_LINUX:
         from . import update_linux
         return update_linux.bundle_type() is not None

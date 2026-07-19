@@ -1238,6 +1238,18 @@ def test_update():
     check("suffix: windows → None",
           update.asset_suffix("windows", "AMD64") is None)
 
+    # Windows: silent BY DESIGN, both bundle kinds (docs/windows-app.md W9 —
+    # msix updates belong to the Store; exe has no channel until Round C).
+    # Pinned so a future Inno backend must consciously flip this with the
+    # signature gate, never by accident.
+    orig_w = update.IS_WINDOWS
+    update.IS_WINDOWS = True
+    try:
+        check("updater disabled on Windows by design (msix→Store, "
+              "exe→no channel until Round C)", update.enabled() is False)
+    finally:
+        update.IS_WINDOWS = orig_w
+
     def release(tag, exts=(AS, INTEL, DEB + ".sig", DEB), **kw):
         v = tag.lstrip("v")
         return {"tag_name": tag,
