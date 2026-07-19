@@ -149,7 +149,11 @@ jobs:
             Start-Process -Wait -FilePath .\wv2setup.exe -ArgumentList "/silent","/install"
           }
           & dist\sotto\sotto.exe --smoke-webview
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $code = $LASTEXITCODE
+          # the windowed exe's streams are devnull — the report file is the
+          # only diagnostic surface
+          if (Test-Path webview-smoke.txt) { Get-Content webview-smoke.txt }
+          if ($code -ne 0) { exit 1 }
       # ONE layout serves both rounds: Round B runs sotto/sotto.exe
       # directly; Round C registers the manifest at the root (its
       # Executable path points into the same sotto/ folder).

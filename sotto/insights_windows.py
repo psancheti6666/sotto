@@ -125,40 +125,58 @@ def _on_closing():
 def smoke(port: int, timeout_s: float = 60.0) -> int:
     """CI-only (--smoke-webview): prove the real WebView2 renders the real
     dashboard inside the frozen bundle. Runs pywebview's loop on the MAIN
-    thread (no tk loop exists in the smoke process); communicates by exit
-    code (windowed bootloader). A watchdog hard-exits on hang — CI must
-    never wait on a wedged GUI loop."""
+    thread (no tk loop exists in the smoke process). The exit code is the
+    contract AND every diagnostic goes to webview-smoke.txt in the cwd —
+    the windowed bootloader devnulls the std streams, so a print here is
+    invisible in CI (learned on this milestone's first red run). A
+    watchdog hard-exits on hang — CI must never wait on a wedged GUI
+    loop."""
     import os
-    import sys
+    import traceback
 
-    from . import dashboard
-    server = dashboard.start(port)
-    if server is None:
-        return 1
-    configure(port)
-    webview = _import_webview()
-    result = {}
-    done = threading.Event()
+    report = os.path.join(os.getcwd(), "webview-smoke.txt")
 
-    def on_loaded():
+    def write(line: str):
         try:
-            result["title"] = win.evaluate_js("document.title")
-        except Exception as e:
-            result["error"] = str(e)
-        done.set()
-        win.destroy()  # last window → start() returns
+            with open(report, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        except OSError:
+            pass
 
-    def watchdog():
-        if not done.wait(timeout_s):
-            os._exit(1)
+    try:
+        from . import dashboard
+        server = dashboard.start(port)
+        if server is None:
+            write(f"FAILED: port {port} unavailable")
+            return 1
+        configure(port)
+        webview = _import_webview()
+        result = {}
+        done = threading.Event()
 
-    threading.Thread(target=watchdog, daemon=True).start()
-    win = webview.create_window("smoke", f"http://127.0.0.1:{port}/",
-                                hidden=True)
-    win.events.loaded += on_loaded
-    webview.start(gui="edgechromium")
-    title = result.get("title") or ""
-    ok = "sotto" in title.lower()
-    print(f"webview smoke {'OK' if ok else 'FAILED'} (title={title!r} "
-          f"err={result.get('error')!r})", file=sys.stderr)
-    return 0 if ok else 1
+        def on_loaded():
+            try:
+                result["title"] = win.evaluate_js("document.title")
+            except Exception as e:
+                result["error"] = str(e)
+            done.set()
+            win.destroy()  # last window → start() returns
+
+        def watchdog():
+            if not done.wait(timeout_s):
+                write(f"FAILED: no load event within {timeout_s}s")
+                os._exit(1)
+
+        threading.Thread(target=watchdog, daemon=True).start()
+        win = webview.create_window("smoke", f"http://127.0.0.1:{port}/",
+                                    hidden=True)
+        win.events.loaded += on_loaded
+        webview.start(gui="edgechromium")
+        title = result.get("title") or ""
+        ok = "sotto" in title.lower()
+        write(f"{'OK' if ok else 'FAILED'}: title={title!r} "
+              f"err={result.get('error')!r}")
+        return 0 if ok else 1
+    except Exception:
+        write("FAILED with traceback:\n" + traceback.format_exc())
+        return 1
