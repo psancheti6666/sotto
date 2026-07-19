@@ -76,6 +76,11 @@ for you, don't install — or run from source and audit first; everything
 that ever runs with root privileges is plain readable shell in
 [`linuxapp/`](linuxapp/).
 
+The tray's **Insights** opens your dictation history and dictionary in a
+native window (WebKitGTK — the .deb installs what it needs; the AppImage
+uses your system's WebKit and quietly falls back to your browser if it
+isn't there). Same page either way, served only on your machine.
+
 Self-updates work like the Mac app's (scheduled check → **Update Now /
 Later**, or the tray's **Check for Updates…**): the .deb path verifies
 the download's signature against a key pinned at install before anything

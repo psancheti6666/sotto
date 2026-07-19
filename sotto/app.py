@@ -291,6 +291,14 @@ class Sotto:
                 if firstrun_linux.setup_missing(self.cfg):
                     firstrun_tk.download_screen(self.cfg)
                     return
+        if IS_LINUX:
+            # Frozen bundle: sanitize os.environ NOW, on the sole thread —
+            # before ollama/ASR/tray threads spawn and read it. Children
+            # (including WebKit's own helper processes, which spawn at times
+            # we don't control) then inherit a clean env; the process's own
+            # already-resolved libraries are unaffected. No-op in a checkout.
+            from . import insights_linux
+            insights_linux.sanitize_environ()
         # Bundled ollama (if any) spawns while the ASR model loads; from a
         # checkout this is one fast probe and a return.
         threading.Thread(target=llm_server.ensure, args=(self.cfg,),
@@ -330,16 +338,27 @@ class Sotto:
                     # arms the menu-bar "Insights" item (menu built later, in
                     # overlay.run_forever)
                     insights.configure(self.cfg.dashboard_port)
-            if server and self.cfg.open_dashboard_on_start:
-                if in_bundle:
-                    insights.show_soon()  # native window, not a browser tab
-                else:
-                    dashboard.open_in_browser(self.cfg.dashboard_port)
+            elif server and IS_LINUX:
+                # arms the tray's "Insights" item; show_soon() opens a native
+                # WebKitGTK window when the system can host one, else the
+                # browser tab as before
+                from . import insights_linux
+                insights_linux.configure(self.cfg.dashboard_port)
         if IS_LINUX:
             # Best-effort tray (docs/linux-app.md, L7): daemon thread, any
-            # failure logs one line and the app runs tray-less.
+            # failure logs one line and the app runs tray-less. Started
+            # BEFORE any insights show so its pystray loop becomes the GLib
+            # dispatcher (insights_linux gives it a head start — see
+            # TRAY_LOOP_GRACE_S there).
             from . import tray_linux
             tray_linux.start(self.cfg.dashboard_port if server else None)
+        if server and self.cfg.open_dashboard_on_start:
+            if in_bundle:
+                insights.show_soon()  # native window, not a browser tab
+            elif IS_LINUX:
+                insights_linux.show_soon()
+            else:
+                dashboard.open_in_browser(self.cfg.dashboard_port)
         overlay_mod = self._overlay_module() if self.cfg.indicator else None
         if overlay_mod:
             # The UI run loop (AppKit or tk) owns the main thread; the hotkey

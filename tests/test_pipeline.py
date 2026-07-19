@@ -379,6 +379,235 @@ def test_insights_config():
         insights._port = old
 
 
+def test_insights_linux():
+    print("Linux insights window (pure logic — fake gi, no GTK):")
+    import logging
+
+    from sotto import insights_linux as il
+
+    saved = (il._port, il._failed, il._window, il._webview, il._sanitized)
+    orig_gi, orig_browser, orig_loop = (il._gi_modules, il._open_browser,
+                                        il._ensure_loop_thread)
+    try:
+        # --- gating mirrors insights.py: unconfigured = safe no-op
+        il._port, il._failed = None, False
+        check("not available before configure", not il.available())
+        il._gi_modules = lambda: (_ for _ in ()).throw(
+            AssertionError("gi must not load when unconfigured"))
+        il.show_soon()
+        check("show_soon() is a safe no-op when unconfigured", True)
+        il.configure(8377)
+        check("available after configure", il.available())
+
+        # --- WebKit2 namespace preference: newest first, 4.0 fallback
+        class FakeGi:
+            def __init__(self, available):
+                self.available, self.calls = available, []
+
+            def require_version(self, ns, ver):
+                self.calls.append(ver)
+                if ver not in self.available:
+                    raise ValueError(f"no {ns} {ver}")
+
+        gi = FakeGi({"4.1", "4.0"})
+        check("prefers WebKit2 4.1", il._require_webkit(gi) == "4.1")
+        gi = FakeGi({"4.0"})
+        check("falls back to WebKit2 4.0 (tried in order)",
+              il._require_webkit(gi) == "4.0" and gi.calls == ["4.1", "4.0"],
+              str(gi.calls))
+        try:
+            il._require_webkit(FakeGi(set()))
+            check("raises when no WebKit2 introspection exists", False)
+        except ValueError:
+            check("raises when no WebKit2 introspection exists", True)
+
+        # --- fallback ladder: failure → one log line + browser, then sticky
+        records = []
+        handler = logging.Handler()
+        handler.emit = lambda r: records.append(r.getMessage())
+        il.log.addHandler(handler)
+        orig_level = il.log.level
+        il.log.setLevel(logging.INFO)
+        opened = []
+        il._open_browser = lambda: opened.append(1)
+        il._gi_modules = lambda: (_ for _ in ()).throw(
+            RuntimeError("Namespace WebKit2 not available"))
+        try:
+            il.show_soon()
+            check("gi failure opens the browser instead", opened == [1])
+            check("failure is remembered", il._failed)
+            il._gi_modules = lambda: (_ for _ in ()).throw(
+                AssertionError("sticky failure must skip gi entirely"))
+            il.show_soon()
+            check("later clicks go straight to the browser", opened == [1, 1])
+            check("says so exactly once",
+                  sum("native Insights window unavailable" in m
+                      for m in records) == 1, str(records))
+        finally:
+            il.log.setLevel(orig_level)
+            il.log.removeHandler(handler)
+
+        # --- dispatch: show_soon queues _show once onto the GLib context
+        il._failed = False
+
+        class FakeGLib:
+            def __init__(self):
+                self.queued = []
+
+            def idle_add(self, cb):
+                self.queued.append(cb)
+
+        glib = FakeGLib()
+        loops = []
+        il._gi_modules = lambda: (glib, None, None)
+        il._ensure_loop_thread = lambda g: loops.append(g)
+        il.show_soon()
+        check("show_soon queues _show via idle_add", glib.queued == [il._show])
+        check("a dispatching loop is guaranteed", loops == [glib])
+
+        # --- _show: builds once, reuses the window, loads once
+        class FakeWin:
+            def __init__(self):
+                self.presented = self.shown = self.hidden = 0
+
+            def show_all(self):
+                self.shown += 1
+
+            def present(self):
+                self.presented += 1
+
+            def hide(self):
+                self.hidden += 1
+
+        class FakeView:
+            def __init__(self):
+                self.loads = []
+
+            def get_uri(self):
+                return self.loads[-1] if self.loads else None
+
+            def load_uri(self, uri):
+                self.loads.append(uri)
+
+        win, view = FakeWin(), FakeView()
+        builds = []
+        orig_build = il._build
+        il._build = lambda: builds.append(1) or (win, view)
+        try:
+            check("_show returns False (idle_add runs it once)",
+                  il._show() is False)
+            il._show()
+            check("window is built once and reused",
+                  builds == [1] and win.presented == 2, str(builds))
+            check("page loads exactly once",
+                  view.loads == ["http://127.0.0.1:8377/"], str(view.loads))
+        finally:
+            il._build = orig_build
+        check("close hides, never destroys",
+              il._on_delete(win, None) is True and win.hidden == 1)
+
+        # --- _show failure also lands in the ladder, not a raise
+        il._failed, opened[:] = False, []
+        il._build = lambda: (_ for _ in ()).throw(RuntimeError("no display"))
+        try:
+            il._window = None
+            check("a broken build falls back to the browser",
+                  il._show() is False and opened == [1] and il._failed)
+        finally:
+            il._build = orig_build
+
+        # --- async load failure: window torn down, browser fallback, sticky
+        # (WebKit's web process dying is the exact failure family a frozen
+        # bundle risks — it must land in the ladder, not a blank window)
+        il._failed, opened[:] = False, []
+        win2, destroyed = FakeWin(), []
+        win2.destroy = lambda: destroyed.append(1)
+        il._window, il._webview = win2, FakeView()
+        check("load-failed abandons the window and falls back",
+              il._on_load_failed(None, None, "http://127.0.0.1:8377/",
+                                 RuntimeError("boom")) is True
+              and destroyed == [1] and opened == [1]
+              and il._failed and il._window is None)
+        il._failed, opened[:] = False, []
+        il._on_web_process_died(None, "crashed")
+        check("web-process death falls back too",
+              opened == [1] and il._failed)
+
+        # --- standby-loop grace: yields the context to a live tray loop
+        from sotto import tray_linux as tl_mod
+        old_tray_thread = tl_mod._thread
+        try:
+            tl_mod._thread = None
+            check("no tray thread: standby loop starts immediately",
+                  il._loop_grace() == 0.0)
+
+            class AliveThread:
+                def is_alive(self):
+                    return True
+
+            tl_mod._thread = AliveThread()
+            check("live tray thread: standby gives its loop a head start",
+                  il._loop_grace() == il.TRAY_LOOP_GRACE_S)
+        finally:
+            tl_mod._thread = old_tray_thread
+
+        # --- env sanitize: frozen only, clean_env applied; the tray's
+        # typelib path and the user's own LD_LIBRARY_PATH both survive, and
+        # later clean_env() calls stay idempotent (_ORIG kept)
+        env_saved = {k: os.environ.get(k) for k in
+                     ("LD_LIBRARY_PATH", "LD_LIBRARY_PATH_ORIG",
+                      "GI_TYPELIB_PATH")}
+        had_frozen = hasattr(sys, "frozen")
+        had_meipass = hasattr(sys, "_MEIPASS")
+        try:
+            il._sanitized = False
+            os.environ["LD_LIBRARY_PATH"] = "/bundle/_internal"
+            os.environ["LD_LIBRARY_PATH_ORIG"] = "/users/own"
+            os.environ["GI_TYPELIB_PATH"] = "/bundle/_internal/gi_typelibs"
+            if not had_frozen:
+                sys.frozen = True
+            if not had_meipass:
+                sys._MEIPASS = "/bundle/_internal"
+            il.sanitize_environ()
+            check("frozen: the user's own LD_LIBRARY_PATH reaches the "
+                  "WebKit helpers",
+                  os.environ.get("LD_LIBRARY_PATH") == "/users/own")
+            check("frozen: _ORIG kept so later clean_env() calls stay "
+                  "idempotent",
+                  os.environ.get("LD_LIBRARY_PATH_ORIG") == "/users/own")
+            from sotto.platform.linux import clean_env
+            check("clean_env() after sanitize returns the same value",
+                  clean_env().get("LD_LIBRARY_PATH") == "/users/own")
+            check("frozen: bundled GI_TYPELIB_PATH survives (the tray needs "
+                  "it; WebKit helpers never read it)",
+                  os.environ.get("GI_TYPELIB_PATH")
+                  == "/bundle/_internal/gi_typelibs")
+            check("sanitize is one-shot", il._sanitized)
+            if not had_frozen:
+                del sys.frozen
+            il._sanitized = False
+            os.environ["LD_LIBRARY_PATH"] = "/bundle/_internal"
+            il.sanitize_environ()
+            check("not frozen: environment untouched",
+                  os.environ.get("LD_LIBRARY_PATH") == "/bundle/_internal"
+                  and not il._sanitized)
+        finally:
+            if not had_frozen and hasattr(sys, "frozen"):
+                del sys.frozen
+            if not had_meipass and hasattr(sys, "_MEIPASS"):
+                del sys._MEIPASS
+            for k, v in env_saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+    finally:
+        (il._port, il._failed, il._window, il._webview,
+         il._sanitized) = saved
+        il._gi_modules, il._open_browser = orig_gi, orig_browser
+        il._ensure_loop_thread = orig_loop
+
+
 def test_listener_retry():
     print("hotkey-permission retry (failure alerts once, retries until up):")
     from sotto import app as app_mod
@@ -1612,6 +1841,9 @@ def test_deb_layout():
           and "Architecture: amd64" in control)
     check("control Depends includes acl (setfacl/getfacl) and a polkit provider",
           "acl" in control and ("pkexec" in control or "policykit" in control))
+    check("control Depends includes the WebKit introspection (L11 Insights "
+          "window, 4.1 with 4.0 fallback)",
+          "gir1.2-webkit2-4.1 | gir1.2-webkit2-4.0" in control)
 
 
 def test_tray_menu():
@@ -1680,6 +1912,58 @@ def test_tray_menu():
             sys.modules["pystray"] = orig_pystray
         tl.log.setLevel(orig_level)
         tl.log.removeHandler(handler)
+
+    # Insights wiring: the tray action goes through insights_linux.show_soon
+    # (native window with the browser fallback INSIDE it), not straight to a
+    # browser tab. Functional fake pystray so _tray_thread runs to completion
+    # on macOS; _icon_image stubbed (PIL isn't in the mac venv).
+    import types
+
+    class FakeMenuItem:
+        def __init__(self, label, action, default=False):
+            self.label, self.action, self.default = label, action, default
+
+    class FakeMenu:
+        def __init__(self, *items):
+            self.items = items
+
+    class FakeIcon:
+        HAS_MENU = True
+        last = None
+
+        def __init__(self, name, image, title, menu):
+            FakeIcon.last = self
+            self.menu = menu
+
+        def run(self):
+            pass
+
+    fake = types.ModuleType("pystray")
+    fake.MenuItem, fake.Menu, fake.Icon = FakeMenuItem, FakeMenu, FakeIcon
+    from sotto import insights_linux
+    shown = []
+    orig_pystray = sys.modules.get("pystray")
+    orig_icon_image, orig_show = tl._icon_image, insights_linux.show_soon
+    sys.modules["pystray"] = fake
+    tl._icon_image = lambda: None
+    insights_linux.show_soon = lambda: shown.append(1)
+    try:
+        tl._tray_thread(8377)  # fake icon.run() returns immediately
+        items = FakeIcon.last.menu.items
+        insights_item = next(i for i in items if i.label == "Insights")
+        insights_item.action()
+        check("tray Insights routes through insights_linux.show_soon",
+              shown == [1])
+        check("Insights stays the left-click default action",
+              insights_item.default
+              and not any(i.default for i in items if i.label != "Insights"))
+    finally:
+        if orig_pystray is None:
+            sys.modules.pop("pystray", None)
+        else:
+            sys.modules["pystray"] = orig_pystray
+        tl._icon_image = orig_icon_image
+        insights_linux.show_soon = orig_show
 
 
 def test_vm_round_fixes():
@@ -1883,7 +2167,7 @@ def test_smoke_imports():
         "sotto.firstrun", "sotto.firstrun_linux", "sotto.firstrun_tk",
         "sotto.llm_server", "sotto.ollama_runtime",
         "sotto.update", "sotto.update_linux", "sotto.dashboard", "zstandard",
-        "sotto.tray_linux",
+        "sotto.tray_linux", "sotto.insights_linux",
     }
     missing = required - set(mod.SMOKE_IMPORTS)
     check("smoke list covers every runtime-selected module", not missing,
@@ -2115,6 +2399,7 @@ if __name__ == "__main__":
     test_ollama_runtime()
     test_firstrun()
     test_insights_config()
+    test_insights_linux()
     test_listener_retry()
     test_logging_setup()
     test_firstrun_cosmetics()
