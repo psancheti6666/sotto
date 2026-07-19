@@ -2429,23 +2429,33 @@ def test_tray_menu():
 
     fake = types.ModuleType("pystray")
     fake.MenuItem, fake.Menu, fake.Icon = FakeMenuItem, FakeMenu, FakeIcon
-    from sotto import insights_linux
-    shown = []
+    from sotto import dashboard, insights_linux
+    shown, opened = [], []
     orig_pystray = sys.modules.get("pystray")
     orig_icon_image, orig_show = tl._icon_image, insights_linux.show_soon
+    orig_open, orig_win = dashboard.open_in_browser, tl.IS_WINDOWS
     sys.modules["pystray"] = fake
     tl._icon_image = lambda: None
     insights_linux.show_soon = lambda: shown.append(1)
+    dashboard.open_in_browser = lambda port: opened.append(port)
     try:
+        tl.IS_WINDOWS = False  # platform forced — this block pins Linux
         tl._tray_thread(8377)  # fake icon.run() returns immediately
         items = FakeIcon.last.menu.items
         insights_item = next(i for i in items if i.label == "Insights")
         insights_item.action()
-        check("tray Insights routes through insights_linux.show_soon",
-              shown == [1])
+        check("Linux tray Insights routes through insights_linux.show_soon",
+              shown == [1] and opened == [])
         check("Insights stays the left-click default action",
               insights_item.default
               and not any(i.default for i in items if i.label != "Insights"))
+
+        tl.IS_WINDOWS = True  # Windows: browser tab until W8's WebView2
+        tl._tray_thread(8377)
+        next(i for i in FakeIcon.last.menu.items
+             if i.label == "Insights").action()
+        check("Windows tray Insights opens the dashboard in the browser "
+              "(until W8)", opened == [8377] and shown == [1], str(opened))
     finally:
         if orig_pystray is None:
             sys.modules.pop("pystray", None)
@@ -2453,6 +2463,62 @@ def test_tray_menu():
             sys.modules["pystray"] = orig_pystray
         tl._icon_image = orig_icon_image
         insights_linux.show_soon = orig_show
+        dashboard.open_in_browser = orig_open
+        tl.IS_WINDOWS = orig_win
+
+    # Windows quit path (W6): never SIGINT — overlay command path when a tk
+    # loop exists, engine shutdown + hard exit when headless
+    from sotto import llm_server, overlay_tk
+    events = []
+    orig_rq, orig_sd = overlay_tk.request_quit, llm_server.shutdown
+    orig_exit, orig_kill2 = tl.os._exit, tl.os.kill
+    overlay_tk.request_quit = lambda: events.append("rq") or True
+    llm_server.shutdown = lambda: events.append("shutdown")
+    tl.os._exit = lambda code: events.append(("exit", code))
+    tl.os.kill = lambda pid, sig: events.append("SIGINT")
+    try:
+        tl.IS_WINDOWS = True
+        tl._quit()
+        check("Windows + overlay: quit rides the tk command path "
+              "(no SIGINT, no hard exit)", events == ["rq"], str(events))
+        events.clear()
+        overlay_tk.request_quit = lambda: False  # headless
+        tl._quit()
+        check("Windows headless: engine shut down, then hard exit",
+              events == ["shutdown", ("exit", 0)], str(events))
+        events.clear()
+        tl.IS_WINDOWS = False
+        tl._quit()
+        check("Linux quit keeps the SIGINT contract",
+              events == ["SIGINT"], str(events))
+    finally:
+        overlay_tk.request_quit, llm_server.shutdown = orig_rq, orig_sd
+        tl.os._exit, tl.os.kill = orig_exit, orig_kill2
+        tl.IS_WINDOWS = orig_win
+
+    # overlay_tk.request_quit mechanism (fake root — no display needed)
+    orig_root = overlay_tk._root
+    try:
+        overlay_tk._root = None
+        overlay_tk._quit_requested.clear()
+        check("headless: request_quit reports no overlay",
+              overlay_tk.request_quit() is False
+              and not overlay_tk._quit_requested.is_set())
+
+        destroyed = []
+        overlay_tk._root = type("R", (), {
+            "destroy": lambda self: destroyed.append(1)})()
+        check("live overlay: request_quit arms the flag",
+              overlay_tk.request_quit() is True
+              and overlay_tk._quit_requested.is_set())
+        check("tick consumes the quit: root destroyed, tick stops",
+              overlay_tk._consume_quit() is True and destroyed == [1])
+        overlay_tk._quit_requested.clear()
+        check("no pending quit → tick proceeds normally",
+              overlay_tk._consume_quit() is False and destroyed == [1])
+    finally:
+        overlay_tk._root = orig_root
+        overlay_tk._quit_requested.clear()
 
 
 def test_vm_round_fixes():

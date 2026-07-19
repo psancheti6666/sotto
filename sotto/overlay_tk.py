@@ -21,6 +21,7 @@ import logging
 import math
 import queue
 import signal
+import threading
 import time
 
 log = logging.getLogger("sotto")
@@ -153,6 +154,8 @@ class Overlay:
         # Self-rescheduling after() callback: an escaped exception would end the
         # loop for good (unlike a repeating timer), so guard the whole body and
         # reschedule unconditionally.
+        if _consume_quit():
+            return  # root destroyed; do NOT reschedule
         try:
             try:
                 while True:
@@ -273,6 +276,33 @@ class Overlay:
             if ux - 4 <= event.x <= ux + uw + 4 and uy - 4 <= event.y <= uy + uh + 4:
                 if self.on_undo_click:
                     self.on_undo_click()
+
+
+_quit_requested = threading.Event()
+
+
+def request_quit() -> bool:
+    """Thread-safe programmatic quit (docs/windows-app.md W6): the next tick
+    destroys the root and the mainloop returns — the same teardown path as
+    Ctrl+C, without signals (os.kill(SIGINT) is TerminateProcess-adjacent on
+    Windows). The tick keeps rescheduling while hidden, so this lands within
+    one TICK_MS. Returns False when no live overlay exists (headless — the
+    caller owns that case)."""
+    if _root is None:
+        return False
+    _quit_requested.set()
+    return True
+
+
+def _consume_quit() -> bool:
+    """Tick-side half of request_quit; runs on the tk main thread."""
+    if not _quit_requested.is_set():
+        return False
+    try:
+        _root.destroy()
+    except Exception:
+        pass  # already torn down — the mainloop is exiting either way
+    return True
 
 
 def run_forever():
