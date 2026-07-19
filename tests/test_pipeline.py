@@ -503,7 +503,10 @@ def test_windows_platform():
         def CloseHandle(self, handle):
             self.closed.append(handle)
 
-    had_windll = hasattr(ctypes, "windll")
+    # ctypes.windll is REAL on the windows-latest runner — save and restore
+    # the genuine object in every path, or the fake leaks into the rest of
+    # the suite (pynput itself uses windll there)
+    orig_windll = getattr(ctypes, "windll", None)
     fake = types.SimpleNamespace(user32=FakeUser32(),
                                  kernel32=FakeKernel32())
     ctypes.windll = fake
@@ -518,12 +521,13 @@ def test_windows_platform():
         ctypes.windll = types.SimpleNamespace(
             user32=FakeUser32(), kernel32=FakeKernel32(ok=False))
         check("OpenProcess failure → empty, no raise", pw.active_app_id() == "")
-        del ctypes.windll
-        check("no windll at all (non-Windows) → empty, no raise",
-              pw.active_app_id() == "")
+        if orig_windll is None:  # only meaningful where windll doesn't exist
+            del ctypes.windll
+            check("no windll at all (non-Windows) → empty, no raise",
+                  pw.active_app_id() == "")
     finally:
-        if had_windll:
-            pass  # real Windows: leave the real windll alone
+        if orig_windll is not None:
+            ctypes.windll = orig_windll
         elif hasattr(ctypes, "windll"):
             del ctypes.windll
 
@@ -564,7 +568,9 @@ def test_windows_platform():
               shown and shown[0][0] == "Title"
               and shown[0][2] == 0x30 | 0x10000 | 0x40000, str(shown))
     finally:
-        if not had_windll and hasattr(ctypes, "windll"):
+        if orig_windll is not None:
+            ctypes.windll = orig_windll
+        elif hasattr(ctypes, "windll"):
             del ctypes.windll
 
 

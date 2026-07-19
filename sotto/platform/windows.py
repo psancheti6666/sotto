@@ -24,6 +24,13 @@ def active_app_id() -> str:
 
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
+        # explicit restypes: HWND/HANDLE are pointer-sized — ctypes' default
+        # c_int return type could truncate them on 64-bit Windows
+        try:
+            user32.GetForegroundWindow.restype = wintypes.HWND
+            kernel32.OpenProcess.restype = wintypes.HANDLE
+        except Exception:
+            pass  # fakes in the unit tier need not carry attributes
         hwnd = user32.GetForegroundWindow()
         if not hwnd:
             return ""
