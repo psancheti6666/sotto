@@ -1,0 +1,46 @@
+<!-- Created by Pratik Sancheti / https://github.com/psancheti6666 -->
+<!-- Loose-layout MSIX manifest for the REAL app (docs/windows-app.md W7).
+     Round C registers the built onedir with Add-AppxPackage -Register
+     (Developer Mode) so Sotto runs under runFullTrust exactly as a
+     Store-submitted package would: hook + SendInput + mic + downloads all
+     exercised. PASS = the Store channel is confirmed; FAIL = Inno fallback
+     (decision table). A Store submission later replaces Identity/Publisher
+     with the values Partner Center assigns. -->
+<Package
+    xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+    xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+    xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
+  <Identity Name="SottoDev" Publisher="CN=SottoDev"
+            Version="0.5.0.0" ProcessorArchitecture="x64" />
+  <Properties>
+    <DisplayName>Sotto Dev</DisplayName>
+    <PublisherDisplayName>Sotto Dev</PublisherDisplayName>
+    <Logo>Assets\logo.png</Logo>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0"
+                        MaxVersionTested="10.0.22621.0" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+  <Applications>
+    <Application Id="Sotto" Executable="sotto\sotto.exe"
+                 EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="Sotto Dev"
+                          Description="Private, local-first dictation"
+                          BackgroundColor="transparent"
+                          Square150x150Logo="Assets\logo.png"
+                          Square44x44Logo="Assets\logo.png" />
+    </Application>
+  </Applications>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <!-- internetClient: the GitHub release check + first-run downloads
+         (the app's ONLY non-localhost traffic, per README) -->
+    <Capability Name="internetClient" />
+    <!-- microphone: drives the per-app OS consent prompt on the MSIX path
+         (firstrun_windows.mic_ok defers to it there) -->
+    <DeviceCapability Name="microphone" />
+  </Capabilities>
+</Package>

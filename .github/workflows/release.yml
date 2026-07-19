@@ -22,6 +22,7 @@ on:
     paths:
       [
         "linuxapp/**",
+        "winapp/**",
         "requirements.txt",
         "sotto/**",
         "logo/**",
@@ -115,6 +116,38 @@ jobs:
         with:
           name: dmg-${{ matrix.arch }}
           path: dist/Sotto-*.dmg
+          if-no-files-found: error
+
+  # Windows onedir build + smoke (docs/windows-app.md, W7). Artifact-only:
+  # the windows-app artifact (onedir + loose-layout MSIX manifest +
+  # INSTALL-TEST.md) is what friend Rounds B and C install. Runs on PRs
+  # like the linux job — the real build must be verified pre-merge (no
+  # Windows dev hardware exists).
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build onedir and run smoke check
+        run: ./winapp/build_app.ps1
+      # ONE layout serves both rounds: Round B runs sotto/sotto.exe
+      # directly; Round C registers the manifest at the root (its
+      # Executable path points into the same sotto/ folder).
+      - name: Stage the Round B/C artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path stage/Assets -Force
+          Copy-Item -Recurse dist/sotto stage/sotto
+          Copy-Item winapp/msix/AppxManifest.xml stage/
+          Copy-Item logo/sottoLogo.png stage/Assets/logo.png
+          Copy-Item winapp/INSTALL-TEST.md stage/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-app
+          path: stage/
           if-no-files-found: error
 
   # Linux onedir build + smoke (docs/linux-app.md, L3). Artifact-only for
