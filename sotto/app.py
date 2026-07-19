@@ -17,8 +17,8 @@ from .config import CONFIG_DIR, DICTIONARY_PATH, Config, load_config
 from .dictionary import Dictionary
 from .inject import inject, prewarm as inject_prewarm
 from .platform import (
-    IS_LINUX, IS_MACOS, active_app_id, alert, end_app_nap, haptic, play_sound,
-    prevent_app_nap)
+    IS_LINUX, IS_MACOS, IS_WINDOWS, active_app_id, alert, end_app_nap, haptic,
+    play_sound, prevent_app_nap)
 
 log = logging.getLogger("sotto")
 
@@ -226,8 +226,17 @@ class Sotto:
             self._check_globe_key_setting()
             from .hotkey import FnHotkeyListener
             return FnHotkeyListener(self._on_start, self._on_stop, **kwargs)
+        hotkey = self.cfg.hotkey
+        if IS_WINDOWS and hotkey == "fn":
+            # the macOS default leaks through until W5's IS_WINDOWS config
+            # branch lands; fn does not exist as a pynput key on Windows and
+            # the listener would be dead on arrival (docs/windows-app.md W2)
+            log.warning("hotkey 'fn' does not exist on Windows — using "
+                        "ctrl_r (set hotkey in %s to silence this)",
+                        "~/.sotto/config.toml")
+            hotkey = "ctrl_r"
         from .hotkey import HotkeyListener
-        return HotkeyListener(self.cfg.hotkey, self._on_start, self._on_stop, **kwargs)
+        return HotkeyListener(hotkey, self._on_start, self._on_stop, **kwargs)
 
     @staticmethod
     def _check_globe_key_setting():
