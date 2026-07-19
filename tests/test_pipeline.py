@@ -469,6 +469,172 @@ def test_win32_filter():
     lst.force_stop()
 
 
+def test_windows_platform():
+    print("Windows platform leaf functions (W3 — fake windll/winsound):")
+    import ctypes
+    import types
+
+    from sotto.platform import windows as pw
+
+    # --- active_app_id: foreground hwnd → pid → exe basename, lowercased
+    class FakeUser32:
+        def __init__(self, hwnd=42, pid=1234):
+            self._hwnd, self._pid = hwnd, pid
+
+        def GetForegroundWindow(self):
+            return self._hwnd
+
+        def GetWindowThreadProcessId(self, hwnd, pid_ref):
+            pid_ref._obj.value = self._pid
+            return 1
+
+    class FakeKernel32:
+        def __init__(self, exe="C:\\Windows\\System32\\Notepad.EXE", ok=True):
+            self._exe, self._ok = exe, ok
+            self.closed = []
+
+        def OpenProcess(self, access, inherit, pid):
+            return 99 if self._ok else 0
+
+        def QueryFullProcessImageNameW(self, handle, flags, buf, size_ref):
+            buf.value = self._exe
+            return 1
+
+        def CloseHandle(self, handle):
+            self.closed.append(handle)
+
+    had_windll = hasattr(ctypes, "windll")
+    fake = types.SimpleNamespace(user32=FakeUser32(),
+                                 kernel32=FakeKernel32())
+    ctypes.windll = fake
+    try:
+        app_id = pw.active_app_id()
+        check("foreground exe name, basename, lowercased",
+              app_id == "notepad.exe", app_id)
+        check("process handle closed", fake.kernel32.closed == [99])
+        ctypes.windll = types.SimpleNamespace(user32=FakeUser32(hwnd=0),
+                                              kernel32=FakeKernel32())
+        check("no foreground window → empty", pw.active_app_id() == "")
+        ctypes.windll = types.SimpleNamespace(
+            user32=FakeUser32(), kernel32=FakeKernel32(ok=False))
+        check("OpenProcess failure → empty, no raise", pw.active_app_id() == "")
+        del ctypes.windll
+        check("no windll at all (non-Windows) → empty, no raise",
+              pw.active_app_id() == "")
+    finally:
+        if had_windll:
+            pass  # real Windows: leave the real windll alone
+        elif hasattr(ctypes, "windll"):
+            del ctypes.windll
+
+    # --- play_sound: alias vs absolute path pick the right winsound flags
+    calls = []
+    fake_ws = types.SimpleNamespace(
+        SND_ASYNC=1, SND_NODEFAULT=2, SND_ALIAS=4, SND_FILENAME=8,
+        PlaySound=lambda name, flags: calls.append((name, flags)))
+    orig_ws = sys.modules.get("winsound")
+    sys.modules["winsound"] = fake_ws
+    try:
+        pw.play_sound("SystemAsterisk")
+        pw.play_sound("C:\\Windows\\Media\\chord.wav" if os.name == "nt"
+                      else "/Windows/Media/chord.wav")
+        pw.play_sound("")
+        check("alias uses SND_ALIAS, async, no default fallback",
+              calls[0] == ("SystemAsterisk", 4 | 1 | 2), str(calls))
+        check("absolute path uses SND_FILENAME",
+              calls[1][1] == 8 | 1 | 2, str(calls))
+        check("empty name is a no-op", len(calls) == 2)
+    finally:
+        if orig_ws is None:
+            sys.modules.pop("winsound", None)
+        else:
+            sys.modules["winsound"] = orig_ws
+
+    # --- alert: MessageBox on a daemon thread, never raises
+    shown = []
+    ctypes.windll = types.SimpleNamespace(user32=types.SimpleNamespace(
+        MessageBoxW=lambda h, text, title, flags: shown.append(
+            (title, text, flags))))
+    try:
+        pw.alert("Title", "Body")
+        deadline = time.time() + 5
+        while not shown and time.time() < deadline:
+            time.sleep(0.01)
+        check("alert shows a topmost warning MessageBox",
+              shown and shown[0][0] == "Title"
+              and shown[0][2] == 0x30 | 0x10000 | 0x40000, str(shown))
+    finally:
+        if not had_windll and hasattr(ctypes, "windll"):
+            del ctypes.windll
+
+
+def test_win_injector():
+    print("Windows injector (W3 — fake keyboard, no real events):")
+    if sys.platform not in ("darwin", "win32"):
+        print("  (skipped — needs pynput, darwin/win32 only)")
+        return
+    import contextlib
+
+    import pyperclip
+
+    from sotto import inject, inject_windows as iw
+
+    class FakeKb:
+        def __init__(self):
+            self.events = []
+
+        def type(self, ch):
+            self.events.append(("type", ch))
+
+        def press(self, key):
+            self.events.append(("press", key))
+
+        def release(self, key):
+            self.events.append(("release", key))
+
+        @contextlib.contextmanager
+        def pressed(self, key):
+            self.events.append(("hold", key))
+            yield
+            self.events.append(("unhold", key))
+
+    inj = iw.WinInjector.__new__(iw.WinInjector)
+    inj._kb = FakeKb()
+
+    inj.type_text("hi", 0)
+    check("type emits per-char events",
+          inj._kb.events == [("type", "h"), ("type", "i")],
+          str(inj._kb.events))
+
+    from pynput.keyboard import Key
+    board = {"content": "before"}
+    orig_copy, orig_paste = pyperclip.copy, pyperclip.paste
+    pyperclip.copy = lambda t: board.__setitem__("content", t)
+    pyperclip.paste = lambda: board["content"]
+    inj._kb.events.clear()
+    try:
+        inj.paste_text("hello", restore_delay_s=0)
+        check("paste chord is Ctrl+V (not Cmd)",
+              inj._kb.events == [("hold", Key.ctrl), ("press", "v"),
+                                 ("release", "v"), ("unhold", Key.ctrl)],
+              str(inj._kb.events))
+        check("clipboard restored after paste", board["content"] == "before")
+    finally:
+        pyperclip.copy, pyperclip.paste = orig_copy, orig_paste
+
+    # router: win32 branch returns the Windows injector
+    orig_platform, orig_injector = inject.sys.platform, inject._injector
+    inject.sys = types_module = __import__("types").SimpleNamespace(
+        platform="win32")
+    inject._injector = None
+    try:
+        check("inject router picks WinInjector on win32",
+              isinstance(inject._get_injector(), iw.WinInjector))
+    finally:
+        inject.sys = __import__("sys")
+        inject._injector = orig_injector
+
+
 def test_insights_linux():
     print("Linux insights window (pure logic — fake gi, no GTK):")
     import logging
@@ -2491,6 +2657,8 @@ if __name__ == "__main__":
     test_firstrun()
     test_insights_config()
     test_win32_filter()
+    test_windows_platform()
+    test_win_injector()
     test_insights_linux()
     test_listener_retry()
     test_logging_setup()

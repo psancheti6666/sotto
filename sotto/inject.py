@@ -22,6 +22,9 @@ def _get_injector():
         if sys.platform.startswith("linux"):
             from .inject_linux import build_injector
             _injector = build_injector()
+        elif sys.platform == "win32":
+            from .inject_windows import build_injector
+            _injector = build_injector()
         else:
             _injector = _MacInjector()
     return _injector
