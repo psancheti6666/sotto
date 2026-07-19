@@ -40,7 +40,10 @@ def _run(argv, **kw):
 # YDOTOOL_SOCKET to match. Without this the daemon and client can start fine
 # yet never connect, leaving the Typing row red forever.
 YDOTOOL_SOCKET = os.path.join(
-    os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}",
+    # getattr: os.getuid does not exist on Windows, where this Linux-only
+    # module is still imported by the cross-platform unit tier (W1)
+    os.environ.get("XDG_RUNTIME_DIR")
+    or f"/run/user/{getattr(os, 'getuid', os.getpid)()}",
     ".ydotool_socket")
 
 
