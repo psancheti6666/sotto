@@ -20,8 +20,8 @@ declined, however good the code is:
    config live in `~/.sotto/` and are never committed, logged verbosely, or
    sent anywhere. `.gitignore` deliberately covers `history*.jsonl`,
    `dictionary.txt`, and `config.toml` — keep it that way.
-4. **Supported platforms:** macOS (Apple Silicon + Intel) and Linux (X11 +
-   Wayland). Windows is out of scope for now.
+4. **Supported platforms:** macOS (Apple Silicon + Intel), Linux (X11 +
+   Wayland), and Windows 10/11.
 5. **No copyrighted assets.** Sounds come from the OS (macOS system sounds,
    the freedesktop theme on Linux). Never bundle audio, fonts, or artwork you
    don't have rights to.
@@ -40,11 +40,14 @@ The code map is short:
 | Area | Files |
 |---|---|
 | Pipeline wiring | `sotto/app.py` |
-| Hotkey | `sotto/hotkey.py` (macOS), `sotto/hotkey_evdev.py` (Linux) |
+| Hotkey | `sotto/hotkey.py` (macOS + Windows), `sotto/hotkey_evdev.py` (Linux) |
 | Speech recognition | `sotto/asr.py`, `asr_mlx.py` (Apple Silicon), `asr_onnx.py` (everything else) |
 | Text cleanup | `sotto/clean.py`, `sotto/dictionary.py` |
-| Typing at the cursor | `sotto/inject.py`, `inject_linux.py` |
-| On-screen capsule | `sotto/overlay.py` (AppKit), `overlay_tk.py` (tkinter) |
+| Typing at the cursor | `sotto/inject.py`, `inject_linux.py`, `inject_windows.py` |
+| On-screen capsule | `sotto/overlay.py` (AppKit), `overlay_tk.py` (tkinter, Linux + Windows) |
+| Insights window | `sotto/insights.py` (WKWebView), `insights_linux.py` (WebKitGTK), `insights_windows.py` (WebView2) |
+| Tray / menu bar | `sotto/menubar.py` (macOS), `tray_linux.py` (pystray, Linux + Windows) |
+| First-run setup | `sotto/firstrun.py` (macOS), `firstrun_tk.py` + `firstrun_linux.py` / `firstrun_windows.py` |
 | Dashboard | `sotto/dashboard.py`, `dashboard.html`, `history.py` |
 
 The "How it works" section of the README has the full pipeline diagram.
@@ -58,7 +61,7 @@ The "How it works" section of the README has the full pipeline diagram.
 .venv/bin/python tests/test_pipeline.py --all      # everything
 ```
 
-CI runs the unit tier on Ubuntu and macOS for every PR. Please run at least the
+CI runs the unit tier on Ubuntu, macOS, and Windows for every PR. Please run at least the
 units before opening one, and `--all` if you have Ollama set up.
 
 ## Style

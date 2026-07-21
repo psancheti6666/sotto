@@ -1,332 +1,210 @@
 # Sotto
 
+**Your voice, your machine, your data. Private dictation for macOS, Linux, and Windows.**
+
 [![tests](https://github.com/psancheti6666/sotto/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/psancheti6666/sotto/actions/workflows/tests.yml)
+[![latest release](https://img.shields.io/github/v/release/psancheti6666/sotto)](https://github.com/psancheti6666/sotto/releases/latest)
+[![platforms](https://img.shields.io/badge/platforms-macOS%20·%20Linux%20·%20Windows-4c8dd6)](#platform-support)
+[![license: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-**Private, local dictation for macOS and Linux.** Hold a key, speak naturally —
-clean, punctuated text appears at your cursor in any app. Nothing ever leaves
-your machine.
-
-Sotto is a local-first alternative to cloud dictation tools like Wispr Flow:
-same hold-to-talk workflow, but the speech recognition **and** the AI text
-cleanup run entirely on your machine. No account, no subscription, no audio
-uploaded anywhere, **$0 to run**.
+Hold a key, speak naturally, release — clean, punctuated text appears at your
+cursor in whatever app you're using. The speech recognition **and** the AI
+cleanup run entirely on your machine. No account, no subscription, no cloud,
+**$0 to run**.
 
 ![Sotto's dashboard — usage insights, a year of dictation activity, and your personal dictionary](media/demo_ss_1.png)
 
-## Download (macOS)
+**[Download](#download) · [Install](#install) · [Using Sotto](#using-sotto) ·
+[Privacy & permissions](#privacy-permissions--the-network) ·
+[Contributing](#contributing)**
 
-**[⬇ Get the latest release](https://github.com/psancheti6666/sotto/releases/latest)** —
-pick the DMG for your Mac ( → About This Mac shows which):
+## Why Sotto?
 
-- `Sotto-…-apple-silicon.dmg` — M1/M2/M3/M4 Macs
-- `Sotto-…-intel.dmg` — Intel Macs (community-tested)
+Dictation is the fastest way to write — and the most intimate data you can
+hand to software. A cloud dictation tool doesn't just hear the occasional
+memo: it hears your private messages, your emails, your half-formed thoughts,
+and everything you tell AI assistants, because that's exactly where you
+dictate. All of it, by design, leaves your computer for someone else's server
+under a privacy policy that can change.
 
-Open the DMG, drag **Sotto** into **Applications**, and launch it. Two
-first-launch notes:
+Sotto is the same hold-to-talk workflow as tools like Wispr Flow, built on a
+different premise: **none of it is anyone else's business.**
 
-1. Sotto isn't notarized with Apple ($99/yr — it's a free app), so macOS
-   will say it can't verify the app: go to **System Settings → Privacy &
-   Security**, scroll down, and click **Open Anyway**. One time only.
-2. Sotto then walks you through setup itself — microphone, Accessibility,
-   and Input Monitoring permissions, plus a one-time ~3 GB model download.
-   If Sotto isn't listed under a permission pane, add it with the **+**
-   button (macOS sometimes doesn't list apps there automatically).
-
-After that, Sotto keeps itself current: once a day it asks GitHub whether a
-newer release exists (one API call — beyond the one-time model downloads at
-first setup, the app's only network request that isn't to your own machine)
-and offers **Update Now / Later** — as a quiet
-notification banner if you allow Sotto notifications, or a dialog. Updating
-installs and relaunches by itself; settings, history, and permissions all
-carry over. There's also a **Check for Updates…** item in the menu-bar menu,
-and `update_check_days = 0` in `~/.sotto/config.toml` turns the scheduled
-check off entirely.
-
-## Download (Linux)
-
-**[⬇ Get the latest release](https://github.com/psancheti6666/sotto/releases/latest)** —
-two packages, X11 and Wayland both supported:
-
-- `Sotto-…-amd64.deb` — **Ubuntu 22.04+ / Debian 12+ (recommended).**
-  Double-click → install through App Center. The install's one password
-  prompt also grants Sotto keyboard access (details below), so dictation
-  should work at first launch — no terminal, no re-login; if your system
-  needs a nudge, the setup screen's one-click **Fix** covers it. Launch
-  Sotto from the app grid; it takes you through whatever remains (a
-  one-time ~3–4 GB model download; on GNOME Wayland also a typing-helper
-  check).
-- `Sotto-…-x86_64.AppImage` — other distros (Fedora 36+ etc.;
-  community-tested). Make it executable (right-click → Properties →
-  Executable as Program on GNOME) and run it. On first run, the setup
-  screen's **Fix** button asks for your password with a generic system
-  prompt — that's your one-time consent to install the same permission
-  files the .deb ships (they stay even if you later delete the AppImage).
-  On GNOME Wayland you'll also be asked to install `ydotool` from your
-  distro's packages — the one step that needs a terminal there.
-
-**What that password prompt actually does — and the honest trade-off.**
-Sotto reads the keyboard *device* to see its hotkey anywhere on X11 and
-Wayland. The install grants your desktop session access to input devices
-(a udev `uaccess` rule — the standard seat-based mechanism). Any program
-running as you could then technically read keystrokes too; this is the
-same exposure class as the common `usermod -aG input` setup that tools
-like ydotool document, made visible here instead of buried. Sotto itself
-records nothing until you hold the hotkey. If that trade-off isn't right
-for you, don't install — or run from source and audit first; everything
-that ever runs with root privileges is plain readable shell in
-[`linuxapp/`](linuxapp/).
-
-The tray's **Insights** opens your dictation history and dictionary in a
-native window (WebKitGTK — the .deb installs what it needs; the AppImage
-uses your system's WebKit and quietly falls back to your browser if it
-isn't there). Same page either way, served only on your machine.
-
-Self-updates work like the Mac app's (scheduled check → **Update Now /
-Later**, or the tray's **Check for Updates…**): the .deb path verifies
-the download's signature against a key pinned at install before anything
-installs (one password prompt per update); the AppImage verifies against
-its embedded key and replaces its own file — no password. Release `.sig`
-files published alongside the packages are those signatures.
-
-Network calls, complete list (Linux): the once-a-day release check (one
-GitHub API call, `update_check_days = 0` disables), first-run downloads
-(models; the Ollama runtime if none is installed), and the update
-download when you say yes. Nothing else, ever.
-
-Everything below this point is for running Sotto **from source** — Linux
-users, tinkerers, and contributors.
-
-## Download (Windows)
-
-**[⬇ Get the latest release](https://github.com/psancheti6666/sotto/releases/latest)** —
-`Sotto-…-windows-amd64.zip` (Windows 10/11, 64-bit; community-tested):
-
-1. **Extract the zip first — don't run anything from inside it.** Windows
-   opens zips like folders, and the app can't start from in there (you'd
-   see "Failed to load Python DLL"). Right-click the zip → **Extract
-   All…**, then open the extracted folder.
-2. Run `sotto\sotto.exe`. Windows will show **"Windows protected your
-   PC"** — expected for now: this build isn't code-signed (a Microsoft
-   Store release, which removes that screen, is the plan). Click
-   **More info → Run anyway**.
-3. The setup screen checks your microphone setting and asks once before
-   the one-time ~3–4 GB model download, then Sotto restarts itself ready
-   to dictate.
-
-Dictation: hold **Right Ctrl**, speak, release. Hands-free: **hold
-Right Ctrl and tap Space** (the space won't appear in your text) or
-double-tap Right Ctrl; press Right Ctrl again to finish, **Escape** to
-cancel. The tray icon (bottom-right) has **Insights** — your history and
-dictionary in a native window — and **Check for Updates…**, which tells
-you when a newer version exists and opens the download page (in-place
-auto-update arrives with the final distribution channel).
-
-Honest limits: the build is unsigned (hence SmartScreen), and Windows
-security design means Sotto can't type into windows running **as
-administrator** — dictate into normal apps. Autostart is offered during
-setup, never silently enabled.
-
-Network calls, complete list (Windows): first-run downloads with your
-explicit OK (models; the Ollama engine), and the releases check when you
-click Check for Updates…. Nothing else, ever.
+- **Everything runs locally** — a state-of-the-art speech model and a small
+  LLM for cleanup, on your own hardware. Wi-Fi off, Sotto still works.
+- **Your data is yours.** Audio is never stored; your dictation history lives
+  in one readable file on your disk, and there is no server it could even be
+  uploaded to.
+- **Open source (MIT).** Nobody owns your dictation stack — the code is all
+  here, so "local-only" is a property you can audit, not a marketing claim.
+- **Free, forever.** No tiers, no seats. Your recurring cost is a few seconds
+  of electricity per dictation.
 
 ## What it does
 
-- **Hold the hotkey, speak, release** → your words appear at the cursor, in
-  whatever app has focus (Notes, Slack, VS Code, Gmail, anything with a text
-  field). The hotkey is `fn` on macOS, `Right Ctrl` on Linux and Windows
-  (configurable).
-- **AI cleanup on every dictation** — filler words ("um", "uh", "you know")
-  removed, punctuation and capitalization added, spoken lists formatted as
-  lists, and self-corrections resolved: say *"let's meet Tuesday — wait, no,
-  Friday"* and it writes *"Let's meet Friday."* Your wording is preserved —
-  it cleans, it never rewrites.
-- **Hands-free mode** — double-tap the hotkey (on macOS and Windows, also
-  hold the hotkey + tap Space) and keep talking for up to 15 minutes; press
-  the hotkey again to finish. A live waveform capsule at the bottom of the screen shows it's
-  listening, with a countdown when time is nearly up.
-- **Personal dictionary** — put names and jargon in `~/.sotto/dictionary.txt`
-  (one per line, or manage it from the dashboard) and Sotto will spell them
-  correctly even when the recognizer mishears them.
-- **App-aware tone** — punctuation/formatting adapts to the focused app
-  (chat vs. email vs. code editor).
+- **Hold, speak, release** → your words land at the cursor in any app —
+  notes, chat, email, code editor. Hotkey: `fn` on macOS, `Right Ctrl` on
+  Linux and Windows (configurable).
+- **Cleans, never rewrites** — fillers ("um", "you know") removed,
+  punctuation and capitalization added, self-corrections resolved: say
+  *"let's meet Tuesday — wait, no, Friday"* and it types *"Let's meet
+  Friday."* Your wording is preserved.
+- **Hands-free mode** — up to 15 minutes of continuous dictation, with an
+  on-screen waveform capsule and a countdown near the limit.
+- **Personal dictionary** — your names and jargon, spelled right even when
+  the recognizer mishears them.
+- **Insights** — a local dashboard with your history (click to copy), search,
+  stats, streaks, and dictionary editing.
+- **App-aware tone** — formatting adapts to the focused app (chat vs. email
+  vs. code).
 
-## Platform support
+## Download
 
-| Platform | Status |
-|---|---|
-| macOS, Apple Silicon (M1+) | ✅ Developed and tested on real hardware |
-| macOS, Intel | 🤝 Community-tested — same code except the speech engine (ONNX instead of MLX), which is exercised in CI-style tests |
-| Linux, X11 (Ubuntu/Fedora…) | 🤝 Community-tested — all Linux logic is unit-tested and a community tester exercised the permission setup on a real Ubuntu desktop; end-to-end dictation and the packaged app (.deb/AppImage) are in their validation round |
-| Linux, Wayland | 🤝 Community-tested — works via wtype (KDE/wlroots) or ydotool (GNOME); see Linux notes |
-| Windows | 🤝 Community-tested — full port (hotkey with key-swallowing gestures, native Insights window, tray); the app was validated end-to-end on real Windows 11 by a community tester (2026-07); the packaged-install (Store) round is still ahead |
+**[⬇ Latest release](https://github.com/psancheti6666/sotto/releases/latest)** — one version, every platform:
 
-"Community-tested" means: the code paths exist, are unit-tested, and the
-speech/cleanup pipeline is verified — but the maintainer develops on an
-Apple-Silicon Mac. If you run Sotto on one of these platforms, please open an
-issue (working or not!) so this table can be updated. When reporting a
-problem, attach `~/.sotto/sotto.log` — it records what Sotto was doing
-(never your dictated text, which stays in your private history).
+| Platform | File | Works on |
+|---|---|---|
+| macOS (Apple Silicon) | `Sotto-…-apple-silicon.dmg` | macOS 14+, M1 or newer |
+| macOS (Intel) | `Sotto-…-intel.dmg` | macOS 14+ |
+| Linux (deb) | `Sotto-…-amd64.deb` | Ubuntu 22.04+ / Debian 12+, X11 & Wayland |
+| Linux (AppImage) | `Sotto-…-x86_64.AppImage` | Other distros (Fedora 36+ …), amd64 |
+| Windows | `Sotto-…-windows-amd64.zip` | Windows 10/11, 64-bit |
 
-## Requirements
+All platforms need **~10 GB free disk** during setup (~5 GB kept for the AI
+models) and **~6 GB free memory while dictating** (an idle Sotto holds
+~1.5 GB). Internet is needed once, for the model download — never after.
 
-**All platforms:** ~6 GB free memory while dictating, ~5 GB disk for the AI
-models. Memory is only held around actual use: the cleaning LLM unloads after
-5 minutes idle and ASR inference buffers are freed after every dictation, so
-an idle Sotto holds ~1.5 GB.
+> The Linux packages and the Windows zip first appear with the **v0.4.x**
+> release — if the latest release doesn't show them yet, it's the one just
+> ahead.
 
-- **macOS 14+** (Apple Silicon or Intel) — the setup script installs
-  everything, including [Homebrew](https://brew.sh) if it's missing.
-- **Linux** (Ubuntu/Debian or Fedora-family) with `sudo` — the setup script
-  installs system packages via apt/dnf.
+## Install
 
-Everything else is installed automatically by `setup.sh`, including:
+### macOS
 
-- **[Ollama](https://ollama.com)** — a free, open-source runtime for running
-  large language models locally. Sotto uses it to run **Qwen3-4B-Instruct**
-  (~2.5 GB), the model that turns raw speech transcripts into clean text.
-  It runs as a background service and is never exposed to the internet.
-- **NVIDIA Parakeet-TDT-0.6B-v3** — the speech-recognition model. On Apple
-  Silicon it runs on the Neural Engine via
-  [MLX](https://github.com/ml-explore/mlx) (~600 MB); on Intel Macs and Linux
-  the **same model** runs via ONNX on the CPU (~2.4 GB) — same accuracy,
-  still around a second per utterance.
+1. Open the DMG for your chip ( → About This Mac shows which), drag
+   **Sotto** into **Applications**, launch it.
+2. macOS will say it can't verify the app (Sotto isn't notarized — that's a
+   $99/yr program and this is a free app): **System Settings → Privacy &
+   Security → Open Anyway**. One time only.
+3. Sotto walks you through the rest itself — microphone, Accessibility, and
+   Input Monitoring permissions, then the one-time model download. If Sotto
+   isn't listed in a permission pane, add it with the **+** button.
 
-## Getting started
+### Linux
 
-You don't need to be a developer — it's one setup script, on any of the
-supported machines (Mac with Apple Silicon, Mac with an Intel chip, or a
-Linux desktop). You need ~10 GB of free disk for the AI models and an
-internet connection during setup (never after).
+1. **Ubuntu/Debian:** double-click the `.deb` and install (one password
+   prompt — that same prompt grants Sotto its keyboard access, so dictation
+   works from the first launch, no re-login).
+   **Other distros:** make the `.AppImage` executable (right-click →
+   Properties → *Executable as Program*) and run it; its setup screen's
+   **Fix** button asks for your password once to install the same permission
+   files.
+2. Launch **Sotto** from your app grid. The setup screen handles the rest —
+   the one-time model download, and on GNOME Wayland one extra step it walks
+   you through (`ydotool`, the typing helper there).
 
-### 1. Open a terminal
+### Windows
 
-- **macOS**: press `⌘ Space`, type `Terminal`, press Enter.
-- **Linux**: press `Ctrl+Alt+T`, or search your apps for "Terminal".
-
-### 2. Get Sotto
-
-Copy-paste these two lines and press Enter:
-
-```sh
-git clone https://github.com/psancheti6666/sotto.git
-cd sotto
-```
-
-**macOS note:** the very first `git` command may pop up a dialog asking to
-install Apple's *Command Line Developer Tools*. Click Install, let it finish,
-then run the two lines again. (Alternatively, skip git entirely: on the
-GitHub page press the green **Code** button → **Download ZIP**, unzip it, and
-`cd` into that folder — everything works the same, you just won't get
-automatic updates.)
-
-### 3. Run setup — once
-
-```sh
-./setup.sh
-```
-
-The script detects your machine and installs everything else itself,
-narrating each step: Homebrew if missing (macOS, asks you first), Python,
-Ollama, both AI models (~5 GB download — this is the long part), and the
-platform-specific bits — the Globe-key setting on macOS (asks first), system
-packages and the hotkey permission on Linux (asks for your password). Intel
-Macs and Linux automatically get the CPU speech engine; Apple Silicon gets
-the faster Neural Engine one. Nothing to choose.
-
-**Linux only: log out and back in once after setup** — the hotkey permission
-takes effect on a fresh login.
-
-### 4. Start Sotto
-
-```sh
-./run.sh
-```
-
-**macOS, first launch:** macOS will ask you to grant three permissions to
-your terminal app under **System Settings → Privacy & Security**. Grant
-them, then run `./run.sh` again:
-
-| Permission | Why Sotto needs it |
-|---|---|
-| Microphone | to hear your dictation |
-| Accessibility | to type the cleaned text at your cursor |
-| Input Monitoring | to detect the hotkey globally |
-
-That's it: hold the hotkey (`fn` on a Mac, `Right Ctrl` on Linux), speak,
-release — the text appears at your cursor, and the dashboard opens in your
-browser.
-
-`./run.sh` also quietly updates Sotto to the latest version each time you
-start it (if you got it via git). To skip that: `SOTTO_NO_UPDATE=1 ./run.sh`.
+1. **Extract the zip first** (right-click → **Extract All…**) — Windows opens
+   zips like folders, but the app can't run from inside one (you'd see
+   "Failed to load Python DLL").
+2. In the extracted folder, run `sotto\sotto.exe`. Windows shows **"Windows
+   protected your PC"** — expected for now, the draft build isn't
+   code-signed (a Microsoft Store release, which removes this, is the plan):
+   click **More info → Run anyway**.
+3. The setup screen checks your microphone setting, asks once before the
+   model download, then Sotto restarts itself ready to dictate. Autostart is
+   offered, never silently enabled.
 
 ## Using Sotto
 
-| Gesture | macOS (`fn`) | Linux (`Right Ctrl`) |
-|---|---|---|
-| Hold + speak + release | ✅ dictate one utterance | ✅ dictate one utterance |
-| Double-tap → hands-free | ✅ | ✅ |
-| Hold + press Space → hands-free | ✅ (Space is swallowed) | — (would leak Ctrl+Space; use double-tap) |
-| Press hotkey again (in hands-free) | ✅ finish and insert | ✅ finish and insert |
-| **Escape** while dictating | ✅ cancel (swallowed) | ✅ cancel (the Escape also reaches the app) |
-| ✕ / ✓ capsule buttons (hands-free) | ✅ | ✅ |
-| Hotkey used in a shortcut (fn+Delete, Ctrl+C…) | dictation silently cancels; the shortcut works | same |
+Hold the hotkey, speak, release — that's most of it. The full gesture set:
 
-While holding the key, a compact capsule at the bottom-center shows a live
-waveform. In hands-free mode it grows slightly and adds clickable ✕ (cancel)
-and ✓ (finish) buttons; it switches to a spinner while transcribing.
-Cancelling pops a "Transcript cancelled" toast with an **Undo** button and a
-progress line — click Undo within ~3 seconds and the recording is transcribed
-after all. In the last minute of a long session the bars turn amber with a
-seconds countdown, then the recording finishes and is transcribed **in full**
-— long dictations are chunked and stitched, never truncated. A soft sound
-marks start and finish (Apple system sounds on macOS, the freedesktop sound
-theme on Linux).
+| Gesture | macOS (`fn`) | Windows (`Right Ctrl`) | Linux (`Right Ctrl`) |
+|---|---|---|---|
+| Hold · speak · release | ✅ | ✅ | ✅ |
+| Double-tap → hands-free | ✅ | ✅ | ✅ |
+| Hold + tap Space → hands-free | ✅ Space swallowed | ✅ Space swallowed | — use double-tap |
+| Hotkey again in hands-free | ✅ finish & insert | ✅ | ✅ |
+| Escape while dictating | ✅ cancel, swallowed | ✅ cancel, swallowed | ✅ cancel (Escape also reaches the app) |
+| Hotkey inside a shortcut (`fn`+Delete, `Ctrl`+C…) | silently cancels; the shortcut works | same | same |
 
-macOS note: dictation is intentionally inactive in password fields (secure
-input). **Linux has no such mechanism — Sotto will type into password fields
-too**, so mind where your cursor is.
+While you dictate, a small capsule at the bottom of the screen shows a live
+waveform; in hands-free it adds clickable **✕** (cancel) and **✓** (finish)
+buttons, and it spins while transcribing. Cancelling shows an **Undo** toast
+for ~3 seconds — click it and the recording is transcribed after all. Long
+sessions get an amber countdown for the last minute, then finish and are
+transcribed **in full** — never truncated. Soft system sounds mark start and
+finish.
 
-## Dashboard
+**Mind on Linux:** macOS blocks dictation in password fields (secure input);
+Linux has no such mechanism, so Sotto will type wherever your cursor is.
 
-Sotto keeps a local history of your dictations and serves a small dashboard at
-**http://127.0.0.1:8377** (it opens in your browser when Sotto starts). There
-you can:
+## Insights
 
-- **Browse every past dictation**, newest first, with time, word count,
-  duration, and the app it was typed into. **Click any entry to copy it** to
-  the clipboard — handy when an app swallowed the text or you want it again.
-- **Search** your history as you type.
-- **See insights**: total words dictated (all-time and today), number of
-  dictations, your speaking rate (words per minute), estimated time saved vs
-  typing, a day streak, and which apps you dictate into most. Activity has
-  three views — two-week bars, a monthly trend line, and a GitHub-style
-  contribution heatmap of the last year.
-- **Manage your personal dictionary**: view, add, and remove terms right on
-  the page — edits update `~/.sotto/dictionary.txt` and apply from the very
-  next dictation, no restart needed.
-- Light and dark theme, with a toggle in the header (follows your system
-  setting until you choose).
+Sotto keeps a local history and shows it in a native **Insights** window
+(menu-bar icon on macOS, tray icon on Linux/Windows) — every dictation
+newest-first (click to copy), live search, words-per-minute and time-saved
+stats, a year-long activity heatmap, dictionary editing, light/dark theme,
+and Ctrl/Cmd `+`/`−` zoom.
 
 ![Every dictation, newest first — click any entry to copy it](media/demo_ss_2.png)
 
-Like everything in Sotto, this is 100% local: the page is served by the Sotto
-process itself, binds only to 127.0.0.1, loads nothing from the internet, and
-the history lives in a single human-readable file, `~/.sotto/history.jsonl`
-(one JSON object per line — delete the file to wipe your history). Config
-switches: `dashboard` (serve it at all), `open_dashboard_on_start` (auto-open
-the browser), `dashboard_port`.
+The page is served by the Sotto process itself at `127.0.0.1:8377`, binds
+only to localhost, and loads nothing from the internet. History is one
+human-readable file — `~/.sotto/history.jsonl` — delete it to wipe your
+history. *(Screenshots show demo data; a real install starts empty.)*
 
-*(The screenshots above show demo data — a real install starts with an empty
-history.)*
+## Privacy, permissions & the network
+
+**What Sotto can access, and why — the honest version:**
+
+- **Microphone (all platforms)** — obviously. Nothing is recorded until you
+  hold the hotkey.
+- **macOS: Accessibility + Input Monitoring** — to type at your cursor and
+  to see its hotkey globally. Standard for any dictation or hotkey app;
+  macOS asks you explicitly for both.
+- **Linux: keyboard-device access** — the install's one password prompt adds
+  a udev `uaccess` rule so your desktop session can read input devices
+  (works on X11 *and* Wayland). Honest trade-off: any program running as you
+  could then technically read keystrokes too — the same exposure class as
+  the common `usermod -aG input` setup, made visible instead of buried.
+  Everything that ever runs with root privileges is plain readable shell in
+  [`linuxapp/`](linuxapp/). If that trade-off isn't right for you, don't
+  install — or audit first.
+- **Windows: no permission wall** — a keyboard hook and synthetic typing are
+  ordinary user-level APIs there. Limit in the other direction: Sotto can't
+  type into windows running *as administrator* (a Windows security boundary,
+  not a bug).
+
+**Network calls — the complete list, all platforms:**
+
+1. **First-run downloads, with your explicit OK**: the speech and cleanup
+   models (and the [Ollama](https://ollama.com) engine if you don't already
+   have it).
+2. **A release check against GitHub** (one API call): scheduled once a day on
+   macOS/Linux (`update_check_days = 0` turns it off) — on Windows only when
+   you click **Check for Updates…**.
+3. **The update download itself, when you say yes.** macOS and Linux update
+   in place (Linux verifies the download's signature against a pinned key
+   before anything installs — the published `.sig` files); Windows currently
+   opens the download page for you instead.
+
+Nothing else, ever — no telemetry, no analytics, no account, and the
+dashboard page makes zero external requests. Audio never touches disk;
+transcripts exist only in your local history file.
 
 ## Configuration
 
 Optional — create `~/.sotto/config.toml`:
 
+<details>
+<summary>All settings with defaults</summary>
+
 ```toml
 hotkey = "fn"              # macOS: "fn", "alt_r", "cmd_r", "f13", …
-                           # Linux: "ctrl_r" (default), "alt_r", "super_r", "f9", …
+                           # Linux/Windows: "ctrl_r" (default), "alt_r", "f9", …
 max_utterance_s = 900.0    # dictation limit (seconds)
 ollama_model = "qwen3:4b-instruct"  # "llama3.2:3b" is faster on CPU / 8 GB machines
 asr_backend = "auto"       # "mlx" (Apple Silicon) | "onnx" (everything else)
@@ -334,20 +212,24 @@ onnx_quantization = ""     # set "int8" for slow CPUs (smaller + faster, tiny ac
 indicator = true           # on-screen capsule
 dashboard = true           # local history dashboard at 127.0.0.1:8377
 dashboard_port = 8377
-open_dashboard_on_start = true  # open the browser when Sotto starts
+open_dashboard_on_start = true
 sounds = true              # start/finish sounds
 haptics = true             # trackpad tap on start (macOS only)
+update_check_days = 1      # scheduled release check; 0 = off
 indicator_offset_y = 6.0   # capsule distance from screen bottom (px)
 keystroke_apps = []        # apps where paste doesn't work (bundle ids on macOS,
-                           # lowercased WM_CLASS on Linux; Linux terminals are
-                           # included by default — they paste with Ctrl+Shift+V)
+                           # WM_CLASS on Linux, exe names on Windows; terminals
+                           # are covered by default)
 
-[tone_map]                 # app id -> tone hint (bundle id / WM_CLASS)
+[tone_map]                 # app id -> tone hint
 "com.example.chat" = "casual chat message"
 "signal" = "casual chat message"
 ```
 
-Personal dictionary — `~/.sotto/dictionary.txt`, one term per line:
+</details>
+
+Personal dictionary — `~/.sotto/dictionary.txt`, one term per line (or edit
+it in Insights):
 
 ```
 Anthropic
@@ -363,63 +245,65 @@ hold hotkey ──► mic capture (16 kHz) ──► Parakeet ASR (MLX or ONNX, 
             ──► typed at your cursor (clipboard-paste fallback for long text)
 ```
 
-Typical end-to-end latency on Apple Silicon is **1–2 seconds** from
-key-release to text. On CPU-only machines (Intel Macs, Linux without a GPU)
-speech recognition stays fast, but the cleanup model is the bottleneck —
-expect several seconds per dictation; switch `ollama_model` to
-`"llama3.2:3b"` if that's too slow. If the cleanup model is ever unavailable,
-Sotto falls back to a basic regex cleanup rather than blocking or emitting
-raw transcript.
+Speech recognition is NVIDIA's **Parakeet-TDT-0.6B-v3** — on Apple Silicon
+it runs on the Neural Engine via [MLX](https://github.com/ml-explore/mlx),
+everywhere else the same model runs via ONNX on the CPU. Cleanup is
+**Qwen3-4B-Instruct** under a strict fidelity prompt, served by a local
+Ollama that is never exposed to the network. End-to-end latency is **1–2 s**
+on Apple Silicon; on CPU-only machines the cleanup model is the bottleneck
+(several seconds — switch `ollama_model = "llama3.2:3b"` if that's too
+slow). If the cleanup model is ever unavailable, Sotto falls back to a basic
+regex cleanup rather than blocking.
 
-Linux specifics: the hotkey is read from `/dev/input` (works on X11 **and**
-Wayland; needs the `input` group), and text is injected with the best
-available tool — `xdotool` on X11; `wtype` (KDE/wlroots) or `ydotool` (GNOME;
-needs the `ydotoold` service) on Wayland. If no injection tool works, the
-transcript is copied to the clipboard and a notification asks you to paste.
+## Platform support
 
-## Verify your install
+| Platform | Status |
+|---|---|
+| macOS, Apple Silicon (M1+) | ✅ Developed and tested on real hardware |
+| macOS, Intel | 🤝 Community-tested (same code, ONNX speech engine) |
+| Linux, X11 & Wayland | 🤝 Community-tested — validated on real Ubuntu desktops |
+| Windows 10/11 | 🤝 Community-tested — the app was validated end-to-end on real Windows 11 (2026-07); the packaged-install (Store) round is still ahead |
+
+"Community-tested" means: the code paths are unit-tested and CI-built, but
+the maintainer's hardware is an Apple-Silicon Mac. If you run Sotto on one of
+these platforms, please open an issue saying how it went — working or not.
+Attach `~/.sotto/sotto.log` when reporting problems; it records what Sotto
+was doing, never your dictated text.
+
+**Known limitations:** English works best (the speech model also covers 24
+other European languages; the cleanup prompt is English-tuned). Very heavy
+phonetic mishearings can escape the dictionary fix. Linux can't swallow keys
+(Escape also reaches the app) and remapped keyboards (keyd/kmonad) may
+report the hotkey from its pre-remap position. Windows builds are unsigned
+until the Store release, and can't dictate into admin windows.
+
+## Run from source
+
+Works on all three platforms — and it's how you get changes the moment
+they're merged:
 
 ```sh
-.venv/bin/python tests/test_pipeline.py --all
+git clone https://github.com/psancheti6666/sotto.git
+cd sotto
+./setup.sh     # installs everything, narrating each step (~5 GB of models)
+./run.sh       # start Sotto (auto-updates itself via git on each start)
 ```
 
-Runs the unit tests plus live checks of the speech recognizer (using
-OS-synthesized speech — no microphone needed; `espeak-ng` on Linux) and the
-cleanup model.
-
-## Privacy & cost
-
-- Audio, transcripts, and cleaned text never leave your machine. Works fully
-  offline after setup.
-- Dictation history is stored **only** in `~/.sotto/history.jsonl` on your
-  machine, for the local dashboard. It is never uploaded anywhere — there is
-  no server to upload it to. Delete the file (or set `dashboard = false`) any
-  time.
-- No telemetry, no account, no API keys.
-- Recurring cost: electricity for a few seconds of compute per dictation.
-
-## Limitations
-
-- English works best (the ASR model also covers 24 other European languages;
-  the cleanup prompt is English-tuned).
-- Very heavy phonetic mishearings can escape the personal-dictionary fix.
-- Linux: keys can't be swallowed, so Escape (cancel) also reaches the focused
-  app, and remapped keyboards (keyd/kmonad) may report the hotkey from its
-  pre-remap position. Keyboards connected while Sotto is running are picked
-  up after the next rescan.
-- Windows: the draft build is unsigned (SmartScreen "More info → Run
-  anyway"), and dictation can't reach windows running as administrator
-  (a Windows security boundary, not a bug).
+Verify an install with `.venv/bin/python tests/test_pipeline.py --all` —
+units plus live checks of the recognizer (OS-synthesized speech, no mic
+needed) and the cleanup model. `SOTTO_NO_UPDATE=1 ./run.sh` skips the
+auto-update.
 
 ## Contributing
 
 Bug reports, PRs, and "it works on my machine" reports are all welcome —
-especially from Intel Mac and Linux users, since Sotto is developed on Apple
-Silicon. Start with [CONTRIBUTING.md](CONTRIBUTING.md); the short version is:
-everything stays 100% local, cleanup stays faithful to what you said, and the
-unit tests (`tests/test_pipeline.py`) should pass. We follow the
+real-hardware reports from Intel Macs, Linux desktops, and Windows are
+especially valuable. Start with **[CONTRIBUTING.md](CONTRIBUTING.md)** (setup,
+code map, tests, and the ground rules — the short version: everything stays
+100% local, and cleanup stays faithful to what you said). We follow the
 [Contributor Covenant](CODE_OF_CONDUCT.md).
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) — free, forever. *Sotto* is from *sotto voce* — "under the
+breath": speak quietly, keep it to yourself.
