@@ -429,6 +429,90 @@ def test_firstrun():
                 os.environ[k] = v
 
 
+def test_download_honesty():
+    print("download screen honesty (#91 — silent pull failure must not "
+          "report ready):")
+    import threading
+    from sotto import firstrun, llm_server
+    from sotto.config import Config
+
+    cfg = Config()
+    orig = (firstrun.asr_model_ok, firstrun.llm_model_ok, llm_server.ensure)
+    labels = []
+    done = threading.Event()
+    try:
+        firstrun.asr_model_ok = lambda m: True
+        # ensure() returns without error but the model never landed on disk —
+        # the exact silent-failure shape seen live (dropped connection)
+        llm_server.ensure = lambda cfg, on_pull_progress=None: None
+        firstrun.llm_model_ok = lambda m: False
+        firstrun.download_models(cfg, lambda l, f: labels.append(l), done.set)
+        check("worker finished", done.wait(timeout=10))
+        check("silent pull failure surfaces as 'download failed: …'",
+              any(l.startswith("download failed") for l in labels), labels)
+        check("never claims 'cleanup model ready' when the model is absent",
+              "cleanup model ready" not in labels, labels)
+
+        labels.clear()
+        done.clear()
+        # absent at the gate (so the pull runs), present at the post-pull
+        # verify — i.e. the pull really landed
+        calls = {"n": 0}
+        def _landed(m):
+            calls["n"] += 1
+            return calls["n"] > 1
+        firstrun.llm_model_ok = _landed
+        firstrun.download_models(cfg, lambda l, f: labels.append(l), done.set)
+        check("worker finished (success case)", done.wait(timeout=10))
+        check("real success still reports ready",
+              "cleanup model ready" in labels, labels)
+    finally:
+        firstrun.asr_model_ok, firstrun.llm_model_ok, llm_server.ensure = orig
+
+
+def test_spawn_no_console():
+    print("bundled-ollama spawn flags (#91 — no visible console on Windows):")
+    import subprocess as sp
+    from sotto import llm_server
+
+    captured = {}
+
+    class _FakeProc:
+        pid = 4242
+        def poll(self):
+            return 0  # already exited → shutdown()/atexit are no-ops
+
+    def fake_popen(argv, **kw):
+        captured.update(kw, argv=argv)
+        return _FakeProc()
+
+    orig = (llm_server.IS_WINDOWS, sp.Popen, llm_server.CONFIG_DIR,
+            llm_server._register_terminate_observer, llm_server._child)
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            llm_server.IS_WINDOWS = True
+            llm_server.CONFIG_DIR = tmp  # logfile target (CI has no ~/.sotto)
+            llm_server._register_terminate_observer = lambda: None
+            sp.Popen = fake_popen
+            llm_server._spawn(os.path.join(tmp, "ollama"), "http://127.0.0.1:11434")
+            check("Windows spawn sets creationflags", "creationflags" in captured)
+            if sys.platform == "win32":
+                check("CREATE_NO_WINDOW set (console binary, GUI parent)",
+                      captured["creationflags"] & 0x08000000)
+                check("CREATE_NEW_PROCESS_GROUP kept",
+                      captured["creationflags"] & 0x00000200)
+            check("no start_new_session on Windows",
+                  "start_new_session" not in captured)
+        finally:
+            # close the logfile _spawn opened — an open handle blocks the
+            # TemporaryDirectory rmtree on Windows (the very runner the
+            # win32 assertions above target)
+            if captured.get("stdout") is not None:
+                captured["stdout"].close()
+            (llm_server.IS_WINDOWS, sp.Popen, llm_server.CONFIG_DIR,
+             llm_server._register_terminate_observer, llm_server._child) = orig
+
+
 def test_insights_config():
     print("insights window config (pure logic, no UI):")
     from sotto import insights
@@ -3104,6 +3188,8 @@ if __name__ == "__main__":
     test_llm_server()
     test_ollama_runtime()
     test_firstrun()
+    test_download_honesty()
+    test_spawn_no_console()
     test_insights_config()
     test_win32_filter()
     test_windows_platform()
