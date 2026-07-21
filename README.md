@@ -279,8 +279,7 @@ until the Store release, and can't dictate into admin windows.
 
 ## Run from source
 
-Works on all three platforms — and it's how you get changes the moment
-they're merged:
+macOS and Linux — and it's how you get changes the moment they're merged:
 
 ```sh
 git clone https://github.com/psancheti6666/sotto.git
@@ -288,6 +287,11 @@ cd sotto
 ./setup.sh     # installs everything, narrating each step (~5 GB of models)
 ./run.sh       # start Sotto (auto-updates itself via git on each start)
 ```
+
+On Windows there's no setup script yet — use the packaged zip above, or set
+up a checkout by hand: Python 3.11, `py -3.11 -m venv .venv`,
+`.venv\Scripts\pip install -r requirements.txt`, then
+`.venv\Scripts\python -m sotto`.
 
 Verify an install with `.venv/bin/python tests/test_pipeline.py --all` —
 units plus live checks of the recognizer (OS-synthesized speech, no mic
