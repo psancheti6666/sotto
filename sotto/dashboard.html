@@ -519,10 +519,12 @@ function renderHeat() {
   const svg = document.getElementById("chart");
   const cell = 11, step = 13, top = 14, gut = 30;  // gut = weekday-label gutter
   svg.replaceChildren();
-  // rows Sun..Sat, one column per week, ending today
+  // rows Sun..Sat, one column per week, ending today; the column index is
+  // floor(i/7), so the array MUST start on a Sunday — 364 = 52 whole weeks
+  // back from the most recent Sunday (363 put every Sunday a column left)
   const end = new Date();
   const start = new Date();
-  start.setDate(start.getDate() - 363 - start.getDay());
+  start.setDate(start.getDate() - 364 - start.getDay());
   const days = [];
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
     const key = localKey(d);
@@ -554,13 +556,17 @@ function renderHeat() {
     title.textContent = `${d.words.toLocaleString()} words on ${nice}`;
     r.appendChild(title);
     svg.appendChild(r);
-    const month = new Date(d.date + "T00:00:00").getMonth();
-    if (d.dow === 0 && month !== lastMonth) {   // month label over its first week
-      lastMonth = month;
-      const t = svgEl("text", { x: gut + col * step, y: 9 });
-      t.textContent = new Date(d.date + "T00:00:00")
-        .toLocaleDateString([], { month: "short" });
-      svg.appendChild(t);
+    const dt = new Date(d.date + "T00:00:00");
+    if (d.dow === 0 && dt.getMonth() !== lastMonth) {
+      lastMonth = dt.getMonth();
+      // label only a month's FIRST Sunday (day ≤ 7) — the partial month at
+      // the grid's left edge stays unlabeled instead of colliding with the
+      // next month's label
+      if (dt.getDate() <= 7) {
+        const t = svgEl("text", { x: gut + col * step, y: 9 });
+        t.textContent = dt.toLocaleDateString([], { month: "short" });
+        svg.appendChild(t);
+      }
     }
   });
 }
