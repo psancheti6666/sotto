@@ -13,6 +13,12 @@
     const saved = localStorage.getItem("sotto-theme");
     document.documentElement.dataset.theme =
       saved || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    // Restore the saved page zoom too (Cmd/Ctrl + / − / 0, set below).
+    const zoom = parseFloat(localStorage.getItem("sotto-zoom"));
+    if (zoom && zoom !== 1) {
+      document.documentElement.style.zoom = zoom;
+      document.documentElement.style.setProperty("--pz", zoom);
+    }
   })();
 </script>
 <style>
@@ -75,7 +81,11 @@
     letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
   }
 
-  .wrap { max-width: 1020px; margin: 0 auto; padding: 30px 28px 90px; }
+  /* top padding divides by the zoom factor so it stays 30 PHYSICAL px at any
+     zoom — the macOS window floats a fixed-height native drag strip over the
+     top 28px, and a plain 30px would scale under it when zoomed out */
+  .wrap { max-width: 1020px; margin: 0 auto; padding: 30px 28px 90px;
+          padding-top: calc(30px / var(--pz, 1)); }
 
   /* ---------- top bar ---------- */
   .topbar { display: flex; align-items: center; gap: 14px; margin-bottom: 54px; }
@@ -412,6 +422,38 @@ document.getElementById("theme").addEventListener("click", () => {
   const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
   document.documentElement.dataset.theme = next;
   localStorage.setItem("sotto-theme", next);
+});
+
+/* ---------- page zoom (Cmd/Ctrl + / − / 0; macOS View menu calls sottoZoom) */
+const ZOOM_STEPS = [0.7, 0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6, 1.8];
+window.sottoZoom = function (delta) {
+  const cur = parseFloat(document.documentElement.style.zoom) || 1;
+  let i = ZOOM_STEPS.indexOf(cur);
+  if (i < 0) {  // stray stored value — snap to the nearest step
+    i = ZOOM_STEPS.findIndex(s => s >= cur);
+    if (i < 0) i = ZOOM_STEPS.length - 1;
+  }
+  i = delta === 0 ? ZOOM_STEPS.indexOf(1)
+                  : Math.min(ZOOM_STEPS.length - 1, Math.max(0, i + delta));
+  const z = ZOOM_STEPS[i];
+  const root = document.documentElement.style;
+  if (z === 1) {
+    root.zoom = "";
+    root.removeProperty("--pz");
+  } else {
+    root.zoom = z;
+    root.setProperty("--pz", z);  // keeps .wrap's top padding zoom-invariant
+  }
+  localStorage.setItem("sotto-zoom", z);
+};
+window.addEventListener("keydown", e => {
+  if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+  const d = e.key === "=" || e.key === "+" ? 1
+          : e.key === "-" || e.key === "_" ? -1
+          : e.key === "0" ? 0 : null;
+  if (d === null) return;
+  e.preventDefault();  // keep the embedding browser/webview from also zooming
+  window.sottoZoom(d);
 });
 
 /* ---------- formatting ---------- */

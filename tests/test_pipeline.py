@@ -528,6 +528,30 @@ def test_insights_config():
         insights._port = old
 
 
+def test_insights_zoom():
+    print("insights page zoom (contract between page JS and native menus):")
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parent.parent
+    html = (root / "sotto" / "dashboard.html").read_text(encoding="utf-8")
+    check("dashboard defines the window.sottoZoom hook",
+          "window.sottoZoom = function" in html)
+    check("dashboard restores the saved zoom before first paint",
+          'localStorage.getItem("sotto-zoom")' in html)
+    check("dashboard binds Cmd/Ctrl zoom keys",
+          "e.metaKey || e.ctrlKey" in html)
+    src = (root / "sotto" / "insights.py").read_text(encoding="utf-8")
+    check("macOS menu calls the same page hook (no second zoom mechanism)",
+          "window.sottoZoom(" in src)
+    from sotto import insights
+    old_win = insights._window
+    try:
+        insights._window = None
+        insights._zoom_js(1)  # no window yet → returns before any AppKit use
+        check("_zoom_js is a safe no-op before the window exists", True)
+    finally:
+        insights._window = old_win
+
+
 def test_win32_filter():
     print("Windows hotkey filter (W2 — fake hook events, no pynput hook):")
     if sys.platform not in ("darwin", "win32"):
@@ -3191,6 +3215,7 @@ if __name__ == "__main__":
     test_download_honesty()
     test_spawn_no_console()
     test_insights_config()
+    test_insights_zoom()
     test_win32_filter()
     test_windows_platform()
     test_win_injector()

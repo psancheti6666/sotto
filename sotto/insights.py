@@ -107,3 +107,37 @@ def show_soon():
     run loop is pumping)."""
     from Foundation import NSOperationQueue
     NSOperationQueue.mainQueue().addOperationWithBlock_(show)
+
+
+_zoom_target = None
+
+
+def menu_target():
+    """Target for the View-menu zoom items (built in menubar.py). The zoom
+    itself lives in the dashboard page (window.sottoZoom, persisted in
+    localStorage) so every platform behaves the same — the menu just calls
+    into it. Main thread only (menu actions always are)."""
+    global _zoom_target
+    if _zoom_target is None:
+        from Foundation import NSObject
+
+        class _ZoomTarget(NSObject):
+            def zoomIn_(self, sender):
+                _zoom_js(1)
+
+            def zoomOut_(self, sender):
+                _zoom_js(-1)
+
+            def zoomActual_(self, sender):
+                _zoom_js(0)
+
+        _zoom_target = _ZoomTarget.alloc().init()
+    return _zoom_target
+
+
+def _zoom_js(delta: int):
+    if _window is None:  # Insights not opened yet — nothing to zoom
+        return
+    view = _window.contentView().subviews()[0]
+    view.evaluateJavaScript_completionHandler_(
+        f"window.sottoZoom({delta})", None)
