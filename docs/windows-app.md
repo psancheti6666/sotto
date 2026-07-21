@@ -224,6 +224,16 @@ cycle). Milestones in between ship on CI + units alone.
 10. **W10 — Docs + release dry run.** README "Download (Windows)" (honest
     SmartScreen/UAC/UIPI notes), platform table, network-calls list
     updated; release workflow dispatch builds all platforms green; tag.
+    ✅ **Docs + release-asset half done (issue #98, 2026-07-22):** README
+    gained the Windows section (extract-first lesson from the live round
+    leads it; SmartScreen, UIPI, gestures incl. hold+Space, notify-only
+    updates, network-calls list) + platform-table row; release.yml's
+    windows job now zips stage/ as `Sotto-<ver>-windows-amd64.zip`,
+    signs it like the Linux assets (real key on tag/dispatch, ephemeral
+    + verify-after-sign on PRs), and the release job attaches zip+sig
+    to the draft release. REMAINING: the dispatch dry run all-platforms
+    green, the tag itself, and the Round C / Store decision (still
+    open — see W9).
 
 ## Constraints that apply to every milestone
 

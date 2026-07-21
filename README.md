@@ -96,19 +96,54 @@ download when you say yes. Nothing else, ever.
 Everything below this point is for running Sotto **from source** — Linux
 users, tinkerers, and contributors.
 
+## Download (Windows)
+
+**[⬇ Get the latest release](https://github.com/psancheti6666/sotto/releases/latest)** —
+`Sotto-…-windows-amd64.zip` (Windows 10/11, 64-bit; community-tested):
+
+1. **Extract the zip first — don't run anything from inside it.** Windows
+   opens zips like folders, and the app can't start from in there (you'd
+   see "Failed to load Python DLL"). Right-click the zip → **Extract
+   All…**, then open the extracted folder.
+2. Run `sotto\sotto.exe`. Windows will show **"Windows protected your
+   PC"** — expected for now: this build isn't code-signed (a Microsoft
+   Store release, which removes that screen, is the plan). Click
+   **More info → Run anyway**.
+3. The setup screen checks your microphone setting and asks once before
+   the one-time ~3–4 GB model download, then Sotto restarts itself ready
+   to dictate.
+
+Dictation: hold **Right Ctrl**, speak, release. Hands-free: **hold
+Right Ctrl and tap Space** (the space won't appear in your text) or
+double-tap Right Ctrl; press Right Ctrl again to finish, **Escape** to
+cancel. The tray icon (bottom-right) has **Insights** — your history and
+dictionary in a native window — and **Check for Updates…**, which tells
+you when a newer version exists and opens the download page (in-place
+auto-update arrives with the final distribution channel).
+
+Honest limits: the build is unsigned (hence SmartScreen), and Windows
+security design means Sotto can't type into windows running **as
+administrator** — dictate into normal apps. Autostart is offered during
+setup, never silently enabled.
+
+Network calls, complete list (Windows): first-run downloads with your
+explicit OK (models; the Ollama engine), and the releases check when you
+click Check for Updates…. Nothing else, ever.
+
 ## What it does
 
 - **Hold the hotkey, speak, release** → your words appear at the cursor, in
   whatever app has focus (Notes, Slack, VS Code, Gmail, anything with a text
-  field). The hotkey is `fn` on macOS, `Right Ctrl` on Linux (configurable).
+  field). The hotkey is `fn` on macOS, `Right Ctrl` on Linux and Windows
+  (configurable).
 - **AI cleanup on every dictation** — filler words ("um", "uh", "you know")
   removed, punctuation and capitalization added, spoken lists formatted as
   lists, and self-corrections resolved: say *"let's meet Tuesday — wait, no,
   Friday"* and it writes *"Let's meet Friday."* Your wording is preserved —
   it cleans, it never rewrites.
-- **Hands-free mode** — double-tap the hotkey (on macOS, also hold `fn` +
-  press Space) and keep talking for up to 15 minutes; press the hotkey again
-  to finish. A live waveform capsule at the bottom of the screen shows it's
+- **Hands-free mode** — double-tap the hotkey (on macOS and Windows, also
+  hold the hotkey + tap Space) and keep talking for up to 15 minutes; press
+  the hotkey again to finish. A live waveform capsule at the bottom of the screen shows it's
   listening, with a countdown when time is nearly up.
 - **Personal dictionary** — put names and jargon in `~/.sotto/dictionary.txt`
   (one per line, or manage it from the dashboard) and Sotto will spell them
@@ -124,7 +159,7 @@ users, tinkerers, and contributors.
 | macOS, Intel | 🤝 Community-tested — same code except the speech engine (ONNX instead of MLX), which is exercised in CI-style tests |
 | Linux, X11 (Ubuntu/Fedora…) | 🤝 Community-tested — all Linux logic is unit-tested and a community tester exercised the permission setup on a real Ubuntu desktop; end-to-end dictation and the packaged app (.deb/AppImage) are in their validation round |
 | Linux, Wayland | 🤝 Community-tested — works via wtype (KDE/wlroots) or ydotool (GNOME); see Linux notes |
-| Windows | ❌ Not supported |
+| Windows | 🤝 Community-tested — full port (hotkey with key-swallowing gestures, native Insights window, tray); validated end-to-end on real Windows 11 by a community tester, 2026-07 |
 
 "Community-tested" means: the code paths exist, are unit-tested, and the
 speech/cleanup pipeline is verified — but the maintainer develops on an
@@ -372,7 +407,9 @@ cleanup model.
   app, and remapped keyboards (keyd/kmonad) may report the hotkey from its
   pre-remap position. Keyboards connected while Sotto is running are picked
   up after the next rescan.
-- Windows is not supported.
+- Windows: the draft build is unsigned (SmartScreen "More info → Run
+  anyway"), and dictation can't reach windows running as administrator
+  (a Windows security boundary, not a bug).
 
 ## Contributing
 
