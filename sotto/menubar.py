@@ -121,18 +121,21 @@ def _main_menu():
     # View menu: zoom lives in the dashboard page itself (same behavior on
     # every platform); these items just call into it. ⌘= also works — the
     # page's own key handler catches what the menu's "+" equivalent doesn't.
+    # Gated like the status-menu Insights item: no dashboard, no dead items
+    # (configure() runs before this menu is built — see app.py).
     from . import insights
-    view_root = NSMenuItem.alloc().init()
-    view_root.setTitle_("View")
-    main.addItem_(view_root)
-    view = NSMenu.alloc().initWithTitle_("View")
-    for title, sel, key in (("Zoom In", "zoomIn:", "+"),
-                            ("Zoom Out", "zoomOut:", "-"),
-                            ("Actual Size", "zoomActual:", "0")):
-        mi = item(title, sel, key)
-        mi.setTarget_(insights.menu_target())
-        view.addItem_(mi)
-    view_root.setSubmenu_(view)
+    if insights.available():
+        view_root = NSMenuItem.alloc().init()
+        view_root.setTitle_("View")
+        main.addItem_(view_root)
+        view = NSMenu.alloc().initWithTitle_("View")
+        for title, sel, key in (("Zoom In", "zoomIn:", "+"),
+                                ("Zoom Out", "zoomOut:", "-"),
+                                ("Actual Size", "zoomActual:", "0")):
+            mi = item(title, sel, key)
+            mi.setTarget_(insights.menu_target())
+            view.addItem_(mi)
+        view_root.setSubmenu_(view)
 
     win_root = NSMenuItem.alloc().init()
     win_root.setTitle_("Window")
