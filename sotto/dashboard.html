@@ -13,6 +13,9 @@
     const saved = localStorage.getItem("sotto-theme");
     document.documentElement.dataset.theme =
       saved || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    // Restore the saved page zoom too (Cmd/Ctrl + / − / 0, set below).
+    const zoom = parseFloat(localStorage.getItem("sotto-zoom"));
+    if (zoom && zoom !== 1) document.documentElement.style.zoom = zoom;
   })();
 </script>
 <style>
@@ -412,6 +415,31 @@ document.getElementById("theme").addEventListener("click", () => {
   const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
   document.documentElement.dataset.theme = next;
   localStorage.setItem("sotto-theme", next);
+});
+
+/* ---------- page zoom (Cmd/Ctrl + / − / 0; macOS View menu calls sottoZoom) */
+const ZOOM_STEPS = [0.7, 0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6, 1.8];
+window.sottoZoom = function (delta) {
+  const cur = parseFloat(document.documentElement.style.zoom) || 1;
+  let i = ZOOM_STEPS.indexOf(cur);
+  if (i < 0) {  // stray stored value — snap to the nearest step
+    i = ZOOM_STEPS.findIndex(s => s >= cur);
+    if (i < 0) i = ZOOM_STEPS.length - 1;
+  }
+  i = delta === 0 ? ZOOM_STEPS.indexOf(1)
+                  : Math.min(ZOOM_STEPS.length - 1, Math.max(0, i + delta));
+  const z = ZOOM_STEPS[i];
+  document.documentElement.style.zoom = z === 1 ? "" : z;
+  localStorage.setItem("sotto-zoom", z);
+};
+window.addEventListener("keydown", e => {
+  if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+  const d = e.key === "=" || e.key === "+" ? 1
+          : e.key === "-" || e.key === "_" ? -1
+          : e.key === "0" ? 0 : null;
+  if (d === null) return;
+  e.preventDefault();  // keep the embedding browser/webview from also zooming
+  window.sottoZoom(d);
 });
 
 /* ---------- formatting ---------- */
