@@ -125,7 +125,13 @@ def evaluate_notify(release: dict, current: str):
         return None
     if _parse(tag) <= _parse(current):
         return None
-    return {"version": tag, "page": release.get("html_url") or RELEASES_PAGE}
+    # Defense-in-depth: the page is shell-opened (os.startfile), so never
+    # trust it off our own repo — anything else falls back to the releases
+    # page. (html_url is GitHub-generated, but the check costs nothing.)
+    page = release.get("html_url") or RELEASES_PAGE
+    if not page.startswith("https://github.com/psancheti6666/"):
+        page = RELEASES_PAGE
+    return {"version": tag, "page": page}
 
 
 def due(state_path: str, check_days: float, now: float = None) -> bool:

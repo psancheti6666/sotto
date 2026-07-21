@@ -1365,11 +1365,21 @@ def test_update():
     # evaluate_notify (W9 phase 1.5): version compare only — no asset/sig
     # requirement, because nothing is downloaded or executed.
     def rel_n(tag, **kw):
-        return {"tag_name": tag, "html_url": f"https://x/releases/{tag}", **kw}
+        return {"tag_name": tag,
+                "html_url":
+                    f"https://github.com/psancheti6666/sotto/releases/{tag}",
+                **kw}
     info = update.evaluate_notify(rel_n("v0.5.0"), "0.4.0")
     check("notify: newer tag offered",
-          info == {"version": "0.5.0", "page": "https://x/releases/v0.5.0"},
+          info == {"version": "0.5.0",
+                   "page": "https://github.com/psancheti6666/sotto/"
+                           "releases/v0.5.0"},
           info)
+    off_repo = update.evaluate_notify(
+        {"tag_name": "v9.9.9", "html_url": "https://evil.example/x"}, "0.4.0")
+    check("notify: off-repo html_url falls back to the releases page "
+          "(shell-opened → never trusted off our repo)",
+          off_repo and off_repo["page"] == update.RELEASES_PAGE, off_repo)
     check("notify: equal tag → None",
           update.evaluate_notify(rel_n("v0.4.0"), "0.4.0") is None)
     check("notify: older tag → None",
