@@ -94,9 +94,15 @@ def _spawn(binary: str, url: str):
     # kill -9'd the orphan keeps serving and the next launch simply finds
     # the port answering and adopts it. Windows: start_new_session is
     # silently ignored — CREATE_NEW_PROCESS_GROUP is the same intent there
-    # (console Ctrl events don't reach the child).
-    popen_kwargs = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
-                    if IS_WINDOWS else {"start_new_session": True})
+    # (console Ctrl events don't reach the child), and CREATE_NO_WINDOW is
+    # required on top: ollama.exe is a console binary, so without it Windows
+    # pops a visible black console on the desktop — and closing that window
+    # kills the engine (seen live, 2026-07-21 friend round). getattr keeps
+    # the flags patch-testable off-Windows (both are 0 there).
+    popen_kwargs = (
+        {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                          | getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+        if IS_WINDOWS else {"start_new_session": True})
     _child = subprocess.Popen([binary, "serve"], env=env,
                               stdout=logfile, stderr=logfile,
                               **popen_kwargs)

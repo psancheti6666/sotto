@@ -347,6 +347,14 @@ def _download_llm(cfg, on_progress):
     on_progress("starting cleanup engine…", None)
     llm_server.ensure(cfg, on_pull_progress=lambda pct: on_progress(
         f"cleanup model: {pct}%", pct / 100))
+    # ensure() swallows pull failures BY DESIGN (at normal startup a missing
+    # model just means the regex fallback until it arrives) — but here
+    # "ready" must mean ready: a dropped connection otherwise ends the run
+    # as "cleanup model ready" sitting above a Retry button (seen live,
+    # 2026-07-21 Windows friend round). Verify on disk and fail loudly.
+    if not llm_model_ok(cfg.ollama_model):
+        raise RuntimeError("the cleanup model didn't finish downloading — "
+                           "check your connection and press Retry")
     on_progress("cleanup model ready", 1.0)
 
 
