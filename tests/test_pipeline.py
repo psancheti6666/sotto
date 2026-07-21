@@ -513,6 +513,51 @@ def test_spawn_no_console():
              llm_server._register_terminate_observer, llm_server._child) = orig
 
 
+def test_overlay_capsule():
+    print("tk overlay capsule shape (#96 — chroma key on Windows, fallback "
+          "elsewhere):")
+    from sotto import overlay_tk
+
+    orig_root = overlay_tk._root
+    ov = None
+    try:
+        try:
+            ov = overlay_tk.Overlay(level_supplier=lambda: 0.0)
+        except overlay_tk.OverlayUnavailable as e:
+            print(f"  [SKIP] no display for tk ({e}) — CI display runners "
+                  "cover this")
+            return
+        if sys.platform == "win32":
+            check("Windows: chroma key active", ov._keyed is True)
+            check("Windows: canvas background is the transparent KEY",
+                  ov.canvas.cget("bg") == overlay_tk.KEY)
+            check("Windows: tk reports the transparentcolor attribute",
+                  str(ov._root.attributes("-transparentcolor"))
+                  == overlay_tk.KEY)
+        else:
+            check("no -transparentcolor here: fallback keeps the solid look",
+                  ov._keyed is False
+                  and ov.canvas.cget("bg") == overlay_tk.BG)
+        # capsule background is drawn first (and only) in keyed mode
+        ov.mode = "handsfree"
+        ov._redraw()
+        capsule_items = ov.canvas.find_withtag("capsule")
+        if ov._keyed:
+            check("keyed redraw paints the capsule pill first",
+                  len(capsule_items) == 3
+                  and capsule_items[0] == min(ov.canvas.find_all()))
+        else:
+            check("fallback redraw paints no capsule items",
+                  len(capsule_items) == 0)
+    finally:
+        if ov is not None:
+            try:
+                ov._root.destroy()
+            except Exception:
+                pass
+        overlay_tk._root = orig_root
+
+
 def test_insights_config():
     print("insights window config (pure logic, no UI):")
     from sotto import insights
@@ -3214,6 +3259,7 @@ if __name__ == "__main__":
     test_firstrun()
     test_download_honesty()
     test_spawn_no_console()
+    test_overlay_capsule()
     test_insights_config()
     test_insights_zoom()
     test_win32_filter()
