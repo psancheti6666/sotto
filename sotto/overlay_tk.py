@@ -6,10 +6,12 @@ processing / cancelled with Undo). tkinter is stdlib, works on X11 and — via
 XWayland — on GNOME/KDE Wayland sessions, and its mainloop owns the main
 thread exactly like the AppKit run loop does on macOS.
 
-Divergences from the AppKit capsule (accepted): whole-window transparency
-only (rounded corners show a dark square on non-compositing WMs), and the
-listening capsule is not truly click-through (it has no click handlers, but
-a click can land on the window itself).
+Divergences from the AppKit capsule (accepted): on Linux, whole-window
+transparency only (rounded corners would show a dark square on
+non-compositing WMs) and the listening capsule is not truly click-through
+(no click handlers, but a click can land on the window). On Windows,
+-transparentcolor chroma-keys the corners away — a real rounded capsule,
+and the keyed pixels are click-through holes.
 
 All public methods are thread-safe: they enqueue commands that the tk main
 thread applies on its next tick. Raises OverlayUnavailable when no display
@@ -38,6 +40,10 @@ BTN_R = 9.0                # ✕ / ✓ button radius
 FADE_S = 0.35              # toast fade-out duration
 
 BG = "#0d0d0d"
+# Chroma key for Windows' -transparentcolor: pixels painted in KEY become
+# transparent, click-through holes — that's how the rectangle becomes a real
+# rounded capsule there. Any color works as long as nothing else uses it.
+KEY = "#010203"
 FG = "#ececec"
 AMBER = "#ffb833"
 BTN_X_BG = "#3a3a3a"
@@ -95,8 +101,19 @@ class Overlay:
             root.attributes("-topmost", True)
         except tk.TclError:
             pass
+        # Windows tk chroma-keys KEY-colored pixels into transparent,
+        # click-through holes → a true rounded capsule (2026-07-22 friend
+        # round: the rectangle looked wrong). Linux/mac tk raise TclError
+        # here → the documented whole-window-only divergence stands.
+        self._keyed = False
+        try:
+            root.attributes("-transparentcolor", KEY)
+            self._keyed = True
+        except tk.TclError:
+            pass
         w, h = SIZES["listening"]
-        self.canvas = tk.Canvas(root, width=w, height=h, bg=BG,
+        self.canvas = tk.Canvas(root, width=w, height=h,
+                                bg=KEY if self._keyed else BG,
                                 highlightthickness=0, bd=0)
         self.canvas.pack(fill="both", expand=True)
         self.canvas.bind("<Button-1>", self._on_click)
@@ -189,6 +206,8 @@ class Overlay:
         c = self.canvas
         c.delete("all")
         w, h = SIZES.get(self.mode, SIZES["processing"])
+        if self._keyed:
+            self._draw_capsule(w, h)
         if self.mode == "listening":
             self._draw_waveform(w, h, buttons=False)
         elif self.mode == "handsfree":
@@ -197,6 +216,15 @@ class Overlay:
             self._draw_spinner(w, h)
         elif self.mode == "cancelled":
             self._draw_cancelled(w, h)
+
+    def _draw_capsule(self, w, h):
+        """Chroma-key mode only: the canvas background is the transparent KEY,
+        so paint the visible pill (radius = h/2) in BG first — everything else
+        draws on top of it. Tagged so tests can find it."""
+        c, r = self.canvas, h / 2.0
+        c.create_oval(0, 0, h, h, fill=BG, outline="", tags="capsule")
+        c.create_oval(w - h, 0, w, h, fill=BG, outline="", tags="capsule")
+        c.create_rectangle(r, 0, w - r, h, fill=BG, outline="", tags="capsule")
 
     def _draw_waveform(self, w, h, buttons):
         c = self.canvas
