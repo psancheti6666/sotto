@@ -36,6 +36,7 @@ log = logging.getLogger("sotto")
 
 _RELEASES_API_DEFAULT = \
     "https://api.github.com/repos/psancheti6666/sotto/releases/latest"
+RELEASES_PAGE = "https://github.com/psancheti6666/sotto/releases"
 
 
 def _releases_api() -> str:
@@ -113,6 +114,20 @@ def evaluate(release: dict, current: str, suffix: str):
     return None
 
 
+def evaluate_notify(release: dict, current: str):
+    """Windows notify-and-open (docs/windows-app.md W9 phase 1.5): is there
+    ANY real newer release? Returns {version, page} for the "open the
+    download page" flow. No asset or signature requirement — deliberately,
+    because nothing is downloaded or executed; the moment a Windows install
+    channel exists, that flow goes through evaluate() and its gates."""
+    tag = (release.get("tag_name") or "").lstrip("v")
+    if not tag or release.get("draft") or release.get("prerelease"):
+        return None
+    if _parse(tag) <= _parse(current):
+        return None
+    return {"version": tag, "page": release.get("html_url") or RELEASES_PAGE}
+
+
 def due(state_path: str, check_days: float, now: float = None) -> bool:
     try:
         with open(state_path) as f:
@@ -149,6 +164,14 @@ def enabled() -> bool:
         return False
     from Foundation import NSBundle
     return NSBundle.mainBundle().bundleIdentifier() == RELEASE_BUNDLE_ID
+
+
+def menu_available() -> bool:
+    """Gates ONLY the tray/menu "Check for Updates…" item. Windows shows it
+    even though enabled() is False there: the item runs the notify-and-open
+    flow (check → tell → open the download page), which needs no install
+    channel. enabled() keeps gating auto-install and the scheduled check."""
+    return enabled() or IS_WINDOWS
 
 
 def check():
@@ -196,6 +219,9 @@ def _scheduled_loop(cfg):
 
 
 def _manual_check():
+    if IS_WINDOWS:
+        _manual_check_windows()
+        return
     if _update_lock.locked():   # an update is already running — show it
         _progress_front()
         return
@@ -211,6 +237,34 @@ def _manual_check():
               f"Sotto {__version__} is the latest version.")
     else:
         _offer(info)
+
+
+def _manual_check_windows():
+    """Notify-and-open (W9 phase 1.5, by request from the 2026-07-22 friend
+    round): no Windows install channel exists yet, so instead of the
+    download-and-swap flow, tell the user and take them to the release page.
+    Runs on check_from_menu's worker thread — the blocking ask() is fine."""
+    try:
+        import requests
+        r = requests.get(_releases_api(), timeout=10,
+                         headers={"Accept": "application/vnd.github+json"})
+        r.raise_for_status()
+        info = evaluate_notify(r.json(), __version__)
+    except Exception as e:
+        alert("Couldn't check for updates",
+              f"Sotto couldn't reach GitHub: {e}")
+        return
+    mark_checked(STATE_PATH)
+    if info is None:
+        alert("You're up to date",
+              f"Sotto {__version__} is the latest version.")
+        return
+    from .platform import windows as win
+    if win.ask(f"Sotto {info['version']} is available",
+               f"You're using {__version__}. Open the download page? "
+               "(Download the new zip and replace your Sotto folder — "
+               "in-app updates are coming with the installer.)"):
+        win.open_url(info["page"])
 
 
 def _offer(info):
