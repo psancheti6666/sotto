@@ -468,10 +468,12 @@ jobs:
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" \
-              assets/*.dmg assets/*.deb assets/*.AppImage assets/*.sig --clobber
+              assets/*.dmg assets/*.deb assets/*.AppImage assets/*.zip \
+              assets/*.sig --clobber
           else
             gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
               --title "$GITHUB_REF_NAME" \
               --notes "Draft — release notes to be written before publishing." \
-              assets/*.dmg assets/*.deb assets/*.AppImage assets/*.sig
+              assets/*.dmg assets/*.deb assets/*.AppImage assets/*.zip \
+              assets/*.sig
           fi

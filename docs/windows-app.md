@@ -68,6 +68,22 @@ single-instance), Round C after W7 (packaged install, zero-terminal — the
 MSIX gate completes here), Round D after W9 (insights window + update
 cycle). Milestones in between ship on CI + units alone.
 
+**ROUND RESULTS (2026-07-21/22, real Windows 11, WhatsApp'd zip of the
+canonical merged-main artifact):** Round B substance ✅ COMPLETE — plain
+zip end-to-end: SmartScreen → first-run walkthrough → consented model
+download (a dropped connection exercised the Retry path live — it
+resumed correctly) → dictation → tray → native Insights window → quit,
+all working. Findings, all fixed same-day: visible ollama console +
+false "cleanup model ready" over Retry (#91/#92), heatmap misalignment
+(#87/#88, shared page), plus feedback → Insights zoom (#89/#90), update
+menu item (#94/#95), capsule shape (#96/#97), README/asset (#98/#99).
+Field lessons: testers run exes from INSIDE the zip (extract-first now
+leads every doc), and the hold+Space gesture went undiscovered (now in
+README). **Rounds A (probe) and C (MSIX/Store gate) were NOT run** —
+the friend used only the direct zip — so the Store-vs-Inno decision
+stays open; Round D-minus-updater was effectively covered (Insights
+open/close/dictionary worked).
+
 1. **W1 — CI first: windows-latest job.** Unit tier green on real Windows
    BEFORE any feature work. `tests.yml` gains `windows-latest` in the
    matrix; fix what it surfaces — expected: requirements markers (`pynput`

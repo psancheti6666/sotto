@@ -159,7 +159,7 @@ click Check for Updates…. Nothing else, ever.
 | macOS, Intel | 🤝 Community-tested — same code except the speech engine (ONNX instead of MLX), which is exercised in CI-style tests |
 | Linux, X11 (Ubuntu/Fedora…) | 🤝 Community-tested — all Linux logic is unit-tested and a community tester exercised the permission setup on a real Ubuntu desktop; end-to-end dictation and the packaged app (.deb/AppImage) are in their validation round |
 | Linux, Wayland | 🤝 Community-tested — works via wtype (KDE/wlroots) or ydotool (GNOME); see Linux notes |
-| Windows | 🤝 Community-tested — full port (hotkey with key-swallowing gestures, native Insights window, tray); validated end-to-end on real Windows 11 by a community tester, 2026-07 |
+| Windows | 🤝 Community-tested — full port (hotkey with key-swallowing gestures, native Insights window, tray); the app was validated end-to-end on real Windows 11 by a community tester (2026-07); the packaged-install (Store) round is still ahead |
 
 "Community-tested" means: the code paths exist, are unit-tested, and the
 speech/cleanup pipeline is verified — but the maintainer develops on an
