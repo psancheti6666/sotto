@@ -9,8 +9,11 @@ import os
 log = logging.getLogger("sotto")
 
 _MB_ICONWARNING = 0x30
+_MB_ICONQUESTION = 0x20
+_MB_YESNO = 0x4
 _MB_SETFOREGROUND = 0x10000
 _MB_TOPMOST = 0x40000
+_IDYES = 6
 
 
 def active_app_id() -> str:
@@ -72,6 +75,21 @@ def alert(title: str, text: str):
             log.warning("alert (MessageBox failed): %s — %s", title, text)
 
     threading.Thread(target=show, daemon=True).start()
+
+
+def ask(title: str, text: str) -> bool:
+    """Blocking Yes/No MessageBox; True = Yes. Unlike alert(), this NEEDS the
+    answer, so it blocks its caller — only ever call it from a worker thread
+    (update.check_from_menu already runs on one), never the UI mainloop."""
+    try:
+        import ctypes
+        res = ctypes.windll.user32.MessageBoxW(
+            None, text, title,
+            _MB_YESNO | _MB_ICONQUESTION | _MB_SETFOREGROUND | _MB_TOPMOST)
+        return res == _IDYES
+    except Exception:
+        log.warning("ask (MessageBox failed): %s — %s", title, text)
+        return False
 
 
 def open_url(url: str):

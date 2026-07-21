@@ -127,8 +127,10 @@ def _tray_thread(dashboard_port):
                              # left-click on hosts that support a default
                              # action opens Insights, like the macOS Dock icon
                              default=(action == "insights"))
+            # menu_available, not enabled(): Windows gets the notify-and-
+            # open check even though auto-install is gated off there (W9)
             for label, action in _menu_items(dashboard_port is not None,
-                                             update.enabled())
+                                             update.menu_available())
         ]
         icon = pystray.Icon("sotto", _icon_image(), "Sotto",
                             pystray.Menu(*menu))

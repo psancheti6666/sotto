@@ -1355,8 +1355,47 @@ def test_update():
     try:
         check("updater disabled on Windows by design (msix→Store, "
               "exe→no channel until Round C)", update.enabled() is False)
+        check("…but the MENU item is available (notify-and-open, #94)",
+              update.menu_available() is True)
     finally:
         update.IS_WINDOWS = orig_w
+    check("menu item hidden where enabled() is False off-Windows",
+          update.menu_available() is update.enabled())
+
+    # evaluate_notify (W9 phase 1.5): version compare only — no asset/sig
+    # requirement, because nothing is downloaded or executed.
+    def rel_n(tag, **kw):
+        return {"tag_name": tag,
+                "html_url":
+                    f"https://github.com/psancheti6666/sotto/releases/{tag}",
+                **kw}
+    info = update.evaluate_notify(rel_n("v0.5.0"), "0.4.0")
+    check("notify: newer tag offered",
+          info == {"version": "0.5.0",
+                   "page": "https://github.com/psancheti6666/sotto/"
+                           "releases/v0.5.0"},
+          info)
+    off_repo = update.evaluate_notify(
+        {"tag_name": "v9.9.9", "html_url": "https://evil.example/x"}, "0.4.0")
+    check("notify: off-repo html_url falls back to the releases page "
+          "(shell-opened → never trusted off our repo)",
+          off_repo and off_repo["page"] == update.RELEASES_PAGE, off_repo)
+    check("notify: equal tag → None",
+          update.evaluate_notify(rel_n("v0.4.0"), "0.4.0") is None)
+    check("notify: older tag → None",
+          update.evaluate_notify(rel_n("v0.3.9"), "0.4.0") is None)
+    check("notify: draft → None",
+          update.evaluate_notify(rel_n("v9.9.9", draft=True), "0.4.0") is None)
+    check("notify: prerelease → None",
+          update.evaluate_notify(rel_n("v9.9.9", prerelease=True), "0.4.0")
+          is None)
+    check("notify: missing tag → None",
+          update.evaluate_notify({}, "0.4.0") is None)
+    no_url = update.evaluate_notify({"tag_name": "v9.9.9"}, "0.4.0")
+    check("notify: missing html_url falls back to the releases page",
+          no_url and no_url["page"] == update.RELEASES_PAGE, no_url)
+    check("notify: no assets needed at all",
+          update.evaluate_notify(rel_n("v0.5.0"), "0.4.0") is not None)
 
     def release(tag, exts=(AS, INTEL, DEB + ".sig", DEB), **kw):
         v = tag.lstrip("v")
@@ -2681,6 +2720,20 @@ def test_tray_menu():
              if i.label == "Insights").action()
         check("Windows tray Insights routes through insights_windows"
               ".show_soon", shown_w == [1] and shown == [1], str(shown_w))
+
+        # W9 phase 1.5 (#94): with the REAL platform flag forced to Windows,
+        # the menu gains Check for Updates… even though enabled() is False
+        # (menu_available gates the item; the flow is notify-and-open)
+        from sotto import update as upd
+        orig_upd_w = upd.IS_WINDOWS
+        upd.IS_WINDOWS = True
+        try:
+            tl._tray_thread(8377)
+            labels = [i.label for i in FakeIcon.last.menu.items]
+            check("Windows tray shows Check for Updates… (notify-and-open)",
+                  "Check for Updates…" in labels, str(labels))
+        finally:
+            upd.IS_WINDOWS = orig_upd_w
     finally:
         if orig_pystray is None:
             sys.modules.pop("pystray", None)

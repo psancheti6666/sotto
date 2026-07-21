@@ -221,6 +221,18 @@ cycle). Milestones in between ship on CI + units alone.
    false assurance. **→ Round D**: native insights window (open/close/
    reopen, dictionary save, dictate-while-open); the vN→vN+1 update
    cycle item applies ONLY on the Inno outcome (Store handles its own).
+   ✅ **Phase 1.5 (2026-07-22, Pratik's request from the friend round —
+   issue #94):** the tray now shows "Check for Updates…" on Windows via
+   `update.menu_available()` (= `enabled() or IS_WINDOWS`; gates the MENU
+   ITEM only). It runs a notify-and-open flow: one releases-API GET →
+   `evaluate_notify()` (pure tier — newer non-draft/non-prerelease tag,
+   NO asset/sig requirement because nothing is downloaded or executed) →
+   Yes/No MessageBox (`platform/windows.ask()`, blocking, worker-thread
+   only) → `open_url(html_url)`. `enabled()` stays False and pinned —
+   auto-install and the scheduled check remain gated on the Round C
+   channel verdict. **Round C itself remains OPEN**: the 2026-07-21/22
+   friend round covered the plain zip only (probe MSIX half + app Part 3
+   were skipped).
 10. **W10 — Docs + release dry run.** README "Download (Windows)" (honest
     SmartScreen/UAC/UIPI notes), platform table, network-calls list
     updated; release workflow dispatch builds all platforms green; tag.
