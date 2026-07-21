@@ -172,6 +172,48 @@ jobs:
           name: windows-app
           path: stage/
           if-no-files-found: error
+      # Release asset (W10): the same stage/ layout, zipped, so the download
+      # is byte-identical to what the friend rounds validated. Signed like
+      # the Linux assets (real key on tag/dispatch, ephemeral on PRs with
+      # verify-after-sign) — the notify-only Windows updater executes
+      # nothing today, but every published release being signed means a
+      # future signature-gated channel (W9 phase 2 / evaluate()'s .sig
+      # requirement) can verify any release it might offer.
+      - name: Zip and sign the release asset
+        shell: bash
+        env:
+          SOTTO_DEB_SIGN_KEY: ${{ secrets.SOTTO_DEB_SIGN_KEY }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          ver=$(sed -nE 's/^__version__ = "([^"]+)"$/\1/p' sotto/__init__.py)
+          [ -n "$ver" ] || { echo "Could not parse __version__" >&2; exit 1; }
+          zip="Sotto-$ver-windows-amd64.zip"
+          (cd stage && 7z a -tzip "../$zip" . >/dev/null)
+          umask 077
+          trap 'rm -f "$RUNNER_TEMP/win-sign.pem"' EXIT
+          if [ "$EVENT" = "pull_request" ] || [ -z "$SOTTO_DEB_SIGN_KEY" ]; then
+            echo "PR/keyless run — signing with an ephemeral key"
+            openssl genrsa -out "$RUNNER_TEMP/win-sign.pem" 4096 2>/dev/null
+            openssl rsa -in "$RUNNER_TEMP/win-sign.pem" -pubout \
+              -out "$RUNNER_TEMP/win-sign.pub" 2>/dev/null
+            pub="$RUNNER_TEMP/win-sign.pub"
+          else
+            printf '%s\n' "$SOTTO_DEB_SIGN_KEY" > "$RUNNER_TEMP/win-sign.pem"
+            pub=linuxapp/deb/sotto-release.pub
+          fi
+          openssl dgst -sha256 -sign "$RUNNER_TEMP/win-sign.pem" \
+            -out "$zip.sig" "$zip"
+          openssl dgst -sha256 -verify "$pub" -signature "$zip.sig" "$zip"
+          rm -f "$RUNNER_TEMP/win-sign.pem"
+      - name: Upload the Windows release asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: |
+            Sotto-*-windows-amd64.zip
+            Sotto-*-windows-amd64.zip.sig
+          if-no-files-found: error
 
   # Linux onedir build + smoke (docs/linux-app.md, L3). Artifact-only for
   # now — Linux release assets (.deb/AppImage) join the draft release at L6.
@@ -403,16 +445,16 @@ jobs:
   # don't enforce tag-name uniqueness, so two concurrent `gh release create`
   # calls could each make their own draft.
   release:
-    needs: [dmg, linux]
+    needs: [dmg, linux, windows]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the draft release and upload the assets
     steps:
-      - name: Download release artifacts (DMGs + .deb)
+      - name: Download release artifacts (DMGs + .deb + Windows zip)
         uses: actions/download-artifact@v4
         with:
-          pattern: "{dmg-*,linux-deb}"
+          pattern: "{dmg-*,linux-deb,windows-zip}"
           merge-multiple: true
           path: assets
       # $GITHUB_REF_NAME is runner-provided — no event-data interpolation.
@@ -426,10 +468,12 @@ jobs:
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" \
-              assets/*.dmg assets/*.deb assets/*.AppImage assets/*.sig --clobber
+              assets/*.dmg assets/*.deb assets/*.AppImage assets/*.zip \
+              assets/*.sig --clobber
           else
             gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
               --title "$GITHUB_REF_NAME" \
               --notes "Draft — release notes to be written before publishing." \
-              assets/*.dmg assets/*.deb assets/*.AppImage assets/*.sig
+              assets/*.dmg assets/*.deb assets/*.AppImage assets/*.zip \
+              assets/*.sig
           fi
