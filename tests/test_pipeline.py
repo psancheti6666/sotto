@@ -504,6 +504,11 @@ def test_spawn_no_console():
             check("no start_new_session on Windows",
                   "start_new_session" not in captured)
         finally:
+            # close the logfile _spawn opened — an open handle blocks the
+            # TemporaryDirectory rmtree on Windows (the very runner the
+            # win32 assertions above target)
+            if captured.get("stdout") is not None:
+                captured["stdout"].close()
             (llm_server.IS_WINDOWS, sp.Popen, llm_server.CONFIG_DIR,
              llm_server._register_terminate_observer, llm_server._child) = orig
 
