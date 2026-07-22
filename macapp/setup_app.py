@@ -96,20 +96,31 @@ else:
                     "pooch", "decorator"]
     ASR_INCLUDES = ["typing_extensions"]  # single module, can't go in packages
 
+# Every stdlib module sotto imports, force-bundled. On Intel, modulegraph
+# walks the huge onnxruntime dependency graph and — even with the recursion
+# bump above — TRUNCATES, silently dropping legit stdlib modules that the
+# shallower Apple-Silicon (MLX) graph keeps. That shipped a v0.5.0 that
+# crashed at launch (logging.handlers, #107) and would have shipped tomllib
+# and others too (#109). The boot smoke catches these, but discovering them
+# one slow Intel build at a time is the wrong game — bundle the whole set the
+# app actually imports (audited from AST). tkinter is deliberately NOT here
+# (it's in excludes; macOS uses the AppKit overlay).
+STDLIB_INCLUDES = [
+    "atexit", "collections", "ctypes", "dataclasses", "datetime", "hashlib",
+    "http.server", "json", "logging.handlers", "math", "platform", "pwd",
+    "queue", "re", "shlex", "shutil", "signal", "socket", "subprocess",
+    "tarfile", "tempfile", "threading", "time", "tomllib", "urllib.parse",
+    "webbrowser", "zipfile",
+]
+
 OPTIONS = {
     "packages": PACKAGES,
     # single-file modules can't go in `packages`
     "includes": ["sounddevice", "_sounddevice", "_cffi_backend", "pyperclip",
                  "PyObjCTools.MachSignals",
-                 # logging.handlers is imported function-level in
-                 # setup_logging() (the very first call in main()), so
-                 # modulegraph's static scan pulled in the logging package
-                 # but not this submodule — the bundle then crashed at boot
-                 # with ModuleNotFoundError before any UI came up (#107).
-                 "logging.handlers",
                  # charset_normalizer's mypyc-compiled half; modulegraph
                  # misses it and requests then can't import the package
-                 "ada92cb5d92a588d1b93__mypyc"] + ASR_INCLUDES,
+                 "ada92cb5d92a588d1b93__mypyc"] + STDLIB_INCLUDES + ASR_INCLUDES,
     "excludes": ASR_EXCLUDES + [             # the other arch's ASR backend
         "evdev",                             # Linux hotkey backend
         "tkinter", "_tkinter",              # overlay_tk fallback
