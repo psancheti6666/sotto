@@ -609,6 +609,13 @@ def main():
     # bundle can prove it boots without a display.
     if os.environ.get("SOTTO_SMOKE") == "1":
         load_config()
+        # Import the macOS runtime surface too (the sibling of winapp's
+        # SMOKE_IMPORTS): a future function-level stdlib-submodule miss in
+        # any of these would otherwise only surface on a user's launch.
+        # Import-only — none of these start threads or touch AppKit at
+        # module load.
+        from . import (asr, clean, dashboard, dictionary, inject,  # noqa: F401
+                       insights, menubar, overlay, update)
         print("SOTTO_SMOKE ok: boot imports resolved")
         return
     from . import __version__
