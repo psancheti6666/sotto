@@ -234,11 +234,31 @@ def _ask_consent():
     if IS_MACOS:
         return _ask_consent_macos()
     if IS_WINDOWS:
-        from .platform import windows as win
-        return win.ask(_CONSENT_TITLE, _CONSENT_BODY)  # Yes (default) = Enable
+        return _ask_consent_windows()
     if IS_LINUX:
         return _ask_consent_linux()
     return None
+
+
+def _ask_consent_windows():
+    # Yes is MessageBoxW's default button (button 1) → Enable. Own ctypes call
+    # rather than platform.windows.ask so a display FAILURE returns None (retry
+    # next launch), not a false "No thanks" the user never chose.
+    try:
+        import ctypes
+        MB_YESNO, MB_ICONQUESTION, MB_SETFOREGROUND, MB_TOPMOST = \
+            0x4, 0x20, 0x10000, 0x40000
+        res = ctypes.windll.user32.MessageBoxW(
+            0, _CONSENT_BODY, _CONSENT_TITLE,
+            MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_TOPMOST)
+        if res == 6:      # IDYES
+            return True
+        if res == 7:      # IDNO
+            return False
+        return None       # 0 = couldn't display → undecided, retry next launch
+    except Exception as e:
+        log.debug("consent dialog failed (%s)", e)
+        return None
 
 
 def _ask_consent_macos():
@@ -280,10 +300,15 @@ def _ask_consent_linux():
     else:
         return None  # no dialog tool — ask again next launch
     try:
-        return subprocess.run(cmd).returncode == 0  # zenity/kdialog: 0 = Enable
+        rc = subprocess.run(cmd, timeout=300).returncode
     except Exception as e:
         log.debug("consent dialog failed (%s)", e)
         return None
+    if rc == 0:
+        return True   # Enable
+    if rc == 1:
+        return False  # No thanks (or the window was closed → declined)
+    return None       # other exit (e.g. no display) → undecided, retry later
 
 
 def ensure_consent(cfg) -> None:
@@ -295,7 +320,13 @@ def ensure_consent(cfg) -> None:
         return  # explicit config override — respect it, never prompt
     if consent_recorded():
         return
-    choice = _ask_consent()
+    try:
+        choice = _ask_consent()
+    except Exception as e:
+        # The prompt must never take down the telemetry thread (or anything):
+        # a raised dialog leaves the decision unmade, to retry next launch.
+        log.debug("consent prompt failed (%s)", e)
+        return
     if choice is None:
         return  # couldn't show a dialog this run — leave undecided, retry later
     record_consent(choice)

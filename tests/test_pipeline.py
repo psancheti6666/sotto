@@ -3365,6 +3365,14 @@ def test_telemetry():
             check("no dialog → not recorded, stays off",
                   not telemetry.consent_recorded() and telemetry.enabled(cfg) is False)
 
+            def _raise_dialog():
+                raise RuntimeError("dialog blew up")
+
+            telemetry._ask_consent = _raise_dialog
+            telemetry.ensure_consent(cfg)  # must swallow, never raise
+            check("dialog exception → swallowed, not recorded, stays off",
+                  not telemetry.consent_recorded() and telemetry.enabled(cfg) is False)
+
             telemetry.record_consent(True)  # opted in for the send tests below
             cfg.telemetry = None
             os.environ.pop("SOTTO_TELEMETRY_URL")
