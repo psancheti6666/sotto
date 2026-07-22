@@ -186,10 +186,18 @@ history. *(Screenshots show demo data; a real install starts empty.)*
    in place (Linux verifies the download's signature against a pinned key
    before anything installs — the published `.sig` files); Windows currently
    opens the download page for you instead.
+4. **One anonymous usage count a day.** So the maintainers can tell whether
+   Sotto is used and useful, it sends a daily rollup of *only*
+   `{a random install id, the date, your OS + CPU type, the version, how many
+   dictations, how many words}`. **Your voice, your transcripts, the apps you
+   type into, and your IP are never sent** — nothing you say or type leaves the
+   machine. The aggregate is public at the project's `/stats.json` for anyone
+   to inspect. Turn it off with `telemetry = false` in `~/.sotto/config.toml`
+   or `SOTTO_NO_TELEMETRY=1`.
 
-Nothing else, ever — no telemetry, no analytics, no account, and the
-dashboard page makes zero external requests. Audio never touches disk;
-transcripts exist only in your local history file.
+That's the whole list — no accounts, no ad/analytics SDKs, no content ever
+leaves your machine, and the dashboard page makes zero external requests. Audio
+never touches disk; transcripts exist only in your local history file.
 
 ## Configuration
 

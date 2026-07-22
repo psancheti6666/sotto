@@ -3265,6 +3265,107 @@ def test_dashboard():
             server.server_close()
 
 
+def test_telemetry():
+    print("usage telemetry (anonymous, content-free):")
+    import json as jsonmod
+    from datetime import datetime
+    from sotto import history, telemetry
+    from sotto.config import Config
+
+    orig_build = telemetry.build_payload
+    orig_paths = (telemetry.ID_PATH, telemetry.STATE_PATH)
+    orig_disclosed = telemetry._disclosed
+    saved_env = {k: os.environ.get(k) for k in ("SOTTO_TELEMETRY_URL", "SOTTO_NO_TELEMETRY")}
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            id_path = os.path.join(td, "telemetry_id")
+            state_path = os.path.join(td, "telemetry-state.json")
+            hist_path = os.path.join(td, "history.jsonl")
+            telemetry.ID_PATH = id_path
+            telemetry.STATE_PATH = state_path
+            telemetry._disclosed = True  # silence the one-time disclosure log
+            today = "2026-07-20"
+            history.append_entry({"ts": today + "T10:00:00+05:30", "text": "secret words here",
+                                  "words": 3, "app": "com.apple.Notes"}, hist_path)
+            history.append_entry({"ts": today + "T10:05:00+05:30", "text": "more",
+                                  "words": 1, "app": "slack"}, hist_path)
+            history.append_entry({"ts": "2026-07-19T09:00:00+05:30", "text": "yesterday",
+                                  "words": 5}, hist_path)
+            now = datetime(2026, 7, 20, 12, 0, 0)
+
+            i1, i2 = telemetry.install_id(), telemetry.install_id()
+            check("install id created + stable", i1 == i2 and len(i1) >= 16, i1)
+
+            p = telemetry.build_payload(now, hist_path)
+            check("payload keys are exactly the allowed set",
+                  set(p) == {"id", "date", "platform", "version", "dictations", "words"},
+                  str(set(p)))
+            check("counts are today's only", p["dictations"] == 2 and p["words"] == 4, str(p))
+            blob = jsonmod.dumps(p)
+            check("no transcript/app content in payload",
+                  not any(w in blob for w in ("secret", "Notes", "slack", "yesterday")), blob)
+            check("platform tag is lowercased, no host/user",
+                  "-" in p["platform"] and p["platform"] == p["platform"].lower(), p["platform"])
+
+            cfg = Config()
+            os.environ.pop("SOTTO_NO_TELEMETRY", None)
+            os.environ["SOTTO_TELEMETRY_URL"] = "http://collector.example/ingest"
+            check("enabled when on + endpoint set", telemetry.enabled(cfg) is True)
+            os.environ["SOTTO_NO_TELEMETRY"] = "1"
+            check("SOTTO_NO_TELEMETRY disables", telemetry.enabled(cfg) is False)
+            os.environ.pop("SOTTO_NO_TELEMETRY")
+            cfg.telemetry = False
+            check("telemetry=false disables", telemetry.enabled(cfg) is False)
+            cfg.telemetry = True
+            os.environ.pop("SOTTO_TELEMETRY_URL")
+            check("no endpoint configured → inert", telemetry.enabled(cfg) is False)
+
+            base = {"date": today, "dictations": 2, "words": 4}
+            check("same day, no growth → skip",
+                  telemetry._should_send({**base}, base) is False)
+            check("same day, more words → send",
+                  telemetry._should_send({**base, "words": 9}, base) is True)
+            check("new day → send (heartbeat even at 0)",
+                  telemetry._should_send({"date": "2026-07-21", "dictations": 0, "words": 0},
+                                         base) is True)
+
+            os.environ["SOTTO_TELEMETRY_URL"] = "http://collector.example/ingest"
+            sent = []
+
+            class _Resp:
+                status_code = 204
+
+            def fake_post(url, payload):
+                sent.append((url, payload))
+                return _Resp()
+
+            cfg.telemetry = False
+            check("opted out → maybe_send is a no-op (no network)",
+                  telemetry.maybe_send(cfg, now, _post=fake_post) is False and not sent)
+
+            cfg.telemetry = True
+            pay = {"id": i1, "date": today, "platform": "darwin-arm64",
+                   "version": "9.9.9", "dictations": 2, "words": 4}
+            telemetry.build_payload = lambda now=None, history_path=None: pay
+            check("first send happens + returns True",
+                  telemetry.maybe_send(cfg, now, _post=fake_post) is True and len(sent) == 1)
+            check("state persisted", os.path.exists(state_path))
+            check("no resend when unchanged",
+                  telemetry.maybe_send(cfg, now, _post=fake_post) is False and len(sent) == 1)
+            telemetry.build_payload = lambda now=None, history_path=None: {**pay, "words": 10}
+            check("resend when counts grow",
+                  telemetry.maybe_send(cfg, now, _post=fake_post) is True and len(sent) == 2)
+    finally:
+        telemetry.build_payload = orig_build
+        telemetry.ID_PATH, telemetry.STATE_PATH = orig_paths
+        telemetry._disclosed = orig_disclosed
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
 def test_asr_long():
     print("ASR long-form chunking (tiled speech, forced multi-chunk):")
     from sotto.asr_mlx import ParakeetASR
@@ -3328,6 +3429,7 @@ if __name__ == "__main__":
     test_firstrun_gating()
     test_firstrun_notifications()
     test_update()
+    test_telemetry()
     test_update_linux()
     test_appimage_bootstrap()
     if run_all or "--llm" in args:
