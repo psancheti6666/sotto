@@ -3307,6 +3307,12 @@ def test_telemetry():
             check("platform tag is lowercased, no host/user",
                   "-" in p["platform"] and p["platform"] == p["platform"].lower(), p["platform"])
 
+            history.append_entry({"ts": today + "T11:00:00+05:30", "text": "x",
+                                  "words": "oops"}, hist_path)
+            p2 = telemetry.build_payload(now, hist_path)
+            check("corrupt word count skipped, never raises",
+                  p2["words"] == 4 and p2["dictations"] == 3, str(p2))
+
             cfg = Config()
             os.environ.pop("SOTTO_NO_TELEMETRY", None)
             os.environ["SOTTO_TELEMETRY_URL"] = "http://collector.example/ingest"

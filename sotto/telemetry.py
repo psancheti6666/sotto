@@ -111,7 +111,10 @@ def _today_counts(day: str, path: str = history.HISTORY_PATH) -> tuple:
     for e in history.read_entries(path):
         if str(e.get("ts", ""))[:10] == day:
             dictations += 1
-            words += int(e.get("words", 0) or 0)
+            try:
+                words += int(e.get("words", 0) or 0)
+            except (TypeError, ValueError):
+                pass  # a locally-corrupt count must not derail the heartbeat
     return dictations, words
 
 
@@ -160,12 +163,13 @@ def maybe_send(cfg, now: datetime = None, _post=None) -> bool:
     True only when a payload was actually accepted."""
     if not enabled(cfg):
         return False
-    payload = build_payload(now)
-    if payload is None:
-        return False
-    if not _should_send(payload, _load_state()):
-        return False
+    # Everything below is wrapped: a corrupt history line, a state-file error,
+    # or a network failure must fail silent — never raise out of the daemon
+    # loop (which would kill all future heartbeats) and never touch dictation.
     try:
+        payload = build_payload(now)
+        if payload is None or not _should_send(payload, _load_state()):
+            return False
         post = _post
         if post is None:
             import requests

@@ -27,7 +27,14 @@ function clampInt(v, max) {
   if (!Number.isFinite(n) || n < 0) return 0;
   return Math.min(Math.floor(n), max);
 }
-function str(v, max) { return (typeof v === "string" ? v : "").slice(0, max); }
+// Attacker-controlled labels (the /ingest endpoint is public) — keep them to a
+// safe character class so nothing hostile can reach storage, then the admin
+// page escapes on render as defence in depth. Non-matching → "unknown" (drop
+// the label, keep the count).
+function safeTag(v, max) {
+  const s = (typeof v === "string" ? v : "").slice(0, max);
+  return /^[a-z0-9._-]+$/i.test(s) ? s : "unknown";
+}
 
 async function ingest(request, env) {
   let body;
@@ -39,8 +46,8 @@ async function ingest(request, env) {
   const row = {
     id: body.id.toLowerCase(),
     date: body.date,
-    platform: str(body.platform, 40) || "unknown",
-    version: str(body.version, 20) || "unknown",
+    platform: safeTag(body.platform, 40),
+    version: safeTag(body.version, 20),
     dictations: clampInt(body.dictations, 1_000_000),
     words: clampInt(body.words, 100_000_000),
     updated_at: new Date().toISOString(),
@@ -58,6 +65,9 @@ async function ingest(request, env) {
 }
 
 async function stats(env) {
+  // "today"/cutoffs use the server's UTC date while stored `date` is the
+  // client's LOCAL day — so near midnight, users in far offsets can land in an
+  // adjacent bucket. Accepted approximation for a rough "is it used?" signal.
   const today = new Date().toISOString().slice(0, 10);
   const cutoff = (days) => new Date(Date.now() - (days - 1) * DAY_MS).toISOString().slice(0, 10);
   const one = async (sql, ...b) => (await env.DB.prepare(sql).bind(...b).first()) || {};
@@ -100,6 +110,14 @@ function unauthorized() {
   });
 }
 
+function safeEqual(a, b) {
+  // Constant-time within equal length (the length itself isn't secret here).
+  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
+  let r = 0;
+  for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return r === 0;
+}
+
 function checkAuth(request, env) {
   const secret = env.ADMIN_TOKEN;
   if (!secret) return false;
@@ -109,12 +127,14 @@ function checkAuth(request, env) {
   let decoded = "";
   try { decoded = atob(m[1]); } catch { return false; }
   const pass = decoded.slice(decoded.indexOf(":") + 1);
-  return pass === secret;
+  return safeEqual(pass, secret);
 }
 
 function adminPage(s) {
-  const rows = (arr, cols) => arr.map(r => `<tr>${cols.map(c => `<td>${r[c] ?? ""}</td>`).join("")}</tr>`).join("");
-  const spark = s.daily.map(d => `<tr><td>${d.date}</td><td>${d.active}</td><td>${d.words}</td></tr>`).join("");
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g,
+    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const rows = (arr, cols) => arr.map(r => `<tr>${cols.map(c => `<td>${esc(r[c])}</td>`).join("")}</tr>`).join("");
+  const spark = s.daily.map(d => `<tr><td>${esc(d.date)}</td><td>${esc(d.active)}</td><td>${esc(d.words)}</td></tr>`).join("");
   return `<!doctype html><meta charset=utf-8><title>Sotto telemetry</title>
 <style>
  body{font:15px/1.5 -apple-system,system-ui,sans-serif;max-width:820px;margin:40px auto;padding:0 20px;color:#232939;background:#faf7f2}
@@ -136,7 +156,7 @@ function adminPage(s) {
 <h3>By platform</h3><table><tr><th>platform</th><th>installs</th></tr>${rows(s.platforms, ["platform", "installs"])}</table>
 <h3>By version</h3><table><tr><th>version</th><th>installs</th></tr>${rows(s.versions, ["version", "installs"])}</table>
 <h3>Last 30 days</h3><table><tr><th>date</th><th>active</th><th>words</th></tr>${spark}</table>
-<p class=muted>generated ${s.generated_at} · anonymous counts only, no content, no IP stored</p>`;
+<p class=muted>generated ${esc(s.generated_at)} · anonymous counts only, no content, no IP stored</p>`;
 }
 
 export default {
@@ -161,7 +181,9 @@ export default {
       }
       return new Response("Not found", { status: 404 });
     } catch (e) {
-      return json({ error: "server", detail: String(e && e.message || e) }, 500);
+      // Log server-side; never leak internal detail to a public caller.
+      console.error("worker error", (e && e.stack) || e);
+      return json({ error: "server" }, 500);
     }
   },
 };
