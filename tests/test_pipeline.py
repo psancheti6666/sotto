@@ -3275,6 +3275,7 @@ def test_telemetry():
     orig_build = telemetry.build_payload
     orig_paths = (telemetry.ID_PATH, telemetry.STATE_PATH)
     orig_disclosed = telemetry._disclosed
+    orig_endpoint = telemetry._DEFAULT_ENDPOINT
     saved_env = {k: os.environ.get(k) for k in ("SOTTO_TELEMETRY_URL", "SOTTO_NO_TELEMETRY")}
     try:
         with tempfile.TemporaryDirectory() as td:
@@ -3284,6 +3285,8 @@ def test_telemetry():
             telemetry.ID_PATH = id_path
             telemetry.STATE_PATH = state_path
             telemetry._disclosed = True  # silence the one-time disclosure log
+            telemetry._DEFAULT_ENDPOINT = ""  # neutralize the baked-in URL; drive
+            #                                   enabled() purely via SOTTO_TELEMETRY_URL
             today = "2026-07-20"
             history.append_entry({"ts": today + "T10:00:00+05:30", "text": "secret words here",
                                   "words": 3, "app": "com.apple.Notes"}, hist_path)
@@ -3365,6 +3368,7 @@ def test_telemetry():
         telemetry.build_payload = orig_build
         telemetry.ID_PATH, telemetry.STATE_PATH = orig_paths
         telemetry._disclosed = orig_disclosed
+        telemetry._DEFAULT_ENDPOINT = orig_endpoint
         for k, v in saved_env.items():
             if v is None:
                 os.environ.pop(k, None)

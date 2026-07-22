@@ -46,7 +46,7 @@ log = logging.getLogger("sotto")
 # Paste the deployed Cloudflare Worker URL here (its /ingest route) to turn
 # collection on for released builds — see telemetry-server/README.md. Empty =
 # telemetry is completely inert. SOTTO_TELEMETRY_URL overrides it (test seam).
-_DEFAULT_ENDPOINT = ""
+_DEFAULT_ENDPOINT = "https://sotto-telemetry.psancheti6666.workers.dev/ingest"
 
 ID_PATH = os.path.join(CONFIG_DIR, "telemetry_id")
 STATE_PATH = os.path.join(CONFIG_DIR, "telemetry-state.json")

@@ -6,6 +6,8 @@
 [![latest release](https://img.shields.io/github/v/release/psancheti6666/sotto)](https://github.com/psancheti6666/sotto/releases/latest)
 [![platforms](https://img.shields.io/badge/platforms-macOS%20·%20Linux%20·%20Windows-4c8dd6)](#platform-support)
 [![license: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![users](https://img.shields.io/endpoint?url=https://sotto-telemetry.psancheti6666.workers.dev/badge/users.json)](https://sotto-telemetry.psancheti6666.workers.dev/stats.json)
+[![active (7d)](https://img.shields.io/endpoint?url=https://sotto-telemetry.psancheti6666.workers.dev/badge/active.json)](https://sotto-telemetry.psancheti6666.workers.dev/stats.json)
 
 Hold a key, speak naturally, release — clean, punctuated text appears at your
 cursor in whatever app you're using. The speech recognition **and** the AI
