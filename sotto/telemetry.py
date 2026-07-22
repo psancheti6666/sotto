@@ -18,10 +18,13 @@ What is sent (once a day, when a newer count exists):
 What is NEVER sent: audio, transcripts, cleaned text, app names, per-dictation
 timestamps, IP address, or anything else identifying.
 
-Opt-in — OFF by default. Nothing is sent unless the user turns it on:
-  - telemetry = true in ~/.sotto/config.toml.
-  (SOTTO_NO_TELEMETRY=1 also force-disables it.)
-The gate is checked before any socket is opened.
+Opt-in with an explicit ask. On first run (and once for anyone updating from an
+older version) Sotto shows a one-time "Share anonymous usage stats?" dialog —
+Enable (the default button) / No thanks — and remembers the answer in
+~/.sotto/telemetry-consent.json. Nothing is sent until the user says Enable.
+Overrides: telemetry = true|false in ~/.sotto/config.toml wins over the prompt
+(and suppresses it); SOTTO_NO_TELEMETRY=1 force-disables everything. The gate is
+checked before any socket is opened.
 
 Inert until a collection endpoint is configured (_DEFAULT_ENDPOINT below or
 SOTTO_TELEMETRY_URL): with none set, enabled() is False and nothing is sent —
@@ -50,7 +53,8 @@ _DEFAULT_ENDPOINT = "https://sotto-telemetry.psancheti6666.workers.dev/ingest"
 
 ID_PATH = os.path.join(CONFIG_DIR, "telemetry_id")
 STATE_PATH = os.path.join(CONFIG_DIR, "telemetry-state.json")
-INITIAL_DELAY_S = 45.0   # let launch settle (and stay behind the update check)
+CONSENT_PATH = os.path.join(CONFIG_DIR, "telemetry-consent.json")
+CONSENT_DELAY_S = 6.0    # let the UI settle before the one-time consent dialog
 POLL_S = 3600.0          # re-send today's rollup at most hourly, only if it grew
 POST_TIMEOUT_S = 5.0
 
@@ -65,10 +69,39 @@ def _opted_out() -> bool:
     return os.environ.get("SOTTO_NO_TELEMETRY", "").strip() not in ("", "0", "false", "False")
 
 
+# ------------------------------------------------------------------ consent --
+
+def consent_recorded() -> bool:
+    return os.path.exists(CONSENT_PATH)
+
+
+def _consent_enabled() -> bool:
+    try:
+        with open(CONSENT_PATH) as f:
+            return bool(json.load(f).get("enabled"))
+    except (OSError, ValueError):
+        return False
+
+
+def record_consent(choice: bool):
+    try:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        with open(CONSENT_PATH, "w") as f:
+            json.dump({"asked": True, "enabled": bool(choice)}, f)
+    except OSError as e:
+        log.warning("telemetry: could not save consent (%s)", e)
+
+
 def enabled(cfg) -> bool:
-    """True only when the user has opted in (telemetry=true) AND an endpoint is
-    configured. Off by default."""
-    return bool(getattr(cfg, "telemetry", False)) and not _opted_out() and bool(endpoint())
+    """On only when not force-disabled, an endpoint exists, AND the user has
+    said yes — either an explicit telemetry=true in config.toml (a hard override)
+    or the one-time consent prompt. Off until asked."""
+    if _opted_out() or not endpoint():
+        return False
+    override = getattr(cfg, "telemetry", None)
+    if override is not None:
+        return bool(override)
+    return _consent_enabled()
 
 
 def _platform_tag() -> str:
@@ -184,16 +217,134 @@ def maybe_send(cfg, now: datetime = None, _post=None) -> bool:
     return True
 
 
+_CONSENT_TITLE = "Share anonymous usage stats?"
+_CONSENT_BODY = (
+    "Help me see whether Sotto is useful by sharing an anonymous daily count — "
+    "how many times you dictate and how many words. That's all.\n\n"
+    "Never shared: your voice, your transcripts, the apps you type into, your "
+    "name, or your IP. Nothing you say or type ever leaves your machine.\n\n"
+    "You can change this anytime in ~/.sotto/config.toml.")
+
+
+def _ask_consent():
+    """Show the one-time consent dialog. True = Enable, False = No thanks,
+    None = couldn't ask (no dialog available) so try again next launch.
+    Enable is the default (Return) button on every platform."""
+    from .platform import IS_LINUX, IS_MACOS, IS_WINDOWS
+    if IS_MACOS:
+        return _ask_consent_macos()
+    if IS_WINDOWS:
+        return _ask_consent_windows()
+    if IS_LINUX:
+        return _ask_consent_linux()
+    return None
+
+
+def _ask_consent_windows():
+    # Yes is MessageBoxW's default button (button 1) → Enable. Own ctypes call
+    # rather than platform.windows.ask so a display FAILURE returns None (retry
+    # next launch), not a false "No thanks" the user never chose.
+    try:
+        import ctypes
+        MB_YESNO, MB_ICONQUESTION, MB_SETFOREGROUND, MB_TOPMOST = \
+            0x4, 0x20, 0x10000, 0x40000
+        res = ctypes.windll.user32.MessageBoxW(
+            0, _CONSENT_BODY, _CONSENT_TITLE,
+            MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_TOPMOST)
+        if res == 6:      # IDYES
+            return True
+        if res == 7:      # IDNO
+            return False
+        return None       # 0 = couldn't display → undecided, retry next launch
+    except Exception as e:
+        log.debug("consent dialog failed (%s)", e)
+        return None
+
+
+def _ask_consent_macos():
+    from .platform.macos import _on_main
+    done = threading.Event()
+    res = {"choice": None}
+
+    def go():
+        try:
+            from AppKit import NSAlert, NSAlertFirstButtonReturn, NSApp
+            a = NSAlert.alloc().init()
+            a.setMessageText_(_CONSENT_TITLE)
+            a.setInformativeText_(_CONSENT_BODY)
+            a.addButtonWithTitle_("Enable")       # first added = default (Return)
+            a.addButtonWithTitle_("No thanks")
+            NSApp.activateIgnoringOtherApps_(True)
+            res["choice"] = a.runModal() == NSAlertFirstButtonReturn
+        except Exception as e:
+            log.debug("consent dialog failed (%s)", e)
+        finally:
+            done.set()
+
+    _on_main(go)
+    # If no AppKit run loop is pumping (headless), the block never runs — bail
+    # after a bound so the daemon thread never wedges; telemetry just stays off.
+    return res["choice"] if done.wait(timeout=180) else None
+
+
+def _ask_consent_linux():
+    import shutil
+    import subprocess
+    if shutil.which("zenity"):
+        cmd = ["zenity", "--question", "--title", _CONSENT_TITLE,
+               "--text", _CONSENT_BODY, "--ok-label", "Enable",
+               "--cancel-label", "No thanks"]
+    elif shutil.which("kdialog"):
+        cmd = ["kdialog", "--yesno", _CONSENT_BODY, "--title", _CONSENT_TITLE,
+               "--yes-label", "Enable", "--no-label", "No thanks"]
+    else:
+        return None  # no dialog tool — ask again next launch
+    try:
+        rc = subprocess.run(cmd, timeout=300).returncode
+    except Exception as e:
+        log.debug("consent dialog failed (%s)", e)
+        return None
+    if rc == 0:
+        return True   # Enable
+    if rc == 1:
+        return False  # No thanks (or the window was closed → declined)
+    return None       # other exit (e.g. no display) → undecided, retry later
+
+
+def ensure_consent(cfg) -> None:
+    """One-time: ask the user (Enable is the default) unless already decided or
+    overridden in config, and remember the answer so it's never asked twice."""
+    if _opted_out() or not endpoint():
+        return
+    if getattr(cfg, "telemetry", None) is not None:
+        return  # explicit config override — respect it, never prompt
+    if consent_recorded():
+        return
+    try:
+        choice = _ask_consent()
+    except Exception as e:
+        # The prompt must never take down the telemetry thread (or anything):
+        # a raised dialog leaves the decision unmade, to retry next launch.
+        log.debug("consent prompt failed (%s)", e)
+        return
+    if choice is None:
+        return  # couldn't show a dialog this run — leave undecided, retry later
+    record_consent(choice)
+
+
 def _loop(cfg):
-    time.sleep(INITIAL_DELAY_S)
+    time.sleep(CONSENT_DELAY_S)
+    ensure_consent(cfg)     # one-time; no-op once answered/overridden
     while True:
-        maybe_send(cfg)
+        maybe_send(cfg)     # re-checks enabled() each tick
         time.sleep(POLL_S)
 
 
 def start(cfg):
-    """Launch the background heartbeat. No-op when disabled (opted out or no
-    endpoint), so this is safe to call unconditionally on every platform."""
-    if not enabled(cfg):
+    """Launch the background thread: the one-time consent prompt (if still
+    unanswered) then the daily heartbeat. No-op only when telemetry is hard-off
+    (opted out or no endpoint) — otherwise it must run so the prompt can appear
+    even though enabled() is still False before the user answers."""
+    if _opted_out() or not endpoint():
         return
     threading.Thread(target=_loop, args=(cfg,), daemon=True, name="telemetry").start()

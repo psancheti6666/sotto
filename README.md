@@ -186,13 +186,15 @@ history. *(Screenshots show demo data; a real install starts empty.)*
    in place (Linux verifies the download's signature against a pinned key
    before anything installs — the published `.sig` files); Windows currently
    opens the download page for you instead.
-4. **Optional, off-by-default usage stats.** Only if you turn it on
-   (`telemetry = true` in `~/.sotto/config.toml`), Sotto sends one anonymous
-   count a day — *only* `{a random install id, the date, your OS + CPU type,
-   the version, how many dictations, how many words}` — so the maintainers can
-   tell whether it's used and useful. **Your voice, your transcripts, the apps
-   you type into, and your IP are never sent, and by default nothing is sent at
-   all.** When on, the aggregate is public at the project's `/stats.json`.
+4. **Anonymous usage stats — you're asked once, on first run.** Sotto shows a
+   one-time *"Share anonymous usage stats?"* prompt (Enable / No thanks). If you
+   Enable, it sends one anonymous count a day — *only* `{a random install id,
+   the date, your OS + CPU type, the version, how many dictations, how many
+   words}` — so the maintainers can tell whether it's used and useful. **Your
+   voice, your transcripts, the apps you type into, and your IP are never
+   sent.** Change your mind anytime with `telemetry = true` or `false` in
+   `~/.sotto/config.toml`. When on, the aggregate is public at the project's
+   `/stats.json`.
 
 That's the whole list — no accounts, no ad/analytics SDKs, no content ever
 leaves your machine, and the dashboard page makes zero external requests. Audio
