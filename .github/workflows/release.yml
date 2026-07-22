@@ -273,14 +273,15 @@ jobs:
       # the tarball in a bare container with no libportaudio2: xvfb pulls in
       # the X client libs Tk needs; PortAudio must come from the bundle.
       - name: Smoke the tarball in a bare container (no system PortAudio)
-        # 15 min, not 10: the in-container apt-get can crawl when Ubuntu's
-        # mirrors are slow (a slow-mirror window timed out this step at 10 min
-        # for v0.6.0). APT_OPTS caps per-request hangs and retries transient
-        # errors so a stalled mirror connection fails fast and re-tries instead
-        # of eating the whole budget.
+        # The in-container apt was the flake: fetching the big universe index
+        # from archive.ubuntu.com timed this step out (10 then 15 min) during
+        # v0.6.0. These runners live on Azure, so point the container at the
+        # Azure mirror (local, fast) — that's the real fix; the apt retries/
+        # timeouts and the 15-min cap are belt-and-braces.
         timeout-minutes: 15
         run: |
           docker run --rm -v "$PWD/dist:/dist:ro" ubuntu:22.04 bash -exc '
+            sed -i "s|//archive.ubuntu.com|//azure.archive.ubuntu.com|g; s|//security.ubuntu.com|//azure.archive.ubuntu.com|g" /etc/apt/sources.list
             APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
             apt-get $APT_OPTS update
             DEBIAN_FRONTEND=noninteractive apt-get $APT_OPTS install -y \
@@ -306,9 +307,10 @@ jobs:
       # exactly what a locked-down desktop would hit. bundle=appimage proves
       # AppRun's export reaches the app (deb-smoke parity).
       - name: Smoke the AppImage in a bare container
-        timeout-minutes: 15  # same slow-mirror hardening as the tarball smoke
+        timeout-minutes: 15  # same Azure-mirror + apt hardening as the tarball smoke
         run: |
           docker run --rm -v "$PWD/dist:/dist:ro" ubuntu:22.04 bash -exc '
+            sed -i "s|//archive.ubuntu.com|//azure.archive.ubuntu.com|g; s|//security.ubuntu.com|//azure.archive.ubuntu.com|g" /etc/apt/sources.list
             APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
             apt-get $APT_OPTS update
             DEBIAN_FRONTEND=noninteractive apt-get $APT_OPTS install -y \
