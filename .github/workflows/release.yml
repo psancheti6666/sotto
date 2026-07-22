@@ -273,11 +273,17 @@ jobs:
       # the tarball in a bare container with no libportaudio2: xvfb pulls in
       # the X client libs Tk needs; PortAudio must come from the bundle.
       - name: Smoke the tarball in a bare container (no system PortAudio)
-        timeout-minutes: 10
+        # 15 min, not 10: the in-container apt-get can crawl when Ubuntu's
+        # mirrors are slow (a slow-mirror window timed out this step at 10 min
+        # for v0.6.0). APT_OPTS caps per-request hangs and retries transient
+        # errors so a stalled mirror connection fails fast and re-tries instead
+        # of eating the whole budget.
+        timeout-minutes: 15
         run: |
           docker run --rm -v "$PWD/dist:/dist:ro" ubuntu:22.04 bash -exc '
-            apt-get update
-            DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+            apt-get $APT_OPTS update
+            DEBIAN_FRONTEND=noninteractive apt-get $APT_OPTS install -y \
               xvfb xauth libxft2 libxext6 libasound2
             tar -C /tmp -xzf /dist/sotto-linux-x86_64-onedir.tar.gz
             timeout -k 10 180 xvfb-run -a /tmp/sotto/sotto --smoke'
@@ -300,11 +306,12 @@ jobs:
       # exactly what a locked-down desktop would hit. bundle=appimage proves
       # AppRun's export reaches the app (deb-smoke parity).
       - name: Smoke the AppImage in a bare container
-        timeout-minutes: 10
+        timeout-minutes: 15  # same slow-mirror hardening as the tarball smoke
         run: |
           docker run --rm -v "$PWD/dist:/dist:ro" ubuntu:22.04 bash -exc '
-            apt-get update
-            DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+            apt-get $APT_OPTS update
+            DEBIAN_FRONTEND=noninteractive apt-get $APT_OPTS install -y \
               xvfb xauth libxft2 libxext6 libasound2
             cp /dist/Sotto-*-x86_64.AppImage /tmp/sotto.AppImage
             out=$(APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a /tmp/sotto.AppImage --smoke)
