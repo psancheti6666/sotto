@@ -617,7 +617,7 @@ def main():
         # SMOKE_IMPORTS): a future function-level stdlib-submodule miss in
         # any of these would otherwise only surface on a user's launch.
         from . import (asr, clean, dashboard, dictionary, inject,  # noqa: F401
-                       insights, menubar, overlay, update)
+                       insights, menubar, overlay, telemetry, update)
         print("SOTTO_SMOKE ok: boot imports resolved", flush=True)
         # Hard exit, NOT return: importing the ASR stack pulls onnxruntime on
         # Intel, which leaves a non-daemon thread that blocks a normal

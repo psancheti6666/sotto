@@ -110,7 +110,7 @@ STDLIB_INCLUDES = [
     "http.server", "json", "logging.handlers", "math", "platform", "pwd",
     "queue", "re", "shlex", "shutil", "signal", "socket", "subprocess",
     "tarfile", "tempfile", "threading", "time", "tomllib", "urllib.parse",
-    "webbrowser", "zipfile",
+    "uuid", "webbrowser", "zipfile",
 ]
 
 OPTIONS = {
