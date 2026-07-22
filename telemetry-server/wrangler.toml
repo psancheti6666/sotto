@@ -1,0 +1,16 @@
+# Created by Pratik Sancheti / https://github.com/psancheti6666
+# Cloudflare Worker for Sotto's anonymous usage telemetry. See README.md.
+name = "sotto-telemetry"
+main = "src/worker.js"
+compatibility_date = "2026-07-01"
+
+# D1 database binding. Create it once with:
+#   wrangler d1 create sotto-telemetry
+# then paste the printed database_id below.
+[[d1_databases]]
+binding = "DB"
+database_name = "sotto-telemetry"
+database_id = "PASTE_DATABASE_ID_HERE"
+
+# ADMIN_TOKEN (the /admin dashboard password) is a SECRET, never committed:
+#   wrangler secret put ADMIN_TOKEN

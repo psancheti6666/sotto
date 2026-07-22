@@ -315,6 +315,10 @@ class Sotto:
         # checkout this is one fast probe and a return.
         threading.Thread(target=llm_server.ensure, args=(self.cfg,),
                          daemon=True).start()
+        # Anonymous, content-free usage heartbeat (all platforms). No-op when
+        # opted out or no endpoint is configured — see sotto/telemetry.py.
+        from . import telemetry
+        telemetry.start(self.cfg)
         if IS_MACOS:
             # scheduled update check — no-op outside the released bundle
             from . import update
