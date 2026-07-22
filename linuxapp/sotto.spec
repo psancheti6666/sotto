@@ -46,6 +46,20 @@ if not _pa:
     raise SystemExit("libportaudio not found — apt install libportaudio2")
 binaries += [(p, ".") for p in _pa]
 
+# libportaudio.so.2 is NEEDED-linked against libjack.so.0, which modern desktops
+# (PipeWire/PulseAudio) do NOT install — so the bundled PortAudio failed to load
+# on a clean Ubuntu ("libjack.so.0: cannot open shared object file", v0.6.0
+# crash). Bundle libjack.so.0 beside it: the onedir bootloader puts this dir on
+# the loader path, so PortAudio's NEEDED dep resolves from the bundle on any
+# machine, jack installed or not. Present on the build runner as a dependency of
+# libportaudio2; fail the build rather than ship a bundle that crashes at launch.
+_jack = sorted(glob.glob("/usr/lib/*/libjack.so.*")
+               + glob.glob("/usr/lib/libjack.so.*"))
+if not _jack:
+    raise SystemExit("libjack not found — apt install libjack-jackd2-0 "
+                     "(the audio-backend dependency of libportaudio2)")
+binaries += [(p, ".") for p in _jack]
+
 hiddenimports += [
     "evdev", "tkinter", "sounddevice", "pyperclip", "rapidfuzz",
     "requests", "numpy", "onnxruntime", "zstandard",

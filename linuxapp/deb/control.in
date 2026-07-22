@@ -5,7 +5,7 @@ Maintainer: Pratik Sancheti <psancheti6666@gmail.com>
 Section: utils
 Priority: optional
 Homepage: https://github.com/psancheti6666/sotto
-Depends: acl, openssl, pkexec | policykit-1, zenity | kdialog, libnotify-bin, pulseaudio-utils, xdotool, x11-utils, xclip, wl-clipboard, ydotool, gir1.2-webkit2-4.1 | gir1.2-webkit2-4.0
+Depends: acl, openssl, pkexec | policykit-1, zenity | kdialog, libnotify-bin, pulseaudio-utils, xdotool, x11-utils, xclip, wl-clipboard, ydotool, gir1.2-webkit2-4.1 | gir1.2-webkit2-4.0, libjack-jackd2-0 | libjack0 | pipewire-jack
 Recommends: wtype, gir1.2-ayatanaappindicator3-0.1
 Description: Private, local-first dictation
  Hold a key, speak naturally, release — cleaned, punctuated text is typed at
