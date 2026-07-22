@@ -74,10 +74,6 @@ All platforms need **~10 GB free disk** during setup (~5 GB kept for the AI
 models) and **~6 GB free memory while dictating** (an idle Sotto holds
 ~1.5 GB). Internet is needed once, for the model download — never after.
 
-> The Linux packages and the Windows zip first appear with the **v0.4.x**
-> release — if the latest release doesn't show them yet, it's the one just
-> ahead.
-
 ## Install
 
 ### macOS
