@@ -51,6 +51,7 @@ SMOKE_IMPORTS = [
     "sotto.overlay_tk",
     "sotto.platform.windows",
     "sotto.tray_linux",
+    "sotto.telemetry",
     "sotto.update",
     # pywebview defers all backend/pythonnet init to start()/create_window
     # (verified against upstream) — the bare import is safe and a stronger

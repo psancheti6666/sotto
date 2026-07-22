@@ -44,6 +44,7 @@ SMOKE_IMPORTS = [
     "sotto.overlay_tk",
     "sotto.platform.linux",
     "sotto.tray_linux",
+    "sotto.telemetry",
     "sotto.update",
     "sotto.update_linux",
 ]

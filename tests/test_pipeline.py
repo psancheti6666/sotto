@@ -3052,7 +3052,7 @@ def test_smoke_imports():
         "sotto.firstrun", "sotto.firstrun_linux", "sotto.firstrun_tk",
         "sotto.llm_server", "sotto.ollama_runtime",
         "sotto.update", "sotto.update_linux", "sotto.dashboard", "zstandard",
-        "sotto.tray_linux", "sotto.insights_linux",
+        "sotto.tray_linux", "sotto.insights_linux", "sotto.telemetry",
     }
     missing = required - set(mod.SMOKE_IMPORTS)
     check("smoke list covers every runtime-selected module", not missing,
@@ -3073,6 +3073,7 @@ def test_smoke_imports():
         "sotto.firstrun", "sotto.firstrun_windows", "sotto.firstrun_tk",
         "sotto.llm_server", "sotto.ollama_runtime",
         "sotto.update", "sotto.dashboard", "sotto.tray_linux",
+        "sotto.telemetry",
     }
     wmissing = wrequired - set(wmod.SMOKE_IMPORTS)
     check("windows smoke list covers the Windows selectors", not wmissing,
