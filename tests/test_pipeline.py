@@ -3276,6 +3276,8 @@ def test_telemetry():
     orig_paths = (telemetry.ID_PATH, telemetry.STATE_PATH)
     orig_disclosed = telemetry._disclosed
     orig_endpoint = telemetry._DEFAULT_ENDPOINT
+    orig_consent_path = telemetry.CONSENT_PATH
+    orig_ask = telemetry._ask_consent
     saved_env = {k: os.environ.get(k) for k in ("SOTTO_TELEMETRY_URL", "SOTTO_NO_TELEMETRY")}
     try:
         with tempfile.TemporaryDirectory() as td:
@@ -3284,6 +3286,7 @@ def test_telemetry():
             hist_path = os.path.join(td, "history.jsonl")
             telemetry.ID_PATH = id_path
             telemetry.STATE_PATH = state_path
+            telemetry.CONSENT_PATH = os.path.join(td, "telemetry-consent.json")
             telemetry._disclosed = True  # silence the one-time disclosure log
             telemetry._DEFAULT_ENDPOINT = ""  # neutralize the baked-in URL; drive
             #                                   enabled() purely via SOTTO_TELEMETRY_URL
@@ -3319,16 +3322,51 @@ def test_telemetry():
             cfg = Config()
             os.environ.pop("SOTTO_NO_TELEMETRY", None)
             os.environ["SOTTO_TELEMETRY_URL"] = "http://collector.example/ingest"
-            check("opt-in: default Config is off → inert",
-                  cfg.telemetry is False and telemetry.enabled(cfg) is False)
+            check("default is unset (ask on first run), inert until answered",
+                  cfg.telemetry is None and telemetry.enabled(cfg) is False)
+            # config.toml value is a hard override that wins over the prompt
             cfg.telemetry = True
-            check("enabled when opted in + endpoint set", telemetry.enabled(cfg) is True)
+            check("config override true → enabled", telemetry.enabled(cfg) is True)
             os.environ["SOTTO_NO_TELEMETRY"] = "1"
-            check("SOTTO_NO_TELEMETRY force-disables", telemetry.enabled(cfg) is False)
+            check("SOTTO_NO_TELEMETRY force-disables even with override",
+                  telemetry.enabled(cfg) is False)
             os.environ.pop("SOTTO_NO_TELEMETRY")
             cfg.telemetry = False
-            check("telemetry=false disables", telemetry.enabled(cfg) is False)
-            cfg.telemetry = True
+            check("config override false → disabled", telemetry.enabled(cfg) is False)
+            # with no override, the recorded consent decides
+            cfg.telemetry = None
+            telemetry.record_consent(True)
+            check("consent Enable → enabled", telemetry.enabled(cfg) is True)
+            telemetry.record_consent(False)
+            check("consent No thanks → disabled", telemetry.enabled(cfg) is False)
+
+            # ensure_consent asks once, records, and never re-asks
+            os.remove(telemetry.CONSENT_PATH)
+            telemetry._ask_consent = lambda: True
+            telemetry.ensure_consent(cfg)
+            check("first run asks + records Enable",
+                  telemetry.consent_recorded() and telemetry.enabled(cfg) is True)
+
+            def _boom():
+                raise AssertionError("re-asked after a decision was recorded")
+
+            telemetry._ask_consent = _boom
+            telemetry.ensure_consent(cfg)  # must NOT call _ask_consent again
+            check("never re-asked once recorded", True)
+
+            cfg.telemetry = False  # an override must suppress the prompt entirely
+            telemetry.ensure_consent(cfg)
+            check("config override suppresses the prompt", True)
+            cfg.telemetry = None
+
+            os.remove(telemetry.CONSENT_PATH)
+            telemetry._ask_consent = lambda: None  # no dialog available this run
+            telemetry.ensure_consent(cfg)
+            check("no dialog → not recorded, stays off",
+                  not telemetry.consent_recorded() and telemetry.enabled(cfg) is False)
+
+            telemetry.record_consent(True)  # opted in for the send tests below
+            cfg.telemetry = None
             os.environ.pop("SOTTO_TELEMETRY_URL")
             check("no endpoint configured → inert", telemetry.enabled(cfg) is False)
 
@@ -3372,6 +3410,8 @@ def test_telemetry():
         telemetry.ID_PATH, telemetry.STATE_PATH = orig_paths
         telemetry._disclosed = orig_disclosed
         telemetry._DEFAULT_ENDPOINT = orig_endpoint
+        telemetry.CONSENT_PATH = orig_consent_path
+        telemetry._ask_consent = orig_ask
         for k, v in saved_env.items():
             if v is None:
                 os.environ.pop(k, None)
