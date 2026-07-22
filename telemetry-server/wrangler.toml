@@ -10,7 +10,7 @@ compatibility_date = "2026-07-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "sotto-telemetry"
-database_id = "PASTE_DATABASE_ID_HERE"
+database_id = "308ca7a4-ef5e-4ee3-a34e-226414bd7947"
 
 # ADMIN_TOKEN (the /admin dashboard password) is a SECRET, never committed:
 #   wrangler secret put ADMIN_TOKEN

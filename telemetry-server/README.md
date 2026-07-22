@@ -44,7 +44,7 @@ nothing is ever sent (and you can test locally with
 
 ## Your access
 
-- **Dashboard:** open `https://<your-worker-url>/admin` — the browser prompts
+- **Dashboard:** open `https://<your-worker-url>/dashboard` — the browser prompts
   for a password; enter the `ADMIN_TOKEN` you set (username is ignored). Shows
   total installs, active today / 7d / 30d, total words + dictations, and
   breakdowns by platform and version.
