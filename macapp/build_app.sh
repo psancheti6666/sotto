@@ -136,14 +136,33 @@ echo "OK: dist/$APP.app ($(du -sh "dist/$APP.app" | cut -f1))"
 # user's Mac — the failure CI otherwise can't see, because it can't launch the
 # GUI. No window server needed: NSApplication isn't created on this path.
 echo "boot smoke (SOTTO_SMOKE=1)…"
-SMOKE_OUT=$(SOTTO_SMOKE=1 "dist/$APP.app/Contents/MacOS/$APP" 2>&1) || {
+# Run the sealed binary in the background with a hard 60 s watchdog: a bundle
+# that HANGS at launch (not just crashes) must fail the build fast, not stall
+# a CI runner for hours — the Intel ONNX stack once left the smoke process
+# alive for 55 min. macOS ships no `timeout(1)`, so poll-and-kill by hand.
+SMOKE_LOG=$(mktemp)
+SOTTO_SMOKE=1 "dist/$APP.app/Contents/MacOS/$APP" >"$SMOKE_LOG" 2>&1 &
+smoke_pid=$!
+smoke_exited=0
+for _ in $(seq 1 60); do
+  kill -0 "$smoke_pid" 2>/dev/null || { smoke_exited=1; break; }
+  sleep 1
+done
+if [[ $smoke_exited -eq 0 ]]; then
+  kill -9 "$smoke_pid" 2>/dev/null || true
+  echo "ERROR: boot smoke did not exit within 60s — dist/$APP.app hangs at launch:" >&2
+  cat "$SMOKE_LOG" >&2
+  exit 1
+fi
+if ! wait "$smoke_pid"; then
   echo "ERROR: dist/$APP.app failed its boot smoke — it would crash at launch:" >&2
-  echo "$SMOKE_OUT" >&2
+  cat "$SMOKE_LOG" >&2
   exit 1
-}
-grep -q "SOTTO_SMOKE ok" <<<"$SMOKE_OUT" || {
+fi
+grep -q "SOTTO_SMOKE ok" "$SMOKE_LOG" || {
   echo "ERROR: boot smoke produced no success marker:" >&2
-  echo "$SMOKE_OUT" >&2
+  cat "$SMOKE_LOG" >&2
   exit 1
 }
+rm -f "$SMOKE_LOG"
 echo "boot smoke passed"

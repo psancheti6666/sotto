@@ -35,6 +35,7 @@ permissions:
 jobs:
   dmg:
     if: github.event_name != 'pull_request'
+    timeout-minutes: 30  # a launch-hang must fail fast, not burn the 6 h max
     strategy:
       fail-fast: false
       matrix:
