@@ -128,3 +128,22 @@ else
 fi
 
 echo "OK: dist/$APP.app ($(du -sh "dist/$APP.app" | cut -f1))"
+
+# Boot smoke on the SEALED bundle: launch the real app binary with
+# SOTTO_SMOKE=1, which runs setup_logging() + every boot import + load_config()
+# and exits 0 before any UI. A frozen bundle missing a boot module (e.g.
+# logging.handlers, #107) dies here with ModuleNotFoundError instead of on a
+# user's Mac — the failure CI otherwise can't see, because it can't launch the
+# GUI. No window server needed: NSApplication isn't created on this path.
+echo "boot smoke (SOTTO_SMOKE=1)…"
+SMOKE_OUT=$(SOTTO_SMOKE=1 "dist/$APP.app/Contents/MacOS/$APP" 2>&1) || {
+  echo "ERROR: dist/$APP.app failed its boot smoke — it would crash at launch:" >&2
+  echo "$SMOKE_OUT" >&2
+  exit 1
+}
+grep -q "SOTTO_SMOKE ok" <<<"$SMOKE_OUT" || {
+  echo "ERROR: boot smoke produced no success marker:" >&2
+  echo "$SMOKE_OUT" >&2
+  exit 1
+}
+echo "boot smoke passed"

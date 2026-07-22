@@ -101,6 +101,12 @@ OPTIONS = {
     # single-file modules can't go in `packages`
     "includes": ["sounddevice", "_sounddevice", "_cffi_backend", "pyperclip",
                  "PyObjCTools.MachSignals",
+                 # logging.handlers is imported function-level in
+                 # setup_logging() (the very first call in main()), so
+                 # modulegraph's static scan pulled in the logging package
+                 # but not this submodule — the bundle then crashed at boot
+                 # with ModuleNotFoundError before any UI came up (#107).
+                 "logging.handlers",
                  # charset_normalizer's mypyc-compiled half; modulegraph
                  # misses it and requests then can't import the package
                  "ada92cb5d92a588d1b93__mypyc"] + ASR_INCLUDES,
