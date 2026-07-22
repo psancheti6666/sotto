@@ -612,12 +612,15 @@ def main():
         # Import the macOS runtime surface too (the sibling of winapp's
         # SMOKE_IMPORTS): a future function-level stdlib-submodule miss in
         # any of these would otherwise only surface on a user's launch.
-        # Import-only — none of these start threads or touch AppKit at
-        # module load.
         from . import (asr, clean, dashboard, dictionary, inject,  # noqa: F401
                        insights, menubar, overlay, update)
-        print("SOTTO_SMOKE ok: boot imports resolved")
-        return
+        print("SOTTO_SMOKE ok: boot imports resolved", flush=True)
+        # Hard exit, NOT return: importing the ASR stack pulls onnxruntime on
+        # Intel, which leaves a non-daemon thread that blocks a normal
+        # interpreter shutdown — a plain return hung the Intel build for an
+        # hour (MLX on Apple Silicon has no such thread, so it exited and hid
+        # this). The imports are what we came to prove; terminate now.
+        os._exit(0)
     from . import __version__
     if IS_LINUX:
         from .firstrun_linux import bundle_type
