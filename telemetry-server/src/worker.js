@@ -135,7 +135,9 @@ function adminPage(s) {
     c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const rows = (arr, cols) => arr.map(r => `<tr>${cols.map(c => `<td>${esc(r[c])}</td>`).join("")}</tr>`).join("");
   const spark = s.daily.map(d => `<tr><td>${esc(d.date)}</td><td>${esc(d.active)}</td><td>${esc(d.words)}</td></tr>`).join("");
+  const updated = esc(String(s.generated_at).replace("T", " ").slice(0, 16)) + " UTC";
   return `<!doctype html><meta charset=utf-8><title>Sotto telemetry</title>
+<meta http-equiv=refresh content=300>
 <style>
  body{font:15px/1.5 -apple-system,system-ui,sans-serif;max-width:820px;margin:40px auto;padding:0 20px;color:#232939;background:#faf7f2}
  h1{font-size:22px} .cards{display:flex;flex-wrap:wrap;gap:14px;margin:20px 0}
@@ -145,6 +147,7 @@ function adminPage(s) {
  .muted{color:#8a8578;font-size:12px}
 </style>
 <h1>Sotto — usage</h1>
+<p class=muted>Last updated ${updated} · live from the database, this page auto-refreshes every 5 min</p>
 <div class=cards>
  <div class=card><div class=n>${s.total_installs}</div><div class=l>total installs</div></div>
  <div class=card><div class=n>${s.active_today}</div><div class=l>active today</div></div>
@@ -156,7 +159,7 @@ function adminPage(s) {
 <h3>By platform</h3><table><tr><th>platform</th><th>installs</th></tr>${rows(s.platforms, ["platform", "installs"])}</table>
 <h3>By version</h3><table><tr><th>version</th><th>installs</th></tr>${rows(s.versions, ["version", "installs"])}</table>
 <h3>Last 30 days</h3><table><tr><th>date</th><th>active</th><th>words</th></tr>${spark}</table>
-<p class=muted>generated ${esc(s.generated_at)} · anonymous counts only, no content, no IP stored</p>`;
+<p class=muted>anonymous counts only, no content, no IP stored</p>`;
 }
 
 export default {

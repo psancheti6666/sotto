@@ -219,10 +219,13 @@ def maybe_send(cfg, now: datetime = None, _post=None) -> bool:
 
 _CONSENT_TITLE = "Share anonymous usage stats?"
 _CONSENT_BODY = (
-    "Help me see whether Sotto is useful by sharing an anonymous daily count — "
-    "how many times you dictate and how many words. That's all.\n\n"
-    "Never shared: your voice, your transcripts, the apps you type into, your "
-    "name, or your IP. Nothing you say or type ever leaves your machine.\n\n"
+    "Sotto is free and open source. To understand whether it's genuinely "
+    "useful and where to improve it, the Sotto team would like to collect "
+    "anonymous usage — a daily count of how many times you dictate and how "
+    "many words. That's all that's ever sent.\n\n"
+    "Never collected: your voice, your transcripts, the apps you type into, "
+    "your name, or your IP — nothing you say or type ever leaves your "
+    "machine.\n\n"
     "You can change this anytime in ~/.sotto/config.toml.")
 
 
