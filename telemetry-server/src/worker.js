@@ -6,7 +6,7 @@
 //   GET  /stats.json        public aggregate (no per-id data)
 //   GET  /badge/users.json  shields.io endpoint badge: total installs
 //   GET  /badge/active.json shields.io endpoint badge: active (7d)
-//   GET  /admin             Basic-Auth dashboard (password = ADMIN_TOKEN secret)
+//   GET  /dashboard         Basic-Auth dashboard (password = ADMIN_TOKEN secret)
 //
 // The client IP is never read or stored. Payloads carry only aggregate counts.
 
@@ -173,7 +173,7 @@ export default {
       if (request.method === "GET" && pathname === "/badge/active.json") {
         const s = await stats(env); return badge("active (7d)", s.active_7d, "ff6f61");
       }
-      if (request.method === "GET" && (pathname === "/admin" || pathname === "/")) {
+      if (request.method === "GET" && (pathname === "/dashboard" || pathname === "/")) {
         if (!checkAuth(request, env)) return unauthorized();
         return new Response(adminPage(await stats(env)), {
           headers: { "content-type": "text/html; charset=utf-8" },

@@ -18,10 +18,10 @@ What is sent (once a day, when a newer count exists):
 What is NEVER sent: audio, transcripts, cleaned text, app names, per-dictation
 timestamps, IP address, or anything else identifying.
 
-Opt-out (Homebrew-style — on by default, disclosed, one line to disable):
-  - telemetry = false in ~/.sotto/config.toml, or
-  - SOTTO_NO_TELEMETRY=1 in the environment.
-Opt-out is honored before any socket is opened.
+Opt-in — OFF by default. Nothing is sent unless the user turns it on:
+  - telemetry = true in ~/.sotto/config.toml.
+  (SOTTO_NO_TELEMETRY=1 also force-disables it.)
+The gate is checked before any socket is opened.
 
 Inert until a collection endpoint is configured (_DEFAULT_ENDPOINT below or
 SOTTO_TELEMETRY_URL): with none set, enabled() is False and nothing is sent —
@@ -66,8 +66,9 @@ def _opted_out() -> bool:
 
 
 def enabled(cfg) -> bool:
-    """True only when the user hasn't opted out AND an endpoint is configured."""
-    return bool(getattr(cfg, "telemetry", True)) and not _opted_out() and bool(endpoint())
+    """True only when the user has opted in (telemetry=true) AND an endpoint is
+    configured. Off by default."""
+    return bool(getattr(cfg, "telemetry", False)) and not _opted_out() and bool(endpoint())
 
 
 def _platform_tag() -> str:
@@ -94,9 +95,8 @@ def install_id() -> str:
         log.warning("telemetry: could not store install id (%s)", e)
         return new_id  # transient id; still no content ever leaves
     if not _disclosed:
-        log.info("anonymous usage stats are on (counts only, never your words) "
-                 "— disable with telemetry=false in ~/.sotto/config.toml or "
-                 "SOTTO_NO_TELEMETRY=1")
+        log.info("anonymous usage stats enabled (counts only, never your words) "
+                 "— turn off with telemetry=false in ~/.sotto/config.toml")
         _disclosed = True
     return new_id
 

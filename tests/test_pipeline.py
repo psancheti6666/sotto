@@ -3319,9 +3319,12 @@ def test_telemetry():
             cfg = Config()
             os.environ.pop("SOTTO_NO_TELEMETRY", None)
             os.environ["SOTTO_TELEMETRY_URL"] = "http://collector.example/ingest"
-            check("enabled when on + endpoint set", telemetry.enabled(cfg) is True)
+            check("opt-in: default Config is off → inert",
+                  cfg.telemetry is False and telemetry.enabled(cfg) is False)
+            cfg.telemetry = True
+            check("enabled when opted in + endpoint set", telemetry.enabled(cfg) is True)
             os.environ["SOTTO_NO_TELEMETRY"] = "1"
-            check("SOTTO_NO_TELEMETRY disables", telemetry.enabled(cfg) is False)
+            check("SOTTO_NO_TELEMETRY force-disables", telemetry.enabled(cfg) is False)
             os.environ.pop("SOTTO_NO_TELEMETRY")
             cfg.telemetry = False
             check("telemetry=false disables", telemetry.enabled(cfg) is False)

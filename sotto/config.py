@@ -141,13 +141,13 @@ class Config:
     # check; the "Check for Updates…" menu item always works.
     update_check_days: float = 1.0
 
-    # Anonymous usage stats. When on, Sotto sends ONE aggregate count a day —
-    # {random install id, date, platform, version, #dictations, #words} — so the
-    # maintainers can see whether it's used and useful. Your voice, transcripts,
-    # app names, and IP are NEVER sent; nothing you say or type leaves the
-    # machine. Turn it off here or with SOTTO_NO_TELEMETRY=1. (Inert unless a
-    # collection endpoint is configured — see sotto/telemetry.py.)
-    telemetry: bool = True
+    # Anonymous usage stats — OFF by default (opt-in). Set this to true and
+    # Sotto sends ONE aggregate count a day — {random install id, date,
+    # platform, version, #dictations, #words} — so the maintainers can see
+    # whether it's used and useful. Your voice, transcripts, app names, and IP
+    # are NEVER sent; nothing you say or type ever leaves the machine.
+    # SOTTO_NO_TELEMETRY=1 also force-disables it.
+    telemetry: bool = False
 
     # Injection. "auto" = type the text like real keystrokes, but fall back to
     # clipboard-paste when the text has newlines (typed Enter would e.g. send a

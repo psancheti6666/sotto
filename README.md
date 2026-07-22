@@ -6,8 +6,6 @@
 [![latest release](https://img.shields.io/github/v/release/psancheti6666/sotto)](https://github.com/psancheti6666/sotto/releases/latest)
 [![platforms](https://img.shields.io/badge/platforms-macOS%20·%20Linux%20·%20Windows-4c8dd6)](#platform-support)
 [![license: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![users](https://img.shields.io/endpoint?url=https://sotto-telemetry.psancheti6666.workers.dev/badge/users.json)](https://sotto-telemetry.psancheti6666.workers.dev/stats.json)
-[![active (7d)](https://img.shields.io/endpoint?url=https://sotto-telemetry.psancheti6666.workers.dev/badge/active.json)](https://sotto-telemetry.psancheti6666.workers.dev/stats.json)
 
 Hold a key, speak naturally, release — clean, punctuated text appears at your
 cursor in whatever app you're using. The speech recognition **and** the AI
@@ -188,14 +186,13 @@ history. *(Screenshots show demo data; a real install starts empty.)*
    in place (Linux verifies the download's signature against a pinned key
    before anything installs — the published `.sig` files); Windows currently
    opens the download page for you instead.
-4. **One anonymous usage count a day.** So the maintainers can tell whether
-   Sotto is used and useful, it sends a daily rollup of *only*
-   `{a random install id, the date, your OS + CPU type, the version, how many
-   dictations, how many words}`. **Your voice, your transcripts, the apps you
-   type into, and your IP are never sent** — nothing you say or type leaves the
-   machine. The aggregate is public at the project's `/stats.json` for anyone
-   to inspect. Turn it off with `telemetry = false` in `~/.sotto/config.toml`
-   or `SOTTO_NO_TELEMETRY=1`.
+4. **Optional, off-by-default usage stats.** Only if you turn it on
+   (`telemetry = true` in `~/.sotto/config.toml`), Sotto sends one anonymous
+   count a day — *only* `{a random install id, the date, your OS + CPU type,
+   the version, how many dictations, how many words}` — so the maintainers can
+   tell whether it's used and useful. **Your voice, your transcripts, the apps
+   you type into, and your IP are never sent, and by default nothing is sent at
+   all.** When on, the aggregate is public at the project's `/stats.json`.
 
 That's the whole list — no accounts, no ad/analytics SDKs, no content ever
 leaves your machine, and the dashboard page makes zero external requests. Audio
