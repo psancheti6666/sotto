@@ -13,13 +13,9 @@ the same surface: ROWS, GATING, SUBTITLE, statuses(cfg), run_fix(action),
 engine_missing(cfg), setup_missing(cfg), relaunch().
 """
 
-import logging
 import queue
-import threading
 
 from . import firstrun
-
-log = logging.getLogger("sotto")
 
 
 def _backend():
@@ -178,23 +174,14 @@ class _DownloadScreen:
         def progress(label, frac):
             self.q.put((label, frac))
 
-        def work():
-            try:
-                if self.be.engine_missing(self.cfg):
-                    from . import ollama_runtime
-                    progress("downloading cleanup engine…", None)
-                    ollama_runtime.download(
-                        lambda f: progress(f"cleanup engine: {int(f*100)}%", f))
-            except Exception as e:
-                log.warning("engine download failed: %s", e)
-                progress(f"download failed: {e}", None)
-                self.q.put(("__done__", None))
-                return
-            # ASR + LLM pull (spawns its own worker; calls back on done)
-            firstrun.download_models(self.cfg, progress,
-                                     lambda: self.q.put(("__done__", None)))
-
-        threading.Thread(target=work, daemon=True).start()
+        # download_models owns the engine + speech + cleanup downloads as ONE
+        # monotonic bar (it spawns its own worker; calls back on done).
+        firstrun.download_models(
+            self.cfg, progress,
+            lambda: self.q.put(("__done__", None)),
+            # pass the check as a CALLABLE so its network probe runs on the
+            # worker thread, never blocking the tk UI loop (up to 2 s otherwise)
+            engine_missing=lambda: self.be.engine_missing(self.cfg))
         self._pump()  # arm the drain loop for this run
 
     def _pump(self):
