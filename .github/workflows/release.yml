@@ -287,6 +287,11 @@ jobs:
             DEBIAN_FRONTEND=noninteractive apt-get $APT_OPTS install -y \
               xvfb xauth libxft2 libxext6 libasound2
             tar -C /tmp -xzf /dist/sotto-linux-x86_64-onedir.tar.gz
+            # v0.6.0 crash guard: this container has NO system libjack, so
+            # PortAudio must load libjack.so.0 from the bundle. Prove the test is
+            # clean and the lib is actually bundled, then exercise the real load.
+            if ldconfig -p | grep -q "libjack.so.0"; then echo "negative test not clean: system libjack present"; exit 1; fi
+            find /tmp/sotto -name "libjack.so.*" | grep -q . || { echo "libjack.so.0 not bundled"; exit 1; }
             timeout -k 10 180 xvfb-run -a /tmp/sotto/sotto --smoke'
       # Build the .deb, then INSTALL it (runs the postinst as root, resolves
       # Depends) and smoke the installed launcher — proving the package is
