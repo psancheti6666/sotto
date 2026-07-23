@@ -57,6 +57,8 @@ _DEFAULT_ENDPOINT = "https://sotto-telemetry.psancheti6666.workers.dev/ingest"
 ID_PATH = os.path.join(CONFIG_DIR, "telemetry_id")
 STATE_PATH = os.path.join(CONFIG_DIR, "telemetry-state.json")
 CONSENT_PATH = os.path.join(CONFIG_DIR, "telemetry-consent.json")
+BACKFILL_MARKER = os.path.join(CONFIG_DIR, "telemetry-backfilled")
+BACKFILL_MAX_DAYS = 1000  # most-recent cap, bounds a pathological history
 CONSENT_DELAY_S = 6.0    # let the UI settle before the one-time consent dialog
 POLL_S = 900.0           # re-send today's rollup every 15 min, only if it grew
 #                          (hourly felt frozen on the dashboard; ~a few dozen
@@ -143,17 +145,26 @@ def _today(now: datetime = None) -> str:
     return (now or datetime.now().astimezone()).date().isoformat()
 
 
+def _all_day_counts(path: str = history.HISTORY_PATH) -> dict:
+    """{local-day: (dictations, words)} across ALL of history.jsonl — one pass,
+    used to seed a newly opted-in install with its past days."""
+    days = {}
+    for e in history.read_entries(path):
+        day = str(e.get("ts", ""))[:10]
+        if len(day) != 10:
+            continue
+        d, w = days.get(day, (0, 0))
+        try:
+            w += int(e.get("words", 0) or 0)
+        except (TypeError, ValueError):
+            pass
+        days[day] = (d + 1, w)
+    return days
+
+
 def _today_counts(day: str, path: str = history.HISTORY_PATH) -> tuple:
     """(dictations, words) recorded in history.jsonl for the given local day."""
-    dictations = words = 0
-    for e in history.read_entries(path):
-        if str(e.get("ts", ""))[:10] == day:
-            dictations += 1
-            try:
-                words += int(e.get("words", 0) or 0)
-            except (TypeError, ValueError):
-                pass  # a locally-corrupt count must not derail the heartbeat
-    return dictations, words
+    return _all_day_counts(path).get(day, (0, 0))
 
 
 def _load_state() -> dict:
@@ -363,9 +374,50 @@ def ensure_consent(cfg) -> None:
     record_consent(choice)
 
 
+def maybe_backfill(cfg, now: datetime = None, _post=None) -> int:
+    """One-time: seed the server with this install's PAST daily counts from
+    local history, so opting in on (say) day 11 still captures days 1–10 — an
+    install with history is an install. Content-free, same {id,date,...} shape.
+    Idempotent against the server's MAX upsert; marker written only after the
+    whole set sends, so a partial failure just retries next launch. Returns the
+    number of past days sent. Never raises. Today is left to maybe_send."""
+    if not enabled(cfg) or os.path.exists(BACKFILL_MARKER):
+        return 0
+    try:
+        post = _post
+        if post is None:
+            import requests
+            post = lambda url, json_: requests.post(url, json=json_, timeout=POST_TIMEOUT_S)
+        id_ = install_id()
+        if not id_:
+            return 0
+        today = _today(now)
+        days = _all_day_counts()
+        past = [d for d in sorted(days) if d != today][-BACKFILL_MAX_DAYS:]
+        sent = 0
+        for day in past:
+            dictations, words = days[day]
+            resp = post(endpoint(), {
+                "id": id_, "date": day, "platform": _platform_tag(),
+                "version": __version__, "dictations": dictations, "words": words})
+            if resp is not None and getattr(resp, "status_code", 200) >= 400:
+                return sent  # stop; marker unwritten → resume next launch
+            sent += 1
+    except Exception as e:
+        log.debug("telemetry backfill failed (%s)", e)
+        return 0
+    try:  # whole set landed — never seed twice
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        open(BACKFILL_MARKER, "w").close()
+    except OSError as e:
+        log.debug("telemetry: could not write backfill marker (%s)", e)
+    return sent
+
+
 def _loop(cfg):
     time.sleep(CONSENT_DELAY_S)
     ensure_consent(cfg)     # one-time; no-op once answered/overridden
+    maybe_backfill(cfg)     # one-time; seed past days for a fresh opt-in
     while True:
         maybe_send(cfg)     # re-checks enabled() each tick
         time.sleep(POLL_S)

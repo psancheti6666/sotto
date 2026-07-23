@@ -3280,6 +3280,8 @@ def test_telemetry():
     orig_endpoint = telemetry._DEFAULT_ENDPOINT
     orig_consent_path = telemetry.CONSENT_PATH
     orig_ask = telemetry._ask_consent
+    orig_backfill_marker = telemetry.BACKFILL_MARKER
+    orig_allday = telemetry._all_day_counts
     saved_env = {k: os.environ.get(k) for k in ("SOTTO_TELEMETRY_URL", "SOTTO_NO_TELEMETRY")}
     try:
         with tempfile.TemporaryDirectory() as td:
@@ -3289,6 +3291,7 @@ def test_telemetry():
             telemetry.ID_PATH = id_path
             telemetry.STATE_PATH = state_path
             telemetry.CONSENT_PATH = os.path.join(td, "telemetry-consent.json")
+            telemetry.BACKFILL_MARKER = os.path.join(td, "telemetry-backfilled")
             telemetry._disclosed = True  # silence the one-time disclosure log
             telemetry._DEFAULT_ENDPOINT = ""  # neutralize the baked-in URL; drive
             #                                   enabled() purely via SOTTO_TELEMETRY_URL
@@ -3441,6 +3444,36 @@ def test_telemetry():
             telemetry.maybe_send(cfg, datetime(2026, 7, 22, 9, 0), _post=fake_post)
             check("no catch-up when yesterday didn't grow — heartbeat only",
                   len(sent) == 1 and sent[0][1]["date"] == day3, str(sent))
+
+            # Backfill: a fresh opt-in seeds ALL past days from history (opting
+            # in on day 11 still captures days 1–10).
+            telemetry.build_payload = orig_build   # backfill uses the real path
+            telemetry._all_day_counts = lambda path=None: {
+                "2026-07-18": (2, 20), "2026-07-19": (1, 5), "2026-07-20": (3, 44)}
+            cfg.telemetry = True
+            os.environ["SOTTO_TELEMETRY_URL"] = "http://collector.example/ingest"
+            if os.path.exists(telemetry.BACKFILL_MARKER):
+                os.remove(telemetry.BACKFILL_MARKER)
+            sent.clear()
+            n = telemetry.maybe_backfill(cfg, datetime(2026, 7, 20, 12, 0), _post=fake_post)
+            days_sent = [p["date"] for _, p in sent]
+            check("backfill seeds every PAST day, excludes today",
+                  n == 2 and days_sent == ["2026-07-18", "2026-07-19"], str(days_sent))
+            check("backfilled payloads carry the real counts, no content",
+                  sent[0][1]["words"] == 20 and set(sent[0][1]) ==
+                  {"id", "date", "platform", "version", "dictations", "words"}, str(sent[0][1]))
+            check("backfill wrote its one-time marker", telemetry.consent_recorded()
+                  and os.path.exists(telemetry.BACKFILL_MARKER))
+            sent.clear()
+            check("backfill never runs twice",
+                  telemetry.maybe_backfill(cfg, datetime(2026, 7, 20, 12, 0),
+                                           _post=fake_post) == 0 and not sent)
+            os.remove(telemetry.BACKFILL_MARKER)
+            cfg.telemetry = False
+            check("backfill respects opt-out (no send, no marker)",
+                  telemetry.maybe_backfill(cfg, _post=fake_post) == 0
+                  and not sent and not os.path.exists(telemetry.BACKFILL_MARKER))
+            cfg.telemetry = True
     finally:
         telemetry.build_payload = orig_build
         telemetry._payload_for_day = orig_pfd
@@ -3449,6 +3482,8 @@ def test_telemetry():
         telemetry._DEFAULT_ENDPOINT = orig_endpoint
         telemetry.CONSENT_PATH = orig_consent_path
         telemetry._ask_consent = orig_ask
+        telemetry.BACKFILL_MARKER = orig_backfill_marker
+        telemetry._all_day_counts = orig_allday
         for k, v in saved_env.items():
             if v is None:
                 os.environ.pop(k, None)
