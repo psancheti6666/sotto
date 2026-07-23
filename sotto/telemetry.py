@@ -5,7 +5,10 @@ Answers one question for the maintainers — "is Sotto being used, and is it
 useful?" — without ever betraying the product's promise. NOTHING you say or
 type leaves your machine; the only thing that does is an aggregate daily count.
 
-What is sent (once a day, when a newer count exists):
+What is sent — a per-day rollup, re-sent through the day as it grows (at most
+every 15 minutes, and only when the counts changed), plus one final top-up for
+the previous day after midnight so the last dictations of an evening aren't
+lost (they were: 2392 sent vs 2837 spoken, 2026-07-22):
     {id, date, platform, version, dictations, words}
   - id       : a random UUID generated once, stored in ~/.sotto/telemetry_id,
                tied to nothing about you.
@@ -55,7 +58,9 @@ ID_PATH = os.path.join(CONFIG_DIR, "telemetry_id")
 STATE_PATH = os.path.join(CONFIG_DIR, "telemetry-state.json")
 CONSENT_PATH = os.path.join(CONFIG_DIR, "telemetry-consent.json")
 CONSENT_DELAY_S = 6.0    # let the UI settle before the one-time consent dialog
-POLL_S = 3600.0          # re-send today's rollup at most hourly, only if it grew
+POLL_S = 900.0           # re-send today's rollup every 15 min, only if it grew
+#                          (hourly felt frozen on the dashboard; ~a few dozen
+#                          tiny requests/day/user is nothing on the free tier)
 POST_TIMEOUT_S = 5.0
 
 _disclosed = False        # one-time "telemetry is on" log line
@@ -170,16 +175,20 @@ def _save_state(payload: dict):
         log.warning("telemetry: could not save state (%s)", e)
 
 
-def build_payload(now: datetime = None, history_path: str = history.HISTORY_PATH) -> dict:
-    """The exact object that would be sent. Pure — no network, no side effects
-    beyond ensuring the install id exists. Returns None if no id is available."""
+def _payload_for_day(day: str, history_path: str = history.HISTORY_PATH) -> dict:
+    """The rollup for one local calendar day, counted from history.jsonl. Pure —
+    no network, no side effects beyond ensuring the install id exists."""
     id_ = install_id()
     if not id_:
         return None
-    day = _today(now)
     dictations, words = _today_counts(day, history_path)
     return {"id": id_, "date": day, "platform": _platform_tag(),
             "version": __version__, "dictations": dictations, "words": words}
+
+
+def build_payload(now: datetime = None, history_path: str = history.HISTORY_PATH) -> dict:
+    """Today's rollup — the exact object that would be sent."""
+    return _payload_for_day(_today(now), history_path)
 
 
 def _should_send(payload: dict, state: dict) -> bool:
@@ -192,21 +201,40 @@ def _should_send(payload: dict, state: dict) -> bool:
 
 
 def maybe_send(cfg, now: datetime = None, _post=None) -> bool:
-    """Send today's rollup if enabled and it's new/grown. Never raises; returns
-    True only when a payload was actually accepted."""
+    """Send today's rollup if enabled and it's new/grown — after topping up the
+    previous day's final count when the date has rolled over. Never raises;
+    returns True only when today's payload was actually accepted."""
     if not enabled(cfg):
         return False
     # Everything below is wrapped: a corrupt history line, a state-file error,
     # or a network failure must fail silent — never raise out of the daemon
     # loop (which would kill all future heartbeats) and never touch dictation.
     try:
-        payload = build_payload(now)
-        if payload is None or not _should_send(payload, _load_state()):
-            return False
         post = _post
         if post is None:
             import requests
             post = lambda url, json_: requests.post(url, json=json_, timeout=POST_TIMEOUT_S)
+        state = _load_state()
+        today = _today(now)
+        # Day rollover: the previous day's server row froze at whatever the
+        # last pre-midnight send carried; anything dictated after that was
+        # never re-sent (seen live: 2392 sent vs 2837 spoken, 2026-07-22).
+        # History still holds the true total for that day — send it once.
+        # If it fails, state stays on the old day and the whole sequence
+        # retries next tick (the server upsert is monotonic, so a repeat is
+        # harmless). Only the state-recorded day can be short: days with the
+        # app not running have no dictations at all.
+        prev = state.get("date")
+        if prev and prev != today:
+            final = _payload_for_day(prev)
+            if final is not None and (final["dictations"] > state.get("dictations", 0)
+                                      or final["words"] > state.get("words", 0)):
+                resp = post(endpoint(), final)
+                if resp is not None and getattr(resp, "status_code", 200) >= 400:
+                    return False
+        payload = build_payload(now)
+        if payload is None or not _should_send(payload, state):
+            return False
         resp = post(endpoint(), payload)
         if resp is not None and getattr(resp, "status_code", 200) >= 400:
             return False

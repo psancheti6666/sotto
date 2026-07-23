@@ -210,7 +210,8 @@ history. *(Screenshots show demo data; a real install starts empty.)*
    opens the download page for you instead.
 4. **Anonymous usage stats — you're asked once, on first run.** Sotto shows a
    one-time *"Share anonymous usage stats?"* prompt (Enable / No thanks). If you
-   Enable, it sends one anonymous count a day — *only* `{a random install id,
+   Enable, it sends an anonymous daily count, refreshed a few times an hour
+   while you dictate — *only* `{a random install id,
    the date, your OS + CPU type, the version, how many dictations, how many
    words}` — so the maintainers can tell whether it's used and useful. **Your
    voice, your transcripts, the apps you type into, and your IP are never

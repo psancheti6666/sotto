@@ -3274,6 +3274,7 @@ def test_telemetry():
     from sotto.config import Config
 
     orig_build = telemetry.build_payload
+    orig_pfd = telemetry._payload_for_day
     orig_paths = (telemetry.ID_PATH, telemetry.STATE_PATH)
     orig_disclosed = telemetry._disclosed
     orig_endpoint = telemetry._DEFAULT_ENDPOINT
@@ -3414,8 +3415,35 @@ def test_telemetry():
             telemetry.build_payload = lambda now=None, history_path=None: {**pay, "words": 10}
             check("resend when counts grow",
                   telemetry.maybe_send(cfg, now, _post=fake_post) is True and len(sent) == 2)
+
+            # Day rollover: the previous day's FINAL count is topped up once
+            # before today's first send (live bug: 2392 sent vs 2837 spoken).
+            sent.clear()
+            nxt = "2026-07-21"
+            telemetry._payload_for_day = lambda day, history_path=None: {
+                **pay, "date": day, "words": 15}          # final: grew 10 → 15
+            telemetry.build_payload = lambda now=None, history_path=None: {
+                **pay, "date": nxt, "dictations": 1, "words": 5}
+            check("rollover sends yesterday's final, then today",
+                  telemetry.maybe_send(cfg, datetime(2026, 7, 21, 9, 0),
+                                       _post=fake_post) is True
+                  and len(sent) == 2
+                  and sent[0][1]["date"] == today and sent[0][1]["words"] == 15
+                  and sent[1][1]["date"] == nxt, str(sent))
+            check("state moved to the new day",
+                  telemetry._load_state().get("date") == nxt)
+            sent.clear()
+            day3 = "2026-07-22"
+            telemetry._payload_for_day = lambda day, history_path=None: {
+                **pay, "date": day, "dictations": 1, "words": 5}  # == last sent
+            telemetry.build_payload = lambda now=None, history_path=None: {
+                **pay, "date": day3, "dictations": 0, "words": 0}
+            telemetry.maybe_send(cfg, datetime(2026, 7, 22, 9, 0), _post=fake_post)
+            check("no catch-up when yesterday didn't grow — heartbeat only",
+                  len(sent) == 1 and sent[0][1]["date"] == day3, str(sent))
     finally:
         telemetry.build_payload = orig_build
+        telemetry._payload_for_day = orig_pfd
         telemetry.ID_PATH, telemetry.STATE_PATH = orig_paths
         telemetry._disclosed = orig_disclosed
         telemetry._DEFAULT_ENDPOINT = orig_endpoint
