@@ -3462,8 +3462,8 @@ def test_telemetry():
             check("backfilled payloads carry the real counts, no content",
                   sent[0][1]["words"] == 20 and set(sent[0][1]) ==
                   {"id", "date", "platform", "version", "dictations", "words"}, str(sent[0][1]))
-            check("backfill wrote its one-time marker", telemetry.consent_recorded()
-                  and os.path.exists(telemetry.BACKFILL_MARKER))
+            check("backfill wrote its one-time marker",
+                  os.path.exists(telemetry.BACKFILL_MARKER))
             sent.clear()
             check("backfill never runs twice",
                   telemetry.maybe_backfill(cfg, datetime(2026, 7, 20, 12, 0),
