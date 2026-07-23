@@ -345,9 +345,14 @@ class _DownloadBar:
 def download_models(cfg, on_progress, on_done, engine_missing=False):
     """Fetch whatever is missing — the bundled runtime (frozen Linux/Windows),
     then the speech + cleanup models — as ONE smooth 0→100 bar. Reports
-    (label, fraction) to on_progress from a worker thread; UI marshals to main."""
+    (label, fraction) to on_progress from a worker thread; UI marshals to main.
+
+    engine_missing may be a bool OR a 0-arg callable — a callable is resolved
+    ON THE WORKER THREAD, because the backend's check probes the network
+    (requests.get with a timeout) and must never run on the UI thread."""
     def work():
-        keys = (["engine"] if engine_missing else [])
+        need_engine = engine_missing() if callable(engine_missing) else engine_missing
+        keys = (["engine"] if need_engine else [])
         need_asr = not asr_model_ok(cfg.asr_model)
         need_llm = not llm_model_ok(cfg.ollama_model)
         if need_asr:
@@ -356,10 +361,12 @@ def download_models(cfg, on_progress, on_done, engine_missing=False):
             keys.append("llm")
         bar = _DownloadBar(on_progress, keys)
         try:
-            if engine_missing:
+            if need_engine:
                 from . import ollama_runtime
                 bar.report("engine", None)
                 ollama_runtime.download(lambda f: bar.report("engine", f))
+                bar.report("engine", 1.0)  # fill the segment even if the
+                #                            server omitted content-length
             if need_asr:
                 _download_asr(cfg, bar)
             if need_llm:

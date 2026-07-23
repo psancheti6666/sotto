@@ -179,7 +179,9 @@ class _DownloadScreen:
         firstrun.download_models(
             self.cfg, progress,
             lambda: self.q.put(("__done__", None)),
-            engine_missing=self.be.engine_missing(self.cfg))
+            # pass the check as a CALLABLE so its network probe runs on the
+            # worker thread, never blocking the tk UI loop (up to 2 s otherwise)
+            engine_missing=lambda: self.be.engine_missing(self.cfg))
         self._pump()  # arm the drain loop for this run
 
     def _pump(self):
