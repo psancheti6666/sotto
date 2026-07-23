@@ -28,3 +28,7 @@ config.toml
 # Editor
 .idea/
 .vscode/
+
+# wrangler local dev state — contains machine geolocation (cf.json), the
+# Cloudflare account id, and local D1 data; must never be committed
+telemetry-server/.wrangler/
