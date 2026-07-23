@@ -5,7 +5,10 @@ Answers one question for the maintainers — "is Sotto being used, and is it
 useful?" — without ever betraying the product's promise. NOTHING you say or
 type leaves your machine; the only thing that does is an aggregate daily count.
 
-What is sent (once a day, when a newer count exists):
+What is sent — a per-day rollup, re-sent through the day as it grows (at most
+every 15 minutes, and only when the counts changed), plus one final top-up for
+the previous day after midnight so the last dictations of an evening aren't
+lost (they were: 2392 sent vs 2837 spoken, 2026-07-22):
     {id, date, platform, version, dictations, words}
   - id       : a random UUID generated once, stored in ~/.sotto/telemetry_id,
                tied to nothing about you.
@@ -54,8 +57,12 @@ _DEFAULT_ENDPOINT = "https://sotto-telemetry.psancheti6666.workers.dev/ingest"
 ID_PATH = os.path.join(CONFIG_DIR, "telemetry_id")
 STATE_PATH = os.path.join(CONFIG_DIR, "telemetry-state.json")
 CONSENT_PATH = os.path.join(CONFIG_DIR, "telemetry-consent.json")
+BACKFILL_MARKER = os.path.join(CONFIG_DIR, "telemetry-backfilled")
+BACKFILL_MAX_DAYS = 1000  # most-recent cap, bounds a pathological history
 CONSENT_DELAY_S = 6.0    # let the UI settle before the one-time consent dialog
-POLL_S = 3600.0          # re-send today's rollup at most hourly, only if it grew
+POLL_S = 900.0           # re-send today's rollup every 15 min, only if it grew
+#                          (hourly felt frozen on the dashboard; ~a few dozen
+#                          tiny requests/day/user is nothing on the free tier)
 POST_TIMEOUT_S = 5.0
 
 _disclosed = False        # one-time "telemetry is on" log line
@@ -138,17 +145,26 @@ def _today(now: datetime = None) -> str:
     return (now or datetime.now().astimezone()).date().isoformat()
 
 
+def _all_day_counts(path: str = history.HISTORY_PATH) -> dict:
+    """{local-day: (dictations, words)} across ALL of history.jsonl — one pass,
+    used to seed a newly opted-in install with its past days."""
+    days = {}
+    for e in history.read_entries(path):
+        day = str(e.get("ts", ""))[:10]
+        if len(day) != 10:
+            continue
+        d, w = days.get(day, (0, 0))
+        try:
+            w += int(e.get("words", 0) or 0)
+        except (TypeError, ValueError):
+            pass
+        days[day] = (d + 1, w)
+    return days
+
+
 def _today_counts(day: str, path: str = history.HISTORY_PATH) -> tuple:
     """(dictations, words) recorded in history.jsonl for the given local day."""
-    dictations = words = 0
-    for e in history.read_entries(path):
-        if str(e.get("ts", ""))[:10] == day:
-            dictations += 1
-            try:
-                words += int(e.get("words", 0) or 0)
-            except (TypeError, ValueError):
-                pass  # a locally-corrupt count must not derail the heartbeat
-    return dictations, words
+    return _all_day_counts(path).get(day, (0, 0))
 
 
 def _load_state() -> dict:
@@ -170,16 +186,20 @@ def _save_state(payload: dict):
         log.warning("telemetry: could not save state (%s)", e)
 
 
-def build_payload(now: datetime = None, history_path: str = history.HISTORY_PATH) -> dict:
-    """The exact object that would be sent. Pure — no network, no side effects
-    beyond ensuring the install id exists. Returns None if no id is available."""
+def _payload_for_day(day: str, history_path: str = history.HISTORY_PATH) -> dict:
+    """The rollup for one local calendar day, counted from history.jsonl. Pure —
+    no network, no side effects beyond ensuring the install id exists."""
     id_ = install_id()
     if not id_:
         return None
-    day = _today(now)
     dictations, words = _today_counts(day, history_path)
     return {"id": id_, "date": day, "platform": _platform_tag(),
             "version": __version__, "dictations": dictations, "words": words}
+
+
+def build_payload(now: datetime = None, history_path: str = history.HISTORY_PATH) -> dict:
+    """Today's rollup — the exact object that would be sent."""
+    return _payload_for_day(_today(now), history_path)
 
 
 def _should_send(payload: dict, state: dict) -> bool:
@@ -192,21 +212,40 @@ def _should_send(payload: dict, state: dict) -> bool:
 
 
 def maybe_send(cfg, now: datetime = None, _post=None) -> bool:
-    """Send today's rollup if enabled and it's new/grown. Never raises; returns
-    True only when a payload was actually accepted."""
+    """Send today's rollup if enabled and it's new/grown — after topping up the
+    previous day's final count when the date has rolled over. Never raises;
+    returns True only when today's payload was actually accepted."""
     if not enabled(cfg):
         return False
     # Everything below is wrapped: a corrupt history line, a state-file error,
     # or a network failure must fail silent — never raise out of the daemon
     # loop (which would kill all future heartbeats) and never touch dictation.
     try:
-        payload = build_payload(now)
-        if payload is None or not _should_send(payload, _load_state()):
-            return False
         post = _post
         if post is None:
             import requests
             post = lambda url, json_: requests.post(url, json=json_, timeout=POST_TIMEOUT_S)
+        state = _load_state()
+        today = _today(now)
+        # Day rollover: the previous day's server row froze at whatever the
+        # last pre-midnight send carried; anything dictated after that was
+        # never re-sent (seen live: 2392 sent vs 2837 spoken, 2026-07-22).
+        # History still holds the true total for that day — send it once.
+        # If it fails, state stays on the old day and the whole sequence
+        # retries next tick (the server upsert is monotonic, so a repeat is
+        # harmless). Only the state-recorded day can be short: days with the
+        # app not running have no dictations at all.
+        prev = state.get("date")
+        if prev and prev != today:
+            final = _payload_for_day(prev)
+            if final is not None and (final["dictations"] > state.get("dictations", 0)
+                                      or final["words"] > state.get("words", 0)):
+                resp = post(endpoint(), final)
+                if resp is not None and getattr(resp, "status_code", 200) >= 400:
+                    return False
+        payload = build_payload(now)
+        if payload is None or not _should_send(payload, state):
+            return False
         resp = post(endpoint(), payload)
         if resp is not None and getattr(resp, "status_code", 200) >= 400:
             return False
@@ -335,9 +374,50 @@ def ensure_consent(cfg) -> None:
     record_consent(choice)
 
 
+def maybe_backfill(cfg, now: datetime = None, _post=None) -> int:
+    """One-time: seed the server with this install's PAST daily counts from
+    local history, so opting in on (say) day 11 still captures days 1–10 — an
+    install with history is an install. Content-free, same {id,date,...} shape.
+    Idempotent against the server's MAX upsert; marker written only after the
+    whole set sends, so a partial failure just retries next launch. Returns the
+    number of past days sent. Never raises. Today is left to maybe_send."""
+    if not enabled(cfg) or os.path.exists(BACKFILL_MARKER):
+        return 0
+    try:
+        post = _post
+        if post is None:
+            import requests
+            post = lambda url, json_: requests.post(url, json=json_, timeout=POST_TIMEOUT_S)
+        id_ = install_id()
+        if not id_:
+            return 0
+        today = _today(now)
+        days = _all_day_counts()
+        past = [d for d in sorted(days) if d != today][-BACKFILL_MAX_DAYS:]
+        sent = 0
+        for day in past:
+            dictations, words = days[day]
+            resp = post(endpoint(), {
+                "id": id_, "date": day, "platform": _platform_tag(),
+                "version": __version__, "dictations": dictations, "words": words})
+            if resp is not None and getattr(resp, "status_code", 200) >= 400:
+                return sent  # stop; marker unwritten → resume next launch
+            sent += 1
+    except Exception as e:
+        log.debug("telemetry backfill failed (%s)", e)
+        return 0
+    try:  # whole set landed — never seed twice
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        open(BACKFILL_MARKER, "w").close()
+    except OSError as e:
+        log.debug("telemetry: could not write backfill marker (%s)", e)
+    return sent
+
+
 def _loop(cfg):
     time.sleep(CONSENT_DELAY_S)
     ensure_consent(cfg)     # one-time; no-op once answered/overridden
+    maybe_backfill(cfg)     # one-time; seed past days for a fresh opt-in
     while True:
         maybe_send(cfg)     # re-checks enabled() each tick
         time.sleep(POLL_S)

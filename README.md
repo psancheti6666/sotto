@@ -210,11 +210,14 @@ history. *(Screenshots show demo data; a real install starts empty.)*
    opens the download page for you instead.
 4. **Anonymous usage stats — you're asked once, on first run.** Sotto shows a
    one-time *"Share anonymous usage stats?"* prompt (Enable / No thanks). If you
-   Enable, it sends one anonymous count a day — *only* `{a random install id,
+   Enable, it sends an anonymous daily count, refreshed a few times an hour
+   while you dictate — *only* `{a random install id,
    the date, your OS + CPU type, the version, how many dictations, how many
-   words}` — so the maintainers can tell whether it's used and useful. **Your
-   voice, your transcripts, the apps you type into, and your IP are never
-   sent.** Change your mind anytime with `telemetry = true` or `false` in
+   words}` — so the maintainers can tell whether it's used and useful. When you
+   first enable it, the same per-day counts for the days you've *already* used
+   Sotto are sent once too (still just counts — never content). **Your voice,
+   your transcripts, the apps you type into, and your IP are never sent.**
+   Change your mind anytime with `telemetry = true` or `false` in
    `~/.sotto/config.toml`. When on, the aggregate is public at the project's
    `/stats.json`.
 
