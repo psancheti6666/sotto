@@ -66,8 +66,8 @@ different premise: **none of it is anyone else's business.**
 |---|---|---|
 | macOS (Apple Silicon) | `Sotto-…-apple-silicon.dmg` | macOS 14+, M1 or newer |
 | macOS (Intel) | `Sotto-…-intel.dmg` | macOS 14+ |
-| Linux (deb) | `Sotto-…-amd64.deb` | Ubuntu 22.04+ / Debian 12+, X11 & Wayland |
-| Linux (AppImage) | `Sotto-…-x86_64.AppImage` | Other distros (Fedora 36+ …), amd64 |
+| Linux (AppImage) | `Sotto-…-x86_64.AppImage` | Any distro (Ubuntu, Fedora 36+, …), amd64 — no terminal |
+| Linux (deb) | `Sotto-…-amd64.deb` | Ubuntu 22.04+ / Debian 12+, X11 & Wayland — system-integrated |
 | Windows | `Sotto-…-windows-amd64.zip` | Windows 10/11, 64-bit |
 
 All platforms need **~10 GB free disk** during setup (~5 GB kept for the AI
@@ -87,18 +87,40 @@ models) and **~6 GB free memory while dictating** (an idle Sotto holds
    Input Monitoring permissions, then the one-time model download. If Sotto
    isn't listed in a permission pane, add it with the **+** button.
 
-### Linux
+Two ways — the AppImage is the simplest and needs no terminal.
 
-1. **Ubuntu/Debian:** double-click the `.deb` and install (one password
-   prompt — that same prompt grants Sotto its keyboard access, so dictation
-   works from the first launch, no re-login).
-   **Other distros:** make the `.AppImage` executable (right-click →
-   Properties → *Executable as Program*) and run it; its setup screen's
-   **Fix** button asks for your password once to install the same permission
-   files.
-2. Launch **Sotto** from your app grid. The setup screen handles the rest —
-   the one-time model download, and on GNOME Wayland one extra step it walks
-   you through (`ydotool`, the typing helper there).
+**Easiest — AppImage (any distro, no terminal):**
+
+1. Download `Sotto-…-x86_64.AppImage`.
+2. Make it runnable: right-click → **Properties → Permissions → Allow
+   executing file as program** (or in some file managers, right-click →
+   **Run**).
+3. Double-click it. On first run it asks for your password **once** to install
+   the keyboard-permission files — that's the only prompt — then the setup
+   screen downloads the models and Sotto starts itself.
+
+**Or the `.deb` (Ubuntu/Debian — system-integrated, auto-updates):**
+
+Heads up: modern Ubuntu has no built-in graphical `.deb` installer, so
+*double-clicking the file just opens the Archive Manager.* Install it one of
+these ways instead:
+
+- **Terminal (reliable):** in the folder with the file, run — the `./` matters —
+  ```
+  sudo apt install ./Sotto-…-amd64.deb
+  ```
+  The password prompt also grants Sotto its keyboard access, so dictation works
+  from the first launch with no re-login.
+- **Graphical:** install GDebi once (`sudo apt install gdebi`), then right-click
+  the `.deb` → **Open With → GDebi Package Installer** → **Install Package**.
+
+Then launch **Sotto** from your app grid (search "Sotto"). On some GNOME setups
+a freshly-installed app only shows up after you **log out and back in**. The
+setup screen handles the one-time model download, and on GNOME Wayland one extra
+typing-helper step (`ydotool`) it walks you through.
+
+> **Tip:** launch Sotto from the app menu, not a terminal — the tray icon (with
+> Quit and Check for Updates) needs the desktop session's environment to appear.
 
 ### Windows
 
