@@ -309,24 +309,70 @@ def relaunch():
 
 # ------------------------------------------------------------- downloads --
 
-def download_models(cfg, on_progress, on_done):
-    """Fetch whatever is missing, reporting (label, fraction|None) to
-    on_progress from a worker thread. UI code marshals to the main thread."""
+# Approximate relative download sizes, so ONE bar fills smoothly across the
+# separate downloads (bundled engine + speech model + cleanup model) instead of
+# resetting 0→100 per file. The individual downloads are never shown as separate
+# cycles — the user just sees a single percentage climb once (friend feedback,
+# 2026-07-23: "three rounds of 0-100 … is something broken?").
+_SEG_WEIGHTS = {"engine": 0.05, "asr": 0.30, "llm": 0.65}
+_DL_LABEL = "Downloading Sotto's models"
+
+
+class _DownloadBar:
+    """Maps each download's own 0..1 progress onto a single MONOTONIC 0..1 bar
+    with one unified label, spanning only the segments that will actually run."""
+
+    def __init__(self, on_progress, keys):
+        self._on = on_progress
+        weights = [(k, _SEG_WEIGHTS.get(k, 0.1)) for k in keys]
+        total = sum(w for _, w in weights) or 1.0
+        self._base, self._span, acc = {}, {}, 0.0
+        for k, w in weights:
+            self._base[k] = acc / total
+            self._span[k] = w / total
+            acc += w
+        self._last = 0.0
+
+    def report(self, key, frac):
+        if frac is None:  # indeterminate sub-step: hold the bar, keep one label
+            self._on(f"{_DL_LABEL}…", self._last)
+            return
+        g = self._base.get(key, 0.0) + self._span.get(key, 0.0) * max(0.0, min(1.0, frac))
+        self._last = max(self._last, g)  # never let the bar go backwards
+        self._on(f"{_DL_LABEL}… {int(self._last * 100)}%", self._last)
+
+
+def download_models(cfg, on_progress, on_done, engine_missing=False):
+    """Fetch whatever is missing — the bundled runtime (frozen Linux/Windows),
+    then the speech + cleanup models — as ONE smooth 0→100 bar. Reports
+    (label, fraction) to on_progress from a worker thread; UI marshals to main."""
     def work():
+        keys = (["engine"] if engine_missing else [])
+        need_asr = not asr_model_ok(cfg.asr_model)
+        need_llm = not llm_model_ok(cfg.ollama_model)
+        if need_asr:
+            keys.append("asr")
+        if need_llm:
+            keys.append("llm")
+        bar = _DownloadBar(on_progress, keys)
         try:
-            if not asr_model_ok(cfg.asr_model):
-                _download_asr(cfg, on_progress)
-            if not llm_model_ok(cfg.ollama_model):
-                _download_llm(cfg, on_progress)
+            if engine_missing:
+                from . import ollama_runtime
+                bar.report("engine", None)
+                ollama_runtime.download(lambda f: bar.report("engine", f))
+            if need_asr:
+                _download_asr(cfg, bar)
+            if need_llm:
+                _download_llm(cfg, bar)
         except Exception as e:
             log.warning("model download failed: %s", e)
-            on_progress(f"download failed: {e}", None)
+            on_progress(f"download failed: {e}", None)  # raw label, shows Retry
         on_done()
     threading.Thread(target=work, daemon=True).start()
 
 
-def _download_asr(cfg, on_progress):
-    on_progress("downloading speech model…", None)
+def _download_asr(cfg, bar):
+    bar.report("asr", None)
     from huggingface_hub import snapshot_download
     from tqdm.auto import tqdm
 
@@ -335,27 +381,25 @@ def _download_asr(cfg, on_progress):
             super().update(n)
             # only the weights file is big enough to be worth a bar
             if self.total and self.total > 50 * 1024 * 1024:
-                on_progress(f"speech model: {100 * self.n // self.total}%",
-                            self.n / self.total)
+                bar.report("asr", self.n / self.total)
 
     snapshot_download(cfg.asr_model, tqdm_class=_Progress)
-    on_progress("speech model ready", 1.0)
+    bar.report("asr", 1.0)
 
 
-def _download_llm(cfg, on_progress):
+def _download_llm(cfg, bar):
     from . import llm_server
-    on_progress("starting cleanup engine…", None)
-    llm_server.ensure(cfg, on_pull_progress=lambda pct: on_progress(
-        f"cleanup model: {pct}%", pct / 100))
+    bar.report("llm", None)
+    llm_server.ensure(cfg, on_pull_progress=lambda pct: bar.report("llm", pct / 100))
     # ensure() swallows pull failures BY DESIGN (at normal startup a missing
     # model just means the regex fallback until it arrives) — but here
     # "ready" must mean ready: a dropped connection otherwise ends the run
-    # as "cleanup model ready" sitting above a Retry button (seen live,
-    # 2026-07-21 Windows friend round). Verify on disk and fail loudly.
+    # as "ready" sitting above a Retry button (seen live, 2026-07-21 Windows
+    # friend round). Verify on disk and fail loudly.
     if not llm_model_ok(cfg.ollama_model):
         raise RuntimeError("the cleanup model didn't finish downloading — "
                            "check your connection and press Retry")
-    on_progress("cleanup model ready", 1.0)
+    bar.report("llm", 1.0)
 
 
 # -------------------------------------------------------------------- UI --

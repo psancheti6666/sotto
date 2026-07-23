@@ -450,8 +450,8 @@ def test_download_honesty():
         check("worker finished", done.wait(timeout=10))
         check("silent pull failure surfaces as 'download failed: …'",
               any(l.startswith("download failed") for l in labels), labels)
-        check("never claims 'cleanup model ready' when the model is absent",
-              "cleanup model ready" not in labels, labels)
+        check("bar never reaches 100% when the model is absent",
+              not any("100%" in l for l in labels), labels)
 
         labels.clear()
         done.clear()
@@ -464,8 +464,8 @@ def test_download_honesty():
         firstrun.llm_model_ok = _landed
         firstrun.download_models(cfg, lambda l, f: labels.append(l), done.set)
         check("worker finished (success case)", done.wait(timeout=10))
-        check("real success still reports ready",
-              "cleanup model ready" in labels, labels)
+        check("real success reaches 100%",
+              any("100%" in l for l in labels), labels)
     finally:
         firstrun.asr_model_ok, firstrun.llm_model_ok, llm_server.ensure = orig
 
